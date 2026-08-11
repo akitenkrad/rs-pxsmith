@@ -30,6 +30,12 @@
 //! 偽物なら帯が進むほどずれる．実測では単一閾値で均衡正解率 95.9% (再構成検査だけなら
 //! 76.6%) だった．
 //!
+//! # 信頼度 (D63)
+//!
+//! $\hat{s}$ より**大きい** $s$ から倍数を除いた対照群に対する分離マージンを，画像全体の
+//! 分散で正規化する．小さい $s$ を対照群へ入れてはいけない — $\bar{V}(s)$ は $s$ と
+//! ともに単調に増えるので，最小値を必ず小さい $s$ が取り，マージンが負に潰れる．
+//!
 //! # 性能
 //!
 //! 位相探索は**積分画像 (summed-area table) で定数時間化する**．セル分散は
@@ -41,10 +47,21 @@ use crate::color::{Rgba8, delta_e, oklab_of};
 use crate::geom::mask::Field;
 use crate::math::{IVec2, ivec2};
 
-/// 推定に使う閾値．**すべて M2 の評価データセットで校正する**．
+/// 推定に使う閾値．
 ///
-/// ここに書いてある値は校正前の暫定値であり，根拠は「合成データで一通り動く」
-/// までしかない．
+/// 既定値は合成 500 件の**検証セット 300 件で校正した**もので，マクロ平均 (格子ありの
+/// 完全一致率と格子なしの正棄却率の平均) が最大になる組である．
+///
+/// | 指標 | 値 |
+/// | --- | --- |
+/// | マクロ平均 | 88.1% |
+/// | 格子あり 完全一致 | 83.2% |
+/// | 格子なし 正しい棄却 | 93.0% |
+///
+/// > **まだ暫定である．** 実装計画書 M2 の目標は 95% で，届いていない．テストセット
+/// > 200 件には 1 度も触れていない (目標を満たしてから 1 度だけ使う) ．実データ
+/// > 20〜30 件も未調達なので，合成データと実運用対象の分布のずれは測れていない．
+/// > 経緯は `docs/investigations/grid-calibration.md`．
 #[derive(Copy, Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct GridParams {
     /// 探索するスケールの上限 $s_{\max}$．
@@ -67,15 +84,17 @@ impl Default for GridParams {
     fn default() -> Self {
         Self {
             max_scale: 16,
-            epsilon: 2.0e-4,
-            delta: 0.02,
-            tau: 0.02,
+            // 補間を挟むと必要な ε が 1 桁以上大きくなる (nearest なら 2e-4 で足りる)．
+            // 0.05 も同成績だが，緩めても得が無いので小さい方を採る
+            epsilon: 0.02,
+            delta: 0.1,
+            tau: 0.1,
             phase_bands: 4,
-            // 合成 500 件の検証セットで測った値 (均衡正解率 95.9%)．
-            // 0 にすると 89.3% ・1/4 で 95.0% ・3/8 で 94.9% だった．
-            // **推定器へ組み込んだ後の掃引はまだ回していないので暫定である**
+            // 0 で 67.3% ・1/8 で 72.3% ・1/6 で 75.2% ・1/4 で 73.0% ・3/8 で 60.2%
             phase_tolerance: 1.0 / 6.0,
-            min_confidence: 0.0,
+            // 運転点．0 だと非整数の周期に答えを返してしまう (正棄却 65.3%)．
+            // 0.03 で 93.0% まで上がり，完全一致率の代償は 85.1% → 83.2% で済む
+            min_confidence: 0.03,
         }
     }
 }
@@ -398,13 +417,23 @@ fn image_variance(it: &Integral) -> f32 {
     it.variance(0, 0, it.w, it.h) as f32
 }
 
-/// 対照群 — $\hat{s}$ の**約数と倍数の双方**を除いた候補．
+/// 対照群 — $\hat{s}$ より**大きい** $s$ から，倍数を除いたもの (D63)．
 ///
-/// 約数だけを除くと，分散が同等に小さい倍数側の候補が対照群に残り，マージンが
-/// 不当に小さくなる．
+/// $\bar{V}(s)$ は $s$ とともに単調に増える (セルが大きいほど中に色が混ざる) ．合成
+/// 500 件で測ると $s = 2$ で 0.0006 ・$s = 16$ で 0.0204 と 30 倍以上ちがう．
+/// そのため**小さい $s$ を対照群へ入れると，最小値は必ずその小さい $s$ が取る** —
+/// 正解した件の 52% でマージンが負になり，信頼度が 0 へ潰れていた．
+///
+/// $\hat{s}$ は「閾値を満たす最大の $s$」なので，問うべきは「1 つ上の $s$ がどれだけ
+/// 悪いか」である．小さい $s$ は条件を満たして当たり前で，何の情報も持たない．
+/// 倍数を除くのは従来どおり — 分散が同等に小さく，マージンを不当に縮めるためである．
+///
+/// 実測での分離能は，現行の定義が 70.8% に対しこの定義で 92.2% (均衡正解率)．
 fn control_group(hat: u32, all: &[Candidate], max: u32) -> Vec<&Candidate> {
     let excluded = divisors_and_multiples(hat, max);
-    all.iter().filter(|c| !excluded(c.scale)).collect()
+    all.iter()
+        .filter(|c| c.scale > hat && !excluded(c.scale))
+        .collect()
 }
 
 fn confidence(hat: &Candidate, all: &[Candidate], image_var: f32, max: u32) -> f32 {
@@ -459,6 +488,77 @@ fn evaluate(
     // 閾値を満たす最大の s．集合の最大値なので同点は起きない
     let hat = accepted.into_iter().max_by_key(|c| c.scale).copied();
     (hat, all)
+}
+
+/// 候補 1 つの評価結果 (診断用)．
+///
+/// どの検査で落ちたのか，対照群の中でどれと競っているのかを外から見るための型である．
+/// 推定そのものには使わない．
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct ScaleCandidate {
+    pub scale: u32,
+    /// セル内平均分散 $\bar{V}(s, d_s)$．
+    pub mean_variance: f32,
+    /// その $s$ で最も合う位相．
+    pub phase: IVec2,
+    pub passes_epsilon: bool,
+    pub passes_recon: bool,
+    pub passes_phase: bool,
+}
+
+impl ScaleCandidate {
+    pub fn accepted(&self) -> bool {
+        self.passes_epsilon && self.passes_recon && self.passes_phase
+    }
+}
+
+/// すべての $s$ を評価して返す (診断用)．返り値は候補と画像全体の分散
+/// $\bar{V}_{\mathrm{image}}$．
+///
+/// [`estimate_grid`] は絞り込みと全探索フォールバックを経るが，こちらは常に
+/// $2 \ldots s_{\max}$ を素通しで評価する．**校正で「何と何が競っているのか」を
+/// 見るための口**であって，推定の経路ではない．
+pub fn scale_candidates(img: &RgbaCanvas, params: &GridParams) -> (Vec<ScaleCandidate>, f32) {
+    let max = params
+        .max_scale
+        .min(img.width().max(1))
+        .min(img.height().max(1));
+    let it = Integral::new(img);
+    let image_var = image_variance(&it);
+
+    let out = (2..=max)
+        .filter_map(|s| {
+            let (v, phase) = best_phase(&it, s as usize)?;
+            Some(ScaleCandidate {
+                scale: s,
+                mean_variance: v,
+                phase,
+                passes_epsilon: v <= params.epsilon,
+                passes_recon: recon_ok(img, &it, s as usize, phase, params.delta, params.tau),
+                passes_phase: phase_drift_ok(
+                    &it,
+                    s as usize,
+                    phase,
+                    params.phase_bands,
+                    params.phase_tolerance,
+                ),
+            })
+        })
+        .collect();
+    (out, image_var)
+}
+
+/// 与えた $\hat{s}$ に対する対照群の添字 (診断用)．[`control_group`] と同じ規則．
+///
+/// 信頼度の分子は「対照群の最小分散 - $\bar{V}(\hat{s})$」なので，**誰が最小なのか**が
+/// 分からないと式の当否を論じられない．
+pub fn control_group_of(hat: u32, candidates: &[ScaleCandidate], max_scale: u32) -> Vec<u32> {
+    let excluded = divisors_and_multiples(hat, max_scale);
+    candidates
+        .iter()
+        .map(|c| c.scale)
+        .filter(|s| *s > hat && !excluded(*s))
+        .collect()
 }
 
 /// 格子を推定する (設計書 6.1)．
@@ -814,6 +914,45 @@ mod tests {
     }
 
     #[test]
+    fn the_diagnostic_view_agrees_with_the_estimator() {
+        // 診断用の口が推定と食い違うと，校正で見ているものが別物になる
+        let img = upscaled(&WIDE, &palette(), 6, (2, 3));
+        let params = GridParams::default();
+        let (cands, image_var) = scale_candidates(&img, &params);
+        let e = estimate_grid(&img, &params).unwrap();
+
+        let hat = cands
+            .iter()
+            .filter(|c| c.accepted())
+            .max_by_key(|c| c.scale)
+            .expect("受け入れられた候補がある");
+        assert_eq!(hat.scale, e.scale);
+        assert_eq!(hat.phase, e.phase);
+        assert!((hat.mean_variance - e.mean_variance).abs() < 1e-6);
+        assert!(image_var > 0.0);
+    }
+
+    #[test]
+    fn the_control_group_is_larger_non_multiples_only() {
+        let img = upscaled(&WIDE, &palette(), 4, (0, 0));
+        let (cands, _) = scale_candidates(&img, &GridParams::default());
+        let group = control_group_of(4, &cands, 16);
+
+        assert!(group.iter().all(|s| *s > 4), "ŝ 以下の s が残っている");
+        for s in [8u32, 12, 16] {
+            assert!(!group.contains(&s), "倍数 {s} が残っている");
+        }
+        assert!(group.contains(&5) && group.contains(&7));
+    }
+
+    #[test]
+    fn a_clean_upscale_is_confident() {
+        let img = upscaled(&WIDE, &palette(), 4, (0, 0));
+        let e = estimate_grid(&img, &GridParams::default()).unwrap();
+        assert!(e.confidence > 0.0, "きれいな格子なのに信頼度が 0 である");
+    }
+
+    #[test]
     fn recovers_the_scale_of_a_clean_upscale() {
         for scale in [2u32, 3, 4, 6, 8] {
             let img = upscaled(&PATTERN, &palette(), scale, (0, 0));
@@ -856,9 +995,12 @@ mod tests {
     #[test]
     fn confidence_is_zero_for_a_flat_image() {
         let img = RgbaCanvas::filled(32, 32, Rgba8::rgb(10, 20, 30));
+        // 平坦な画像はすべての s が閾値を満たす退化ケース (設計書 6.1) なので，
+        // 自信を持って答えてはいけない．棄却されるか，信頼度 0 で返るかのどちらかである．
+        // 既定の min_confidence が 0 より大きいので通常は LowConfidence になる
         match estimate_grid(&img, &GridParams::default()) {
             Ok(e) => assert_eq!(e.confidence, 0.0, "平坦な画像に信頼度が付いている"),
-            Err(GridError::NotFound) => {}
+            Err(GridError::NotFound | GridError::LowConfidence) => {}
             Err(e) => panic!("想定外: {e}"),
         }
     }

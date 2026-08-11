@@ -70,20 +70,20 @@ impl From<PresetArg> for LightPreset {
     }
 }
 
-/// 格子推定の閾値．**すべて暫定値**であり，評価データセットで校正するまで
-/// 根拠は「合成データで一通り動く」までしかない．
+/// 格子推定の閾値．既定値は合成 500 件の検証セットで校正した (`GridParams` の説明) ．
+/// **目標 (95%) には届いていないので暫定である．**
 #[derive(Args, Clone, Debug)]
 pub struct GridArgs {
     #[arg(long, default_value_t = 16)]
     pub max_scale: u32,
     /// セル内平均分散の許容 $\varepsilon$．
-    #[arg(long, default_value_t = 2.0e-4)]
+    #[arg(long, default_value_t = 0.02)]
     pub epsilon: f32,
     /// 再構成の画素色差の許容 $\delta$．
-    #[arg(long, default_value_t = 0.02)]
+    #[arg(long, default_value_t = 0.1)]
     pub delta: f32,
     /// 再構成の不一致画素率の許容 $\tau$．
-    #[arg(long, default_value_t = 0.02)]
+    #[arg(long, default_value_t = 0.1)]
     pub tau: f32,
     /// 位相ずれ検査で画像を切る帯の数．0 で検査を飛ばす
     #[arg(long, default_value_t = 4)]
@@ -92,7 +92,7 @@ pub struct GridArgs {
     #[arg(long, default_value_t = 1.0 / 6.0)]
     pub phase_tolerance: f32,
     /// これ未満の信頼度は棄却する．
-    #[arg(long, default_value_t = 0.0)]
+    #[arg(long, default_value_t = 0.03)]
     pub min_confidence: f32,
 }
 

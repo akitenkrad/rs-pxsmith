@@ -21,6 +21,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 
 mod bands;
+mod confidence;
 mod dataset;
 mod degrade;
 mod metrics;
@@ -103,6 +104,22 @@ enum Command {
         #[arg(long, default_value_t = 0.15)]
         delta: f32,
         #[arg(long, default_value_t = 0.02)]
+        tau: f32,
+    },
+    /// 信頼度の各項を測る (なぜ誤答の方が自信を持つのか)
+    Confidence {
+        #[arg(long, default_value = DEFAULT_DIR)]
+        dir: PathBuf,
+        #[arg(long)]
+        out: Option<PathBuf>,
+        #[arg(long, default_value = "validation")]
+        split: String,
+        /// 掃引で最良だった組
+        #[arg(long, default_value_t = 0.01)]
+        epsilon: f32,
+        #[arg(long, default_value_t = 0.05)]
+        delta: f32,
+        #[arg(long, default_value_t = 0.3)]
         tau: f32,
     },
     /// 掃引の結果から指標を出す
@@ -197,6 +214,28 @@ fn main() -> Result<()> {
             let path = out.unwrap_or_else(|| dir.join("bands.csv"));
             write_bands(&path, &records)?;
             report_bands(&records);
+        }
+
+        Command::Confidence {
+            dir,
+            out,
+            split,
+            epsilon,
+            delta,
+            tau,
+        } => {
+            let manifest = dataset::read(&dir)?;
+            let only = parse_split(&split)?;
+            let params = px_core::grid::GridParams {
+                epsilon,
+                delta,
+                tau,
+                ..Default::default()
+            };
+            let records = confidence::run(&dir, &manifest, only, &params)?;
+            let path = out.unwrap_or_else(|| dir.join("confidence.csv"));
+            write_confidence(&path, &records)?;
+            report_confidence(&records);
         }
 
         Command::Report {
@@ -440,6 +479,109 @@ fn write_curve(path: &std::path::Path, param_id: usize, curve: &[metrics::Point]
         .with_context(|| format!("{} を書けない", path.display()))?;
     println!("risk-coverage 曲線を {} へ書いた", path.display());
     Ok(())
+}
+
+fn write_confidence(path: &std::path::Path, records: &[confidence::Record]) -> Result<()> {
+    let mut text = String::from(confidence::HEADER);
+    text.push('\n');
+    for r in records {
+        text.push_str(&r.to_csv());
+        text.push('\n');
+    }
+    px_io::atomic::write(path, text.as_bytes())
+        .with_context(|| format!("{} を書けない", path.display()))?;
+    println!("{} 件を {} へ書いた", records.len(), path.display());
+    Ok(())
+}
+
+/// 正解した件と誤答とで，信頼度の各項がどう違うのかを並べる．
+fn report_confidence(records: &[confidence::Record]) {
+    let (right, wrong): (Vec<&confidence::Record>, Vec<&confidence::Record>) =
+        records.iter().partition(|r| r.correct);
+    println!(
+        "\n== 信頼度の中身 ==\n  答えを返した {} 件 (正解 {} / 誤答 {})",
+        records.len(),
+        right.len(),
+        wrong.len()
+    );
+
+    let show = |name: &str, key: &dyn Fn(&confidence::Record) -> f32| {
+        let q = |rows: &[&confidence::Record]| {
+            let v: Vec<f32> = rows.iter().map(|r| key(r)).collect();
+            bands::quartiles(&v)
+        };
+        let (a1, a2, a3) = q(&right);
+        let (b1, b2, b3) = q(&wrong);
+        println!(
+            "  {name:<22} 正解 Q1/中央/Q3 = {a1:.5} / {a2:.5} / {a3:.5}   誤答 = {b1:.5} / {b2:.5} / {b3:.5}"
+        );
+    };
+    show("信頼度", &|r| r.confidence);
+    show("分子 (マージン)", &|r| r.margin);
+    show("分母 (画像の分散)", &|r| r.v_image);
+    show("V(ŝ)", &|r| r.v_hat);
+    show("V(対戦相手)", &|r| r.v_rival);
+    show("マージン / V(ŝ)", &|r| r.relative_margin);
+
+    let clamped = |rows: &[&confidence::Record]| {
+        rows.iter().filter(|r| r.margin <= 0.0).count() as f32 / rows.len().max(1) as f32
+    };
+    println!(
+        "\n  マージンが 0 以下 (信頼度が 0 に潰れた) 割合: 正解 {:.1}% / 誤答 {:.1}%",
+        clamped(&right) * 100.0,
+        clamped(&wrong) * 100.0
+    );
+
+    let mut rivals: std::collections::BTreeMap<u32, usize> = std::collections::BTreeMap::new();
+    for r in &right {
+        *rivals.entry(r.rival_scale).or_default() += 1;
+    }
+    println!("  正解した件の対戦相手 (対照群の最小): {rivals:?}");
+    rivals.clear();
+    for r in &wrong {
+        *rivals.entry(r.rival_scale).or_default() += 1;
+    }
+    println!("  誤答の対戦相手: {rivals:?}");
+
+    for (name, key) in [
+        (
+            "信頼度 (現行)",
+            &(|r: &confidence::Record| -r.confidence) as &dyn Fn(&confidence::Record) -> f32,
+        ),
+        ("マージン / V(ŝ)", &|r: &confidence::Record| {
+            -r.relative_margin
+        }),
+        ("V(ŝ) の小ささ", &|r: &confidence::Record| r.v_hat),
+    ] {
+        let recs: Vec<bands::Record> = records
+            .iter()
+            .map(|r| bands::Record {
+                item_id: r.item_id,
+                has_integer_grid: r.has_integer_grid,
+                filter: String::new(),
+                resize: String::new(),
+                compression: String::new(),
+                truth_scale: r.truth_scale,
+                scale_hat: r.scale_hat,
+                should_accept: r.correct,
+                overall: key(r),
+                spread: 0.0,
+                relative_spread: 0.0,
+                slope: 0.0,
+                phase_spread: 0,
+                phase_drift: 0.0,
+                by_x: Vec::new(),
+                by_y: Vec::new(),
+                phase_by_x: Vec::new(),
+                phase_by_y: Vec::new(),
+            })
+            .collect();
+        let (t, acc) = bands::best_threshold(&recs, |r| r.overall);
+        println!(
+            "  {name:<18} 単一閾値の均衡正解率 {:.1}% (閾値 {t:.5})",
+            acc * 100.0
+        );
+    }
 }
 
 #[cfg(test)]
