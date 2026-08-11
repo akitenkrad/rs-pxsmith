@@ -30,6 +30,13 @@
 //! 偽物なら帯が進むほどずれる．実測では単一閾値で均衡正解率 95.9% (再構成検査だけなら
 //! 76.6%) だった．
 //!
+//! **帯が薄いときは飛ばさず，帯を減らして測る．** 大きい $s$ ほど帯が薄くなるので，
+//! 固定 4 本では $2 s_*$ の候補ほど検査が飛ぶ (実測で 268 件中 212 件が未検査) ．
+//!
+//! > **この検査がいま真の $s$ を落としている主因である．** 検証セットの格子あり
+//! > 101 件のうち 42 件はここで落ちており，再構成検査はそこへ届いていない．
+//! > 経緯と測って捨てた案は `docs/investigations/grid-calibration.md`．
+//!
 //! # 信頼度 (D63)
 //!
 //! $\hat{s}$ より**大きい** $s$ から倍数を除いた対照群に対する分離マージンを，画像全体の
@@ -76,6 +83,27 @@ pub struct GridParams {
     pub phase_bands: usize,
     /// 帯どうしの位相のずれの許容．**$s$ に対する割合**で持つ．
     pub phase_tolerance: f32,
+    /// 帯ごとの位相を**副画素**で求める．
+    ///
+    /// 位相は整数に量子化されているが，分けたい量はその刻みと同じ大きさである
+    /// (真の $s$ の帯ずれ 0〜4 画素に対し，非整数の周期は帯あたり 0.6〜1.6 画素) ．
+    /// 最小点の周りに放物線を当てて刻みを細かくする．
+    ///
+    /// > **既定は `false`．** 掃引で確かめるまで既定は動かさない．
+    pub phase_subpixel: bool,
+    /// 許容の下限 (画素)．割合が小さい $s$ で 1 画素を割るのを防ぐ．
+    ///
+    /// 帯ごとの位相は補間 ・JPEG ・帯に入るセル数で **1 画素くらい揺れる**．実測した
+    /// 真の $s$ の帯ずれは 0〜4 画素で $s$ にあまり依らない (雑音由来である) のに対し，
+    /// 許容 $s \theta$ は $s = 4$ ・$\theta = 1/6$ で 0.67 画素しかなく，**1 画素でも
+    /// 揺れたら落ちる**．検証セットでは真の $s$ の 42 / 101 がこの検査で落ちている．
+    ///
+    /// > **既定は 0 — つまり下限を掛けない．** 1 画素にすると完全一致は 46.5% →
+    /// > 53.5% に上がるが，**格子が無い件の正棄却が 92.0% → 56.3% へ崩れる**
+    /// > (マクロ 69.2% → 54.9%) ．非整数の周期はこの検査だけが落としているので，
+    /// > 緩めた分がそのまま誤受理になる．測って捨てた値であり，`0` 以外にするなら
+    /// > 非整数の周期を別の関門で止めてからにすること．
+    pub phase_tolerance_floor: f32,
     /// 位相ずれ検査を行うために帯 1 本へ要るセル数．
     ///
     /// 下回ると検査そのものを行わない (候補は通る) ．**大きい $s$ ほど帯が薄くなるので，
@@ -89,8 +117,27 @@ pub struct GridParams {
     /// > あり，この失敗を見られない — 掃引の数字が良くなるのは，データセットが
     /// > 見ていない場面を代償にしているからである．小さい絵を入れてから測り直す．
     pub phase_min_cells: usize,
-    /// この値未満の信頼度は棄却する．
+    /// この値未満の信頼度は棄却する．[`Self::confidence_per_scale`] を立てると
+    /// $\hat{s}$ で割った値が実際の下限になる．
     pub min_confidence: f32,
+    /// 下限を $\hat{s}$ で割る．**信頼度の意味は $\hat{s}$ によって違う**ためである．
+    ///
+    /// 実測すると，同じ信頼度でも $\hat{s}$ が違えば正しさが違った．
+    ///
+    /// - **小さい $\hat{s}$ には甘すぎた** — 答えを返した件のうち $\hat{s} = 2$ が
+    ///   98 件中 68 件を占め，その多くは «滑らかな絵に $2 \times 2$ の格子が見えた»
+    ///   だけの縮退である (設計書 6.1 の退化ケース) ．一様な下限ではこの裾を落とせない
+    /// - **大きい $\hat{s}$ には厳しすぎた** — 対照群は $\hat{s}$ より大きい $s$ なので，
+    ///   $\hat{s}$ が大きいほど痩せ，マージンが構造的に小さくなる
+    ///
+    /// 検証セットでの効果 (下限を $\hat{s}$ で割る前後) ．**3 つの率が同時に上がる**．
+    ///
+    /// | | 一様 0.03 | $\hat{s} = 2$ だけ厳しく | 大きい $\hat{s}$ だけ緩く | 両方 |
+    /// | --- | --- | --- | --- | --- |
+    /// | マクロ平均 | 70.5% | 71.7% | 72.7% | **74.9%** |
+    /// | 完全一致 | 51.5% | 51.5% | 57.4% | **58.4%** |
+    /// | 正しい棄却 | 89.4% | 92.0% | 87.9% | **91.5%** |
+    pub confidence_per_scale: bool,
     /// $\varepsilon$ を**画像全体の分散に対する割合**として解釈する．
     ///
     /// $\varepsilon$ は分散の絶対値に対する閾値なので，**低コントラストの入力では
@@ -114,12 +161,22 @@ impl Default for GridParams {
             delta: 0.1,
             tau: 0.1,
             phase_bands: 4,
-            // 0 で 67.3% ・1/8 で 72.3% ・1/6 で 75.2% ・1/4 で 73.0% ・3/8 で 60.2%
-            phase_tolerance: 1.0 / 6.0,
+            // **実物の元絵へ差し替えた検証セットで測り直した値である．**
+            // 1/8 で 67.5% ・1/6 で 69.2% ・1/5 で 69.0% ・**1/4 で 70.5%** ・1/3 で 69.0%
+            // (マクロ平均．ε = 0.2 ・δ = 0.1 ・τ = 0.1 ・信頼度 0.03)
+            phase_tolerance: 0.25,
+            // 副画素は最良同士で +0.5 ポイントにとどまる (70.7% → 71.2%)．
+            // **既定にはしない** — 詳細は docs/investigations/grid-calibration.md
+            phase_subpixel: false,
+            // 検証セットで 0 ・1 ・2 を掃引した．**0 が最良** — 1 にすると完全一致は
+            // 上がるが正棄却が崩れる (docs/investigations/grid-calibration.md)
+            phase_tolerance_floor: 0.0,
             phase_min_cells: 2,
-            // 運転点．0 だと非整数の周期に答えを返してしまう (正棄却 65.3%)．
-            // 0.03 で 93.0% まで上がり，完全一致率の代償は 85.1% → 83.2% で済む
-            min_confidence: 0.03,
+            // 運転点．**$\hat{s}$ で割って使う** (confidence_per_scale) ．
+            // 検証セットで 0.05〜0.16 を掃引し 0.10 が最良 (マクロ 74.9%) ．
+            // 0.06〜0.14 で 72.9〜74.9% と平らなので，尖った選び方ではない
+            min_confidence: 0.10,
+            confidence_per_scale: true,
             // 検証セットで確かめてから立てた．**実データでは誤答が半分になり
             // (8 → 4 件) ，代償は無かった** — 負例の成績はどちらも同じである
             normalize_epsilon: true,
@@ -128,6 +185,16 @@ impl Default for GridParams {
 }
 
 impl GridParams {
+    /// 実際に効く信頼度の下限．[`Self::confidence_per_scale`] を立てると
+    /// $\hat{s}$ で割る．
+    pub fn confidence_floor(&self, scale: u32) -> f32 {
+        if self.confidence_per_scale {
+            self.min_confidence / scale.max(1) as f32
+        } else {
+            self.min_confidence
+        }
+    }
+
     /// 実際に使う $\varepsilon$．正規化を立てると画像分散に対する割合になる．
     ///
     /// 完全に平坦な画像では 0 になり，どの候補も通らない — 尺度が無いので当然である
@@ -343,26 +410,74 @@ fn first_cell(band_start: usize, phase: usize, s: usize) -> usize {
     band_start + (phase + s - band_start % s) % s
 }
 
-/// 帯 1 つの中で最も合う位相．**同点は小さい方**を採る (設計書 6.15 規則 2)．
-fn best_phase_in(
+/// 帯 1 つの中の，位相ごとのセル内平均分散．測れない位相は $+\infty$ にする．
+///
+/// **谷の形が要る場面がある**ので，最小値だけでなく曲線そのものを返す
+/// ([`refine_phase`])．
+fn phase_curve(
     it: &Integral,
     s: usize,
     rect: (usize, usize, usize, usize),
     fixed: usize,
     horizontal: bool,
-) -> Option<usize> {
+) -> Vec<f32> {
+    (0..s)
+        .map(|p| {
+            let (dx, dy) = if horizontal { (p, fixed) } else { (fixed, p) };
+            mean_cell_variance_in(it, s, rect, dx, dy).unwrap_or(f32::INFINITY)
+        })
+        .collect()
+}
+
+/// 曲線の最小点．**同点は小さい方**を採る (設計書 6.15 規則 2)．測れなければ `None`．
+fn argmin_phase(curve: &[f32]) -> Option<usize> {
     let mut best: Option<(f32, usize)> = None;
-    for p in 0..s {
-        let (dx, dy) = if horizontal { (p, fixed) } else { (fixed, p) };
-        let Some(v) = mean_cell_variance_in(it, s, rect, dx, dy) else {
+    for (p, &v) in curve.iter().enumerate() {
+        // 測れない位相は候補にしない (元の実装が `None` を読み飛ばしていたのと同じ)
+        if !v.is_finite() {
             continue;
-        };
+        }
         match best {
             Some((bv, _)) if bv <= v => {}
             _ => best = Some((v, p)),
         }
     }
     best.map(|(_, p)| p)
+}
+
+/// 最小点の周りに放物線を当てて位相を**副画素**で求める．
+///
+/// 位相は整数に量子化されているが，**分けたい量はその刻みと同じ大きさである** —
+/// 真の $s$ の帯ずれが 0〜4 画素なのに対し，落としたい非整数の周期は帯あたり
+/// 0.6〜1.6 画素しか流れない．刻みが粗いままでは，締めれば真の $s$ が落ち，
+/// 緩めれば非整数の周期が通る．
+///
+/// 3 点 $(p-1, p, p+1)$ の分散に放物線を当て，その頂点を採る．谷になっていない
+/// (2 階差分が正でない) ときは整数のまま返す．
+fn refine_phase(curve: &[f32], p: usize) -> f32 {
+    let s = curve.len();
+    if s < 3 {
+        return p as f32;
+    }
+    let (l, c, r) = (curve[(p + s - 1) % s], curve[p], curve[(p + 1) % s]);
+    let denom = l - 2.0 * c + r;
+    if !l.is_finite() || !r.is_finite() || !c.is_finite() || denom <= 0.0 {
+        return p as f32;
+    }
+    // 頂点は 3 点の中央から ±0.5 の外へは出ない
+    p as f32 + (0.5 * (l - r) / denom).clamp(-0.5, 0.5)
+}
+
+/// 巡回的な最大距離 (副画素版)．
+fn cyclic_spread_f(phases: &[f32], s: f32) -> f32 {
+    let mut worst = 0.0f32;
+    for (i, a) in phases.iter().enumerate() {
+        for b in &phases[i + 1..] {
+            let d = (a - b).abs();
+            worst = worst.max(d.min(s - d));
+        }
+    }
+    worst
 }
 
 /// 巡回的な最大距離．位相は $s$ で一周するので 0 と $s - 1$ は隣どうしである．
@@ -390,22 +505,102 @@ fn cyclic_spread(phases: &[usize], s: usize) -> usize {
 ///
 /// 帯あたりのセル数が足りない場合は検査を行わない (`true` を返す) ．少ないセルから
 /// 求めた位相は当てにならず，落とす根拠にならない．
-fn phase_drift_ok(
+fn phase_drift_ok(it: &Integral, s: usize, d: IVec2, check: DriftCheck) -> bool {
+    match adaptive_drift_spread(it, s, d, check.bands, check.min_cells, check.subpixel) {
+        // 測れないときは検査を行わない (少ないセルから求めた位相は落とす根拠にならない)
+        None => true,
+        Some(spread) => spread <= (s as f32 * check.tolerance).max(check.floor),
+    }
+}
+
+/// 位相ずれ検査の設定．**[`GridParams`] から検査に要る分だけ取り出したもの．**
+#[derive(Copy, Clone, Debug)]
+struct DriftCheck {
+    bands: usize,
+    tolerance: f32,
+    floor: f32,
+    min_cells: usize,
+    subpixel: bool,
+}
+
+impl From<&GridParams> for DriftCheck {
+    fn from(p: &GridParams) -> Self {
+        Self {
+            bands: p.phase_bands,
+            tolerance: p.phase_tolerance,
+            floor: p.phase_tolerance_floor,
+            min_cells: p.phase_min_cells,
+            subpixel: p.phase_subpixel,
+        }
+    }
+}
+
+/// 帯を減らしてでも検査する．**飛ばすより 2 本で測るほうがよい．**
+///
+/// 帯の数は閾値ではなく**検査の適用範囲**を決めている．固定 4 本では大きい $s$ ほど
+/// 帯が薄くなって検査が飛び，実測では $2 s_*$ の候補の 212 / 268 が未検査だった —
+/// 過大推定はここから漏れている．帯を減らせば同じ検査で止められる．
+///
+/// **飛んでいた候補を検査に掛けるだけ**なので，これまで検査を通っていた候補の判定は
+/// 変わらない (帯が足りている候補は今までどおり `bands` 本で測る) ．
+fn adaptive_drift_spread(
     it: &Integral,
     s: usize,
     d: IVec2,
     bands: usize,
-    tolerance: f32,
     min_cells: usize,
-) -> bool {
+    subpixel: bool,
+) -> Option<f32> {
+    (2..=bands).rev().find_map(|b| {
+        let (by_x, by_y) = measure_bands(it, s, d, b, min_cells)?;
+        Some(if subpixel {
+            let f = |v: &[(usize, f32)]| v.iter().map(|p| p.1).collect::<Vec<_>>();
+            cyclic_spread_f(&f(&by_x), s as f32).max(cyclic_spread_f(&f(&by_y), s as f32))
+        } else {
+            let i = |v: &[(usize, f32)]| v.iter().map(|p| p.0).collect::<Vec<_>>();
+            cyclic_spread(&i(&by_x), s).max(cyclic_spread(&i(&by_y), s)) as f32
+        })
+    })
+}
+
+/// 帯ごとの位相の食い違い (画素)．検査を行わない場合は `None`．
+///
+/// **判定ではなく生の量を返す．** 閾値 $s \theta$ は $s$ に比例するので，小さい $s$ では
+/// 1 画素未満になる — $s = 4$ ・$\theta = 1/6$ なら許容 0.67 画素であり，帯が 1 画素でも
+/// 食い違えば落ちる．**補間や JPEG で 1 画素揺れるかどうか**が閾値の形と噛み合って
+/// いるかは，判定の真偽ではなくこの量の分布を見ないと分からない．
+fn drift_spread(
+    it: &Integral,
+    s: usize,
+    d: IVec2,
+    bands: usize,
+    min_cells: usize,
+) -> Option<usize> {
+    let (by_x, by_y) = measure_bands(it, s, d, bands, min_cells)?;
+    let ints = |v: &[(usize, f32)]| v.iter().map(|p| p.0).collect::<Vec<_>>();
+    Some(cyclic_spread(&ints(&by_x), s).max(cyclic_spread(&ints(&by_y), s)))
+}
+
+/// 帯ごとの位相を整数と副画素の両方で測る．検査を行わない場合は `None`．
+///
+/// 帯を切る規則はここ 1 か所にまとめる — 判定 ・診断 ・副画素の 3 つで別々に書くと，
+/// **帯の切り方が食い違ったまま数字だけ比べる**ことになる．
+#[allow(clippy::type_complexity)]
+fn measure_bands(
+    it: &Integral,
+    s: usize,
+    d: IVec2,
+    bands: usize,
+    min_cells: usize,
+) -> Option<(Vec<(usize, f32)>, Vec<(usize, f32)>)> {
     if bands < 2 {
-        return true;
+        return None;
     }
     let (dx, dy) = (d.x.max(0) as usize, d.y.max(0) as usize);
-    let cells_x = it.w.saturating_sub(dx) / s;
-    let cells_y = it.h.saturating_sub(dy) / s;
-    if cells_x < min_cells * bands || cells_y < min_cells * bands {
-        return true;
+    if it.w.saturating_sub(dx) / s < min_cells * bands
+        || it.h.saturating_sub(dy) / s < min_cells * bands
+    {
+        return None;
     }
 
     let mut by_x = Vec::with_capacity(bands);
@@ -415,23 +610,182 @@ fn phase_drift_ok(
         let x1 = it.w * (b + 1) / bands;
         let y0 = it.h * b / bands;
         let y1 = it.h * (b + 1) / bands;
-        let Some(px) = best_phase_in(it, s, (x0, 0, x1, it.h), dy, true) else {
-            return true;
-        };
-        let Some(py) = best_phase_in(it, s, (0, y0, it.w, y1), dx, false) else {
-            return true;
-        };
-        by_x.push(px);
-        by_y.push(py);
+        let cx = phase_curve(it, s, (x0, 0, x1, it.h), dy, true);
+        let cy = phase_curve(it, s, (0, y0, it.w, y1), dx, false);
+        let (px, py) = (argmin_phase(&cx)?, argmin_phase(&cy)?);
+        by_x.push((px, refine_phase(&cx, px)));
+        by_y.push((py, refine_phase(&cy, py)));
     }
-
-    let spread = cyclic_spread(&by_x, s).max(cyclic_spread(&by_y, s));
-    spread as f32 <= s as f32 * tolerance
+    Some((by_x, by_y))
 }
 
-/// 再構成誤差の判定 — 画素色差 $\delta$ を超える画素の割合が $\tau$ 以下か．
-fn recon_ok(img: &RgbaCanvas, it: &Integral, s: usize, d: IVec2, delta: f32, tau: f32) -> bool {
-    let (dx, dy) = (d.x as usize, d.y as usize);
+/// 帯ごとの位相の食い違いを画素で返す (診断用)．検査を飛ばす場合は `None`．
+pub fn phase_drift_spread(
+    img: &RgbaCanvas,
+    s: u32,
+    phase: IVec2,
+    bands: usize,
+    min_cells: usize,
+) -> Option<usize> {
+    drift_spread(&Integral::new(img), s as usize, phase, bands, min_cells)
+}
+
+/// 帯ごとに最も合う位相そのもの (診断用)．検査を飛ばす場合は `None`．
+///
+/// **ずれの大きさだけでは $2 s_*$ と「雑音で揺れた真の $s$」を分けられない．**
+/// 実測では真の $s$ の帯ずれが 0〜4 画素とばらつく一方，$2 s_*$ のずれは
+/// **候補の半分ちょうど** — 帯ごとに「同じくらい正しい 2 つの位相」($d$ と $d + s/2$)
+/// のどちらかを選ぶためである．**並びの形**を見るために生の値を返す．
+pub fn band_phases(
+    img: &RgbaCanvas,
+    s: u32,
+    phase: IVec2,
+    bands: usize,
+    min_cells: usize,
+) -> Option<(Vec<usize>, Vec<usize>)> {
+    let it = Integral::new(img);
+    let (by_x, by_y) = measure_bands(&it, (s as usize).max(1), phase, bands, min_cells)?;
+    Some((
+        by_x.iter().map(|p| p.0).collect(),
+        by_y.iter().map(|p| p.0).collect(),
+    ))
+}
+
+/// 帯ごとの位相を**副画素**で返す (診断用)．検査を飛ばす場合は `None`．
+///
+/// 整数の位相では，通したい「補間で滲んだ本物の格子」(帯ずれ 0〜4 画素) と
+/// 落としたい「非整数の周期」(帯あたり 0.6〜1.6 画素の流れ) が**量子化の刻みと同じ
+/// 大きさで競っている**．刻みを細かくすれば分かれるか，を測るための口である．
+pub fn band_phases_subpixel(
+    img: &RgbaCanvas,
+    s: u32,
+    phase: IVec2,
+    bands: usize,
+    min_cells: usize,
+) -> Option<(Vec<f32>, Vec<f32>)> {
+    let it = Integral::new(img);
+    let (by_x, by_y) = measure_bands(&it, (s as usize).max(1), phase, bands, min_cells)?;
+    Some((
+        by_x.iter().map(|p| p.1).collect(),
+        by_y.iter().map(|p| p.1).collect(),
+    ))
+}
+
+/// 帯ごとの位相の食い違いを**副画素**で返す (診断用)．
+pub fn phase_drift_spread_subpixel(
+    img: &RgbaCanvas,
+    s: u32,
+    phase: IVec2,
+    bands: usize,
+    min_cells: usize,
+) -> Option<f32> {
+    let (by_x, by_y) = band_phases_subpixel(img, s, phase, bands, min_cells)?;
+    let su = s.max(1) as f32;
+    Some(cyclic_spread_f(&by_x, su).max(cyclic_spread_f(&by_y, su)))
+}
+
+/// セルを 4 分割したときに説明できる分散の割合 (診断用)．**倍数の抑止だけを担う量**．
+///
+/// $$ \mathrm{gain}(s, d) = 1 - \frac{\bar{V}_{4}(s, d)}{\bar{V}(s, d)} $$
+///
+/// $\bar{V}_4$ はセルを 4 つの象限に割ったときの分散の平均である．
+///
+/// - 真の $s$ — セルはもともと 1 色なので，割っても説明できる分散が無い．**0 に近い**
+/// - $\hat{s} = 2 s_*$ — セルは真のセル 4 つでできているので，割ると**ほぼ全部**が
+///   説明される．**1 に近い**
+/// - 約数 $s_* / 2$ — セルは 1 色のままなので真の $s$ と同じ側に立つ．
+///   **止める必要が無い** (「閾値を満たす最大の $s$」の規則が落とす)
+///
+/// 現行の再構成検査が「セル平均との色差が $\delta$ を超えた画素の割合」という
+/// **絵の中身に依存する量**を見ているのに対し，これは同じセルの中で 2 度測った比なので
+/// **補間の滲みが分子と分母で相殺する**．狙いは費用対効果 1 : 1.1 の解消である
+/// (格子なしを 23 件落とすために真の $s$ を 26 件失っている) ．
+pub fn split_gain(img: &RgbaCanvas, s: u32, phase: IVec2) -> f32 {
+    let it = Integral::new(img);
+    let su = (s as usize).max(1);
+    let (dx, dy) = (phase.x.max(0) as usize, phase.y.max(0) as usize);
+    // 1 画素のセルは割れない
+    if su < 2 {
+        return 0.0;
+    }
+    let half = su / 2;
+
+    let (mut whole, mut split, mut count) = (0.0f64, 0.0f64, 0usize);
+    for (x, y) in cells(it.w, it.h, su, dx, dy) {
+        whole += it.variance(x, y, x + su, y + su);
+        // 象限は面積で重みを付けずに平均する — 奇数の $s$ では大きさが揃わないが，
+        // 倍数の候補は必ず偶数なので判定に効く場面では等分になる
+        let q = [
+            it.variance(x, y, x + half, y + half),
+            it.variance(x + half, y, x + su, y + half),
+            it.variance(x, y + half, x + half, y + su),
+            it.variance(x + half, y + half, x + su, y + su),
+        ];
+        split += q.iter().sum::<f64>() / 4.0;
+        count += 1;
+    }
+    if count == 0 || whole <= f64::EPSILON {
+        return 0.0;
+    }
+    (1.0 - split / whole).clamp(0.0, 1.0) as f32
+}
+
+/// セルを 4 分割したときに**不一致率**がどれだけ下がるか (診断用)．
+///
+/// $$ 1 - \frac{\mathrm{rate}_{4}(s, d)}{\mathrm{rate}(s, d)} $$
+///
+/// [`split_gain`] の «生の分散» 版は補間の掛かった入力で外れた — 真のセルも勾配を
+/// 持つので，割れば説明されてしまう (真の $s$ で 0.61〜0.73 ・$2 s_*$ で 0.59〜0.67) ．
+/// **現行の再構成検査が強いのは $\delta$ の閾値がある**からで，滲み程度のずれは
+/// 不一致に数えない．そこで**閾値を残したまま相対化する**．
+///
+/// 真の $s$ なら象限平均にしても不一致は大きく減らない (もともと 1 色) ．
+/// $2 s_*$ なら象限が真のセルそのものなので不一致がほぼ消える．
+pub fn split_recon_gain(img: &RgbaCanvas, s: u32, phase: IVec2, delta: f32) -> f32 {
+    let it = Integral::new(img);
+    let su = (s as usize).max(1);
+    if su < 2 {
+        return 0.0;
+    }
+    let (dx, dy) = (phase.x.max(0) as usize, phase.y.max(0) as usize);
+    let half = su / 2;
+    let (mut bad_cell, mut bad_quad, mut total) = (0usize, 0usize, 0usize);
+
+    for (x, y) in cells(it.w, it.h, su, dx, dy) {
+        let mean = oklab_of(it.mean(x, y, x + su, y + su));
+        // 象限ごとの平均を先に求める
+        let quad = [
+            oklab_of(it.mean(x, y, x + half, y + half)),
+            oklab_of(it.mean(x + half, y, x + su, y + half)),
+            oklab_of(it.mean(x, y + half, x + half, y + su)),
+            oklab_of(it.mean(x + half, y + half, x + su, y + su)),
+        ];
+        for j in 0..su {
+            for i in 0..su {
+                let Some(c) = img.get((x + i) as i32, (y + j) as i32) else {
+                    continue;
+                };
+                let lab = oklab_of(c);
+                total += 1;
+                if delta_e(lab, mean) > delta {
+                    bad_cell += 1;
+                }
+                let q = quad[usize::from(i >= half) + 2 * usize::from(j >= half)];
+                if delta_e(lab, q) > delta {
+                    bad_quad += 1;
+                }
+            }
+        }
+    }
+    if total == 0 || bad_cell == 0 {
+        return 0.0;
+    }
+    (1.0 - bad_quad as f32 / bad_cell as f32).clamp(0.0, 1.0)
+}
+
+/// 再構成の不一致画素率．完全なセルが 1 つも無ければ `None`．
+fn recon_rate(img: &RgbaCanvas, it: &Integral, s: usize, d: IVec2, delta: f32) -> Option<f32> {
+    let (dx, dy) = (d.x.max(0) as usize, d.y.max(0) as usize);
     let mut mismatched = 0usize;
     let mut total = 0usize;
 
@@ -449,10 +803,78 @@ fn recon_ok(img: &RgbaCanvas, it: &Integral, s: usize, d: IVec2, delta: f32, tau
             }
         }
     }
-    if total == 0 {
-        return false;
+    (total > 0).then(|| mismatched as f32 / total as f32)
+}
+
+/// 再構成誤差の判定 — 画素色差 $\delta$ を超える画素の割合が $\tau$ 以下か．
+fn recon_ok(img: &RgbaCanvas, it: &Integral, s: usize, d: IVec2, delta: f32, tau: f32) -> bool {
+    recon_rate(img, it, s, d, delta).is_some_and(|r| r <= tau)
+}
+
+/// 位相を半セルずらしたときに当てはまりがどれだけ崩れるか (診断用)．
+///
+/// **これは $s_*$ と $2 s_*$ を分けるために測る量である．**
+///
+/// 本物の格子を半セルずらすと，セルが境界をまたいで当てはまりが崩れる．ところが
+/// $\hat{s} = 2 s_*$ を $s_* $ だけずらしても，**ずらした先がまた真のセル境界**なので
+/// 崩れない — 真のセルを 4 つ束ねる組み方が変わるだけである．約数 $s_*/2$ は
+/// 半セル ($s_*/4$) ずらせば崩れるので，本物と同じ側に立つ (約数は「閾値を満たす最大の
+/// $s$」の規則が落とすので，止める必要が無い)．
+///
+/// 絵の中身に依らないだけでなく，**同じ画像 ・同じ $s$ で 2 度測った比**なので
+/// 補間の滲みが分子と分母で相殺する．再構成検査の閾値が画像ごとに動いてしまう
+/// (nearest の真の $s$ で 0.00 ・lanczos の真の $s$ で 0.13) 弱点をここで避けられる．
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct PhaseContrast {
+    /// $(V(s, d + s/2) - V(s, d)) / \bar{V}_{\mathrm{image}}$ (`[x 方向, y 方向]`)．
+    pub variance_margin: [f32; 2],
+    /// $V(s, d + s/2) / V(s, d)$ (`[x, y]`)．分母が 0 のときは大きな有限値を返す．
+    pub variance_ratio: [f32; 2],
+    /// 再構成の不一致率の比 (`[x, y]`)．
+    pub recon_ratio: [f32; 2],
+}
+
+/// 半セルずらした位相での当てはまりを測る (診断用)．推定そのものには使わない．
+pub fn phase_contrast(img: &RgbaCanvas, s: u32, phase: IVec2, delta: f32) -> PhaseContrast {
+    let it = Integral::new(img);
+    let su = (s as usize).max(1);
+    let half = (su / 2).max(1);
+    let (dx, dy) = (phase.x.max(0) as usize, phase.y.max(0) as usize);
+    let image_var = image_variance(&it).max(f32::MIN_POSITIVE);
+
+    let base_v = mean_cell_variance(&it, su, dx % su, dy % su);
+    let base_r = recon_rate(img, &it, su, phase, delta);
+    // 比の分母が 0 のときの代わり．**無限大を返さない** — CSV と比較の両方で扱いに困る
+    let ratio = |shifted: f32, base: f32| -> f32 {
+        if base <= f32::EPSILON {
+            if shifted <= f32::EPSILON { 1.0 } else { 1.0e6 }
+        } else {
+            shifted / base
+        }
+    };
+
+    let mut out = PhaseContrast {
+        variance_margin: [0.0; 2],
+        variance_ratio: [1.0; 2],
+        recon_ratio: [1.0; 2],
+    };
+    for (axis, shift) in [
+        ivec2(((dx + half) % su) as i32, dy as i32),
+        ivec2(dx as i32, ((dy + half) % su) as i32),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let shifted_v = mean_cell_variance(&it, su, shift.x as usize, shift.y as usize);
+        if let (Some(a), Some(b)) = (shifted_v, base_v) {
+            out.variance_margin[axis] = (a - b) / image_var;
+            out.variance_ratio[axis] = ratio(a, b);
+        }
+        if let (Some(a), Some(b)) = (recon_rate(img, &it, su, shift, delta), base_r) {
+            out.recon_ratio[axis] = ratio(a, b);
+        }
     }
-    (mismatched as f32 / total as f32) <= tau
+    out
 }
 
 /// 再構成誤差の内訳 (診断用)．
@@ -540,6 +962,167 @@ pub fn recon_stats(img: &RgbaCanvas, s: u32, phase: IVec2, delta: f32) -> ReconS
     }
 }
 
+/// 差分エネルギーの折り畳み (診断用)．
+///
+/// **$s_*$ と $2 s_*$ を分ける情報はセル平均の残差に無い** — 再構成に基づく単一統計は
+/// 均衡正解率 77% 前後で頭打ちだった (`docs/investigations/grid-calibration.md`) ．
+/// セル平均は「セルの中がどれだけ平坦か」しか見ないが，$2 s_*$ のセルは平坦なまま
+/// **中に境界を 1 本隠している**．そこを直接見る．
+///
+/// 列ごとの差分エネルギーを候補の周期で折り畳むと，本物の格子では山が 1 本だけ立つ．
+/// $\hat{s} = m s_*$ なら山は $m$ 本になり，折り畳んだ形が周期 $s / m$ で繰り返す —
+/// **絵に何が描いてあるかには依らない**性質で，位相ずれ検査 (D62) と同じ筋である．
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct ProfileStats {
+    /// 格子線の帯に乗った 1 階差分エネルギーの割合 (`[x, y]`)．
+    ///
+    /// 本物の格子なら段差は格子線に集まる．ただし補間で縁が引き伸ばされると
+    /// セル全体へ散るので，**$s$ の約数でも同じ値になる** (約数の格子線は真の格子線を
+    /// すべて含む) ．過大推定でだけ下がる量である．
+    pub edge_share: [f32; 2],
+    /// 折り畳んだ形が $s$ の約数周期で繰り返す度合い (1 階差分，`[x, y]`)．
+    ///
+    /// $s$ の真の約数 $q \ge 2$ すべてについて巡回相関を取り，その**最大**を採る．
+    /// $\hat{s} = m s_*$ なら $q = s / m$ で 1 に近づき，本物の格子では 0 以下に落ちる．
+    pub echo1: [f32; 2],
+    /// 同じものを 2 階差分で測る (`[x, y]`)．
+    ///
+    /// 補間で拡大した画像の縁は段差ではなく**傾きの折れ**になる — bilinear なら値は
+    /// セル中心の間を直線で結ぶので，1 階差分は区間ごとに一定になって折り畳むと平らに
+    /// 潰れる．2 階差分なら折れ点に山が立つ．
+    pub echo2: [f32; 2],
+    /// 折り畳んだ形の起伏 = 標準偏差 / 平均 (1 階差分，`[x, y]`)．
+    ///
+    /// 平らな形の相関は当てにならない．**相関を信じてよいかどうか**をこれで見る．
+    pub relief1: [f32; 2],
+    /// 同じく 2 階差分の起伏 (`[x, y]`)．
+    pub relief2: [f32; 2],
+}
+
+/// 列 (`along_x`) または行ごとの差分エネルギー．`order` は差分の階数 (1 か 2)．
+///
+/// 返り値は画像の幅 (または高さ) と同じ長さで，**定義できない端は `None`** である．
+/// 端を 0 で埋めると折り畳みの特定の帯だけが薄まり，山が動いてしまう．
+fn difference_energy(img: &RgbaCanvas, along_x: bool, order: u32) -> Vec<Option<f64>> {
+    let (w, h) = (img.width() as usize, img.height() as usize);
+    let (n, m) = if along_x { (w, h) } else { (h, w) };
+    let at = |i: usize, j: usize| -> Rgba8 {
+        if along_x {
+            img.pixels()[j * w + i]
+        } else {
+            img.pixels()[i * w + j]
+        }
+    };
+
+    let mut out = vec![None; n];
+    let (lo, hi) = if order >= 2 { (1, n - 1) } else { (1, n) };
+    for (i, slot) in out.iter_mut().enumerate().take(hi).skip(lo) {
+        let mut acc = 0.0f64;
+        for j in 0..m {
+            let (a, b) = (at(i, j), at(i - 1, j));
+            acc += if order >= 2 {
+                let c = at(i + 1, j);
+                let d =
+                    |x: u8, y: u8, z: u8| (f64::from(z) - 2.0 * f64::from(x) + f64::from(y)).abs();
+                d(a.r, b.r, c.r) + d(a.g, b.g, c.g) + d(a.b, b.b, c.b)
+            } else {
+                let d = |x: u8, y: u8| (f64::from(x) - f64::from(y)).abs();
+                d(a.r, b.r) + d(a.g, b.g) + d(a.b, b.b)
+            };
+        }
+        *slot = Some(acc);
+    }
+    out
+}
+
+/// 差分エネルギーを周期 $s$ で折り畳む．帯 $k$ は添字 $i \equiv d + k \pmod s$ の平均．
+///
+/// 帯 0 が格子線である ([`cells`] がセルを $d$ から始めるので，セルの境目の差分は
+/// 添字 $d + i s$ に来る) ．
+fn fold_profile(energy: &[Option<f64>], s: usize, phase: usize) -> Vec<f64> {
+    let mut acc = vec![0.0f64; s];
+    let mut count = vec![0usize; s];
+    for (i, value) in energy.iter().enumerate() {
+        let Some(v) = value else { continue };
+        let k = (i + s - phase % s) % s;
+        acc[k] += v;
+        count[k] += 1;
+    }
+    acc.iter()
+        .zip(&count)
+        .map(|(a, n)| if *n == 0 { 0.0 } else { a / *n as f64 })
+        .collect()
+}
+
+/// 折り畳んだ形が $s$ の真の約数周期で繰り返す度合い．**約数ごとの巡回相関の最大**．
+///
+/// $q = s / m$ だけ回して形が変わらないなら，山が $m$ 本並んでいる — すなわち
+/// $\hat{s}$ は真の周期の $m$ 倍である．$q = 1$ は「形が平ら」という別のことなので
+/// 見ない ($q \ge 2$ に限る) ．約数が無い $s$ (2 と素数) では 0 を返す．
+fn periodic_echo(p: &[f64]) -> f32 {
+    let s = p.len();
+    let mean = p.iter().sum::<f64>() / s as f64;
+    let var: f64 = p.iter().map(|v| (v - mean) * (v - mean)).sum();
+    if var <= f64::EPSILON {
+        return 0.0;
+    }
+    let mut best = f32::NEG_INFINITY;
+    for q in 2..s {
+        if !s.is_multiple_of(q) {
+            continue;
+        }
+        let acc: f64 = (0..s)
+            .map(|k| (p[k] - mean) * (p[(k + q) % s] - mean))
+            .sum();
+        best = best.max((acc / var) as f32);
+    }
+    if best.is_finite() { best } else { 0.0 }
+}
+
+/// 折り畳んだ形の起伏 (標準偏差 / 平均)．
+fn relief(p: &[f64]) -> f32 {
+    let s = p.len();
+    let mean = p.iter().sum::<f64>() / s as f64;
+    if mean <= f64::EPSILON {
+        return 0.0;
+    }
+    let var: f64 = p.iter().map(|v| (v - mean) * (v - mean)).sum::<f64>() / s as f64;
+    (var.sqrt() / mean) as f32
+}
+
+/// 格子線の帯に乗った割合 $p_0 / \sum_k p_k$．
+fn share_at_zero(p: &[f64]) -> f32 {
+    let total: f64 = p.iter().sum();
+    if total <= f64::EPSILON {
+        return 0.0;
+    }
+    (p[0] / total) as f32
+}
+
+/// 差分エネルギーの折り畳みを測る (診断用)．推定そのものには使わない．
+pub fn profile_stats(img: &RgbaCanvas, s: u32, phase: IVec2) -> ProfileStats {
+    let su = (s as usize).max(1);
+    let d = [phase.x.max(0) as usize, phase.y.max(0) as usize];
+    let mut out = ProfileStats {
+        edge_share: [0.0; 2],
+        echo1: [0.0; 2],
+        echo2: [0.0; 2],
+        relief1: [0.0; 2],
+        relief2: [0.0; 2],
+    };
+    for (axis, offset) in d.into_iter().enumerate() {
+        let along_x = axis == 0;
+        let p1 = fold_profile(&difference_energy(img, along_x, 1), su, offset);
+        let p2 = fold_profile(&difference_energy(img, along_x, 2), su, offset);
+        out.edge_share[axis] = share_at_zero(&p1);
+        out.echo1[axis] = periodic_echo(&p1);
+        out.echo2[axis] = periodic_echo(&p2);
+        out.relief1[axis] = relief(&p1);
+        out.relief2[axis] = relief(&p2);
+    }
+    out
+}
+
 fn divisors_and_multiples(s: u32, max: u32) -> impl Fn(u32) -> bool {
     move |t: u32| t != 0 && (s.is_multiple_of(t) || (t.is_multiple_of(s) && t <= max))
 }
@@ -607,16 +1190,7 @@ fn evaluate(
         .filter(|c| c.mean_variance <= epsilon)
         .filter(|c| recon_ok(img, it, c.scale as usize, c.phase, params.delta, params.tau))
         // 非整数の周期を落とす．再構成検査と違い，絵の中身に左右されない
-        .filter(|c| {
-            phase_drift_ok(
-                it,
-                c.scale as usize,
-                c.phase,
-                params.phase_bands,
-                params.phase_tolerance,
-                params.phase_min_cells,
-            )
-        })
+        .filter(|c| phase_drift_ok(it, c.scale as usize, c.phase, params.into()))
         .collect();
 
     // 閾値を満たす最大の s．集合の最大値なので同点は起きない
@@ -669,14 +1243,7 @@ pub fn scale_candidates(img: &RgbaCanvas, params: &GridParams) -> (Vec<ScaleCand
                 phase,
                 passes_epsilon: v <= params.epsilon_for(image_var),
                 passes_recon: recon_ok(img, &it, s as usize, phase, params.delta, params.tau),
-                passes_phase: phase_drift_ok(
-                    &it,
-                    s as usize,
-                    phase,
-                    params.phase_bands,
-                    params.phase_tolerance,
-                    params.phase_min_cells,
-                ),
+                passes_phase: phase_drift_ok(&it, s as usize, phase, params.into()),
             })
         })
         .collect();
@@ -727,7 +1294,7 @@ pub fn estimate_grid(
 
     let hat = hat.ok_or(GridError::NotFound)?;
     let conf = confidence(&hat, &all, image_variance(&it), max);
-    if conf < params.min_confidence {
+    if conf < params.confidence_floor(hat.scale) {
         return Err(GridError::LowConfidence);
     }
     Ok(GridEstimate {
@@ -933,6 +1500,17 @@ mod tests {
         out
     }
 
+    /// 位相ずれ検査の設定．**下限 0 ・整数の位相**が既定の形である．
+    fn check(bands: usize, tolerance: f32) -> DriftCheck {
+        DriftCheck {
+            bands,
+            tolerance,
+            floor: 0.0,
+            min_cells: 2,
+            subpixel: false,
+        }
+    }
+
     fn palette() -> Vec<Rgba8> {
         vec![
             Rgba8::rgb(0x1a, 0x1c, 0x2c),
@@ -992,7 +1570,7 @@ mod tests {
                     ((scale - phase.1) % scale) as i32,
                 );
                 assert!(
-                    phase_drift_ok(&it, scale as usize, d, 4, 0.0, 2),
+                    phase_drift_ok(&it, scale as usize, d, check(4, 0.0)),
                     "{scale} 倍 ・位相 {phase:?} で帯ごとに位相が違う"
                 );
             }
@@ -1006,20 +1584,50 @@ mod tests {
         let it = Integral::new(&img);
         let d = best_phase(&it, 8).expect("位相はある").1;
         assert!(
-            !phase_drift_ok(&it, 8, d, 4, 1.0 / 6.0, 2),
+            !phase_drift_ok(
+                &it,
+                8,
+                d,
+                DriftCheck {
+                    floor: 1.0,
+                    ..check(4, 1.0 / 6.0)
+                }
+            ),
             "非整数の周期を通してしまった"
         );
     }
 
+    /// 帯が薄いときは**飛ばさずに帯を減らして測る**．飛ばすと過大推定が素通りする．
     #[test]
-    fn the_phase_check_is_skipped_when_the_bands_would_be_too_thin() {
-        // 帯あたり 2 セルに満たないときは，位相が当てにならないので落とす根拠にしない
+    fn thin_bands_are_measured_with_fewer_bands_instead_of_being_skipped() {
+        // 24 x 24 に s = 4 なら 6 セル．8 本には足りないが 2 本 (4 セル) なら測れる
         let img = upscaled(&PATTERN, &palette(), 4, (0, 0));
         let it = Integral::new(&img);
-        assert!(
-            phase_drift_ok(&it, 4, ivec2(0, 0), 8, 0.0, 2),
-            "セルが足りないのに棄却している"
+        assert_eq!(
+            drift_spread(&it, 4, ivec2(0, 0), 8, 2),
+            None,
+            "8 本では測れないはずである"
         );
+        assert_eq!(
+            adaptive_drift_spread(&it, 4, ivec2(0, 0), 8, 2, false),
+            Some(0.0),
+            "帯を減らせば測れるのに飛ばしている"
+        );
+        // 本物の格子なので，測った結果は当然通る
+        assert!(phase_drift_ok(&it, 4, ivec2(0, 0), check(8, 0.0)));
+    }
+
+    /// セルが 2 本ぶんに足りなければ，やはり測らない (落とす根拠が無い)．
+    #[test]
+    fn the_phase_check_is_skipped_when_even_two_bands_are_too_thin() {
+        // 12 x 12 に s = 4 なら 3 セル．2 本 x 2 セル = 4 セルに届かない
+        let img = upscaled(&["012", "120", "201"], &palette(), 4, (0, 0));
+        let it = Integral::new(&img);
+        assert_eq!(
+            adaptive_drift_spread(&it, 4, ivec2(0, 0), 4, 2, false),
+            None
+        );
+        assert!(phase_drift_ok(&it, 4, ivec2(0, 0), check(4, 0.0)));
     }
 
     #[test]
@@ -1028,11 +1636,11 @@ mod tests {
         let it = Integral::new(&img);
         let d = best_phase(&it, 8).expect("位相はある").1;
         assert!(
-            phase_drift_ok(&it, 8, d, 0, 0.0, 2),
+            phase_drift_ok(&it, 8, d, check(0, 0.0)),
             "帯 0 で検査が働いている"
         );
         assert!(
-            phase_drift_ok(&it, 8, d, 1, 0.0, 2),
+            phase_drift_ok(&it, 8, d, check(1, 0.0)),
             "帯 1 では比べようがない"
         );
     }
@@ -1052,6 +1660,133 @@ mod tests {
         assert_eq!(first_cell(10, 3, 8), 11);
         assert_eq!(first_cell(11, 3, 8), 11);
         assert_eq!(first_cell(12, 3, 8), 19);
+    }
+
+    /// 折り畳みの要点 — $2 s_*$ では山が 2 本になる．
+    #[test]
+    fn a_doubled_candidate_repeats_the_folded_profile() {
+        let img = upscaled(&WIDE, &palette(), 4, (0, 0));
+        let it = Integral::new(&img);
+        let echo = |s: u32| {
+            let d = best_phase(&it, s as usize).expect("位相はある").1;
+            let p = profile_stats(&img, s, d);
+            p.echo1[0].max(p.echo1[1])
+        };
+        assert!(echo(4) < 0.5, "真の s で山が 2 本立っている ({})", echo(4));
+        assert!(
+            echo(8) > 0.8,
+            "2 倍の候補で山が 1 本に見えている ({})",
+            echo(8)
+        );
+    }
+
+    /// 位相ずらしの要点 — 本物は半セルずらすと崩れ，$2 s_*$ は崩れない．
+    #[test]
+    fn shifting_half_a_cell_breaks_a_true_grid_but_not_a_doubled_one() {
+        let img = upscaled(&WIDE, &palette(), 4, (0, 0));
+        let it = Integral::new(&img);
+        let margin = |s: u32| {
+            let d = best_phase(&it, s as usize).expect("位相はある").1;
+            let c = phase_contrast(&img, s, d, 0.1);
+            c.variance_margin[0].min(c.variance_margin[1])
+        };
+        assert!(
+            margin(4) > 0.1,
+            "真の s が半セルずらしで崩れない ({})",
+            margin(4)
+        );
+        assert!(
+            margin(8).abs() < 0.02,
+            "2 倍の候補が半セルずらしで崩れている ({})",
+            margin(8)
+        );
+    }
+
+    /// 段差は格子線に集まる — 折り畳みの帯 0 がセルの境目である．
+    #[test]
+    fn the_folded_profile_puts_the_boundary_in_the_first_band() {
+        for phase in [(0u32, 0u32), (2, 3)] {
+            let img = upscaled(&WIDE, &palette(), 4, phase);
+            let d = ivec2(((4 - phase.0) % 4) as i32, ((4 - phase.1) % 4) as i32);
+            let p = profile_stats(&img, 4, d);
+            for axis in 0..2 {
+                assert!(
+                    p.edge_share[axis] > 0.9,
+                    "位相 {phase:?} 軸 {axis} で段差が格子線に乗っていない ({})",
+                    p.edge_share[axis]
+                );
+            }
+        }
+    }
+
+    /// 副画素の当てはめは，谷が対称なら整数の位置を動かさない．
+    #[test]
+    fn a_symmetric_valley_keeps_the_integer_phase() {
+        let curve = [1.0f32, 0.5, 0.0, 0.5];
+        assert!((refine_phase(&curve, 2) - 2.0).abs() < 1e-6);
+    }
+
+    /// 谷が傾いていれば，低い側へ半画素まで寄る．
+    #[test]
+    fn a_lopsided_valley_moves_toward_the_lower_side() {
+        // 左が低い → 頂点は p より手前 (小さい側) へ寄る
+        let curve = [0.2f32, 0.0, 0.8, 1.0];
+        let refined = refine_phase(&curve, 1);
+        assert!((0.5..1.0).contains(&refined), "副画素の位相 {refined}");
+        // 山になっている点は動かさない (2 階差分が正でない)．
+        // **位相軸は巡回する**ので，端が低いだけでは「谷でない」ことにならない
+        assert_eq!(refine_phase(&[0.0, 1.0, 0.5, 1.0], 1), 1.0);
+    }
+
+    /// 副画素でも巡回する — 0 と $s - \epsilon$ は隣どうしである．
+    #[test]
+    fn subpixel_phases_wrap_around_the_scale() {
+        assert!((cyclic_spread_f(&[0.0, 7.5], 8.0) - 0.5).abs() < 1e-6);
+        assert!((cyclic_spread_f(&[0.0, 4.0], 8.0) - 4.0).abs() < 1e-6);
+    }
+
+    /// 本物の格子なら副画素で測っても帯ごとに揃う．
+    #[test]
+    fn a_true_grid_agrees_across_bands_in_subpixel_too() {
+        for scale in [4u32, 6, 8] {
+            let img = upscaled(&WIDE, &palette(), scale, (0, 0));
+            let spread = phase_drift_spread_subpixel(&img, scale, ivec2(0, 0), 4, 2)
+                .expect("測れるはずである");
+            assert!(spread < 0.5, "{scale} 倍で副画素の帯ずれが {spread}");
+        }
+    }
+
+    /// 4 分割の要点 — 真の $s$ は割っても説明されず，$2 s_*$ は割ると説明される．
+    #[test]
+    fn splitting_a_cell_explains_a_doubled_candidate_but_not_a_true_one() {
+        let img = upscaled(&WIDE, &palette(), 4, (0, 0));
+        assert!(
+            split_gain(&img, 4, ivec2(0, 0)) < 0.05,
+            "真の s が割ると説明されている ({})",
+            split_gain(&img, 4, ivec2(0, 0))
+        );
+        assert!(
+            split_gain(&img, 8, ivec2(0, 0)) > 0.9,
+            "2 倍の候補が割っても説明されない ({})",
+            split_gain(&img, 8, ivec2(0, 0))
+        );
+        // 約数は真の s と同じ側に立つ (止める必要が無い)
+        assert!(split_gain(&img, 2, ivec2(0, 0)) < 0.05);
+    }
+
+    #[test]
+    fn a_flat_profile_has_no_echo() {
+        assert_eq!(periodic_echo(&[1.0, 1.0, 1.0, 1.0]), 0.0);
+        // 約数が無ければ比べようがない
+        assert_eq!(periodic_echo(&[3.0, 0.0, 0.0]), 0.0);
+        assert_eq!(periodic_echo(&[2.0, 0.0]), 0.0);
+    }
+
+    #[test]
+    fn folding_counts_every_defined_sample_once() {
+        let energy = vec![None, Some(1.0), Some(2.0), Some(3.0), Some(4.0)];
+        // 位相 1 なら添字 1 が帯 0 に来る
+        assert_eq!(fold_profile(&energy, 2, 1), vec![2.0, 3.0]);
     }
 
     #[test]

@@ -37,6 +37,10 @@ pub struct Summary {
     pub epsilon: f32,
     pub delta: f32,
     pub tau: f32,
+    /// 帯のずれの許容の下限 (画素)．
+    pub phase_floor: f32,
+    pub phase_tolerance: f32,
+    pub phase_subpixel: bool,
     /// 全件数．
     pub n: usize,
     /// 正解率 (完全一致 + 正しい棄却)．**実装計画書の目標 95% に対応する．**
@@ -72,20 +76,23 @@ impl Summary {
     }
 }
 
-pub const SUMMARY_HEADER: &str = "param_id,normalized,min_confidence,epsilon,delta,tau,n,macro_rate,correct_rate,ece,grid_n,\
+pub const SUMMARY_HEADER: &str = "param_id,normalized,min_confidence,epsilon,delta,tau,phase_floor,phase_tolerance,phase_subpixel,n,macro_rate,correct_rate,ece,grid_n,\
 grid_exact_rate,grid_scale_rate,grid_false_reject_rate,resized_n,resized_reject_rate,\
 resized_effective_rate";
 
 impl Summary {
     pub fn to_csv(&self) -> String {
         format!(
-            "{},{},{},{},{},{},{},{:.4},{:.4},{:.4},{},{:.4},{:.4},{:.4},{},{:.4},{:.4}",
+            "{},{},{},{},{},{},{},{},{},{},{:.4},{:.4},{:.4},{},{:.4},{:.4},{:.4},{},{:.4},{:.4}",
             self.param_id,
             self.normalized,
             self.min_confidence,
             self.epsilon,
             self.delta,
             self.tau,
+            self.phase_floor,
+            self.phase_tolerance,
+            self.phase_subpixel,
             self.n,
             self.macro_rate(),
             self.correct_rate,
@@ -143,6 +150,9 @@ pub fn summarize_at(rows: &[Row], min_confidence: f32) -> Vec<Summary> {
                 epsilon: first.epsilon,
                 delta: first.delta,
                 tau: first.tau,
+                phase_floor: first.phase_floor,
+                phase_tolerance: first.phase_tolerance,
+                phase_subpixel: first.phase_subpixel,
                 n: rows.len(),
                 correct_rate: rate(count(&rows, |r| outcome(r).is_correct()), rows.len()),
                 ece: ece(&rows),
@@ -280,6 +290,10 @@ mod tests {
             epsilon: 1.0e-3,
             delta: 0.02,
             tau: 0.02,
+            phase_floor: 1.0,
+            phase_tolerance: 1.0 / 6.0,
+            phase_subpixel: false,
+            confidence_per_scale: false,
             item_id: 0,
             split: Split::Validation,
             has_integer_grid: true,

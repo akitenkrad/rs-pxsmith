@@ -29,6 +29,7 @@ mod ingest;
 mod metrics;
 mod real;
 mod recon;
+mod recover;
 mod render;
 mod rng;
 mod scene;
@@ -93,9 +94,18 @@ enum Command {
         /// 位相ずれ検査の帯の数．0 で検査を外す
         #[arg(long, default_value_t = 4)]
         phase_bands: usize,
-        /// 帯どうしの位相のずれの許容 ($s$ に対する割合)
-        #[arg(long, default_value_t = 1.0 / 6.0)]
-        phase_tolerance: f32,
+        /// 帯どうしの位相のずれの許容 ($s$ に対する割合．複数指定可)
+        #[arg(long, num_args = 1..)]
+        phase_tolerance: Vec<f32>,
+        /// 帯のずれの許容の下限 (画素．複数指定可)
+        #[arg(long, num_args = 1..)]
+        phase_tolerance_floor: Vec<f32>,
+        /// 帯ごとの位相を**副画素**で求める．掃引 1 回につき 1 通り
+        #[arg(long)]
+        phase_subpixel: bool,
+        /// 信頼度の下限を $\hat{s}$ で割らない (既定は割る)．掃引 1 回につき 1 通り
+        #[arg(long)]
+        uniform_confidence: bool,
         /// 位相ずれ検査に要る帯あたりのセル数
         #[arg(long, default_value_t = 2)]
         phase_min_cells: usize,
@@ -228,6 +238,21 @@ enum Command {
         out: Option<PathBuf>,
         #[arg(long, default_value = "validation")]
         split: String,
+        /// 整数の格子が無い件 (非整数倍リサイズ) も測る．**位相ずれ検査の相手**である
+        #[arg(long)]
+        include_resized: bool,
+    },
+    /// **正解の格子を与えて**縮小し，元絵が戻るかを測る (当てる価値があるのか)
+    Recover {
+        #[arg(long, default_value = DEFAULT_DIR)]
+        dir: PathBuf,
+        #[arg(long)]
+        out: Option<PathBuf>,
+        #[arg(long, default_value = "validation")]
+        split: String,
+        /// 元絵に使った実物のドット絵の置き場所 (gen と同じものを渡す)
+        #[arg(long, default_value = "testdata/grid-eval/seeds")]
+        seeds: Option<PathBuf>,
     },
     /// 実データの誤棄却を 1 件ずつ解剖する (どの関門が真のスケールを落としたか)
     Diagnose {
@@ -307,6 +332,9 @@ fn main() -> Result<()> {
             tau,
             phase_bands,
             phase_tolerance,
+            phase_tolerance_floor,
+            phase_subpixel,
+            uniform_confidence,
             phase_min_cells,
             normalize_epsilon,
         } => {
@@ -317,7 +345,13 @@ fn main() -> Result<()> {
             let grid = ParamGrid {
                 max_scale,
                 phase_bands,
-                phase_tolerance,
+                phase_tolerances: or_default(phase_tolerance, &default.phase_tolerances),
+                phase_subpixel,
+                confidence_per_scale: !uniform_confidence,
+                phase_tolerance_floors: or_default(
+                    phase_tolerance_floor,
+                    &default.phase_tolerance_floors,
+                ),
                 phase_min_cells,
                 normalize_epsilon: normalize_epsilon
                     .unwrap_or(px_core::grid::GridParams::default().normalize_epsilon),
@@ -534,11 +568,16 @@ fn main() -> Result<()> {
             );
         }
 
-        Command::Recon { dir, out, split } => {
+        Command::Recon {
+            dir,
+            out,
+            split,
+            include_resized,
+        } => {
             let manifest = dataset::read(&dir)?;
             let only = parse_split(&split)?;
             let params = px_core::grid::GridParams::default();
-            let records = recon::run(&dir, &manifest, only, &params)?;
+            let records = recon::run(&dir, &manifest, only, &params, include_resized)?;
             let path = out.unwrap_or_else(|| dir.join("recon.csv"));
             let mut text = String::from(recon::HEADER);
             text.push('\n');
@@ -549,6 +588,31 @@ fn main() -> Result<()> {
             px_io::atomic::write(&path, text.as_bytes())?;
             report_recon(&records);
             println!("\n{} 行を {} へ書いた", records.len(), path.display());
+        }
+
+        Command::Recover {
+            dir,
+            out,
+            split,
+            seeds,
+        } => {
+            let manifest = dataset::read(&dir)?;
+            let only = parse_split(&split)?;
+            let seeds = match seeds.filter(|p| p.exists()) {
+                Some(p) => sprite::load_seeds(&p)?,
+                None => Vec::new(),
+            };
+            let records = recover::run(&dir, &manifest, only, &seeds)?;
+            let path = out.unwrap_or_else(|| dir.join("recover.csv"));
+            let mut text = String::from(recover::HEADER);
+            text.push('\n');
+            for r in &records {
+                text.push_str(&r.to_csv());
+                text.push('\n');
+            }
+            px_io::atomic::write(&path, text.as_bytes())?;
+            report_recover(&records);
+            println!("\n{} 件を {} へ書いた", records.len(), path.display());
         }
 
         Command::Diagnose { dir, out } => {
@@ -918,6 +982,65 @@ fn file_name(p: &std::path::Path) -> String {
         .unwrap_or_default()
 }
 
+/// 正解の格子で縮小したとき，元絵がどれだけ戻るか．
+fn report_recover(records: &[recover::Record]) {
+    println!(
+        "\n== 正解の格子を与えて縮小したときの復元 ({} 件) ==",
+        records.len()
+    );
+    println!("  **推定器は通していない．** 「格子が当たった場合の上限」である\n");
+    println!(
+        "  {:<10} {:>5}  {:>12}  {:>16}  {:>10}  {:>12}",
+        "補間", "件数", "完全一致", "パレットへ寄せた後", "色差 (中央)", "色数 元絵→復元"
+    );
+    for f in ["nearest", "bilinear", "bicubic", "lanczos"] {
+        let sub: Vec<&recover::Record> = records.iter().filter(|r| r.filter == f).collect();
+        if sub.is_empty() {
+            continue;
+        }
+        let med = |mut v: Vec<f32>| {
+            v.sort_by(f32::total_cmp);
+            v[v.len() / 2]
+        };
+        let exact = med(sub.iter().map(|r| r.exact).collect());
+        let snapped = med(sub.iter().map(|r| r.exact_snapped).collect());
+        let de = med(sub.iter().map(|r| r.median_delta_e).collect());
+        let cs = med(sub.iter().map(|r| r.colors_source as f32).collect());
+        let cr = med(sub.iter().map(|r| r.colors_recovered as f32).collect());
+        // 完全一致が 99% を超えた件 = 実質的に元絵が戻った件
+        // 寄せた後に 99% を超えた件 = 量子化まで通せば実質的に元絵が戻る件
+        let clean = sub.iter().filter(|r| r.exact_snapped > 0.99).count();
+        println!(
+            "  {f:<10} {:>5}  {:>11.1}%  {:>15.1}%  {de:>10.4}  {cs:>5.0} → {cr:<5.0}  寄せて戻る {clean}/{}",
+            sub.len(),
+            exact * 100.0,
+            snapped * 100.0,
+            sub.len(),
+        );
+    }
+    // 圧縮の寄与を分けて見る (nearest なら劣化は圧縮だけである)
+    println!("\n  nearest の圧縮別 (劣化は圧縮だけ)");
+    for c in ["png", "jpeg95", "jpeg80", "jpeg60"] {
+        let sub: Vec<&recover::Record> = records
+            .iter()
+            .filter(|r| r.filter == "nearest" && r.compression == c)
+            .collect();
+        if sub.is_empty() {
+            continue;
+        }
+        let mut v: Vec<f32> = sub.iter().map(|r| r.exact).collect();
+        let mut w: Vec<f32> = sub.iter().map(|r| r.exact_snapped).collect();
+        v.sort_by(f32::total_cmp);
+        w.sort_by(f32::total_cmp);
+        println!(
+            "    {c:<8} {:>3} 件  完全一致 {:.1}%  → パレットへ寄せた後 {:.1}%",
+            sub.len(),
+            v[v.len() / 2] * 100.0,
+            w[w.len() / 2] * 100.0,
+        );
+    }
+}
+
 /// 誤棄却がどの関門で落ちたかを数える．
 fn report_diagnose(records: &[diagnose::Record]) {
     use diagnose::Fallout;
@@ -950,6 +1073,18 @@ fn report_diagnose(records: &[diagnose::Record]) {
             f.as_str(),
             hit.len(),
         );
+    }
+
+    // **落ち方は 1 つとは限らない．** 上の表は最初に落ちた関門しか数えないので，
+    // 2 つの関門が同時に落としている件が先頭の関門に付け替えられる
+    println!("\n  関門ごとの関与 (重複あり — 1 件が複数の関門で落ちうる)");
+    for gate in diagnose::GATES {
+        let n = rejected
+            .iter()
+            .filter(|r| r.failed_gates.split('|').any(|g| g == gate))
+            .count();
+        let only = rejected.iter().filter(|r| r.failed_gates == gate).count();
+        println!("    {gate:<12} {n:>3} 件 (この関門だけで落ちている件 {only})");
     }
 }
 
@@ -1002,6 +1137,87 @@ fn report_recon(records: &[recon::Record]) {
         let (_, b) = recon::separation(&subset, |r| r.v / r.v_half.max(1.0e-9));
         println!("    {f:<10} {:.1}% / {:.1}%", a * 100.0, b * 100.0);
     }
+
+    report_profile(records);
+}
+
+/// 差分エネルギーの折り畳みが $s_*$ と $2 s_*$ を分けるか．
+///
+/// **対比を分けて見る．** 再構成検査は「倍数を止めると真の $s$ も落ちる」という
+/// 一本の閾値だったが，止めたい相手は倍数で，通したい相手は真の $s$ と (負けてよい)
+/// 約数である．全部混ぜた均衡正解率だけを見ると，倍数だけに効く量が埋もれる．
+fn report_profile(records: &[recon::Record]) {
+    type Key = dyn Fn(&recon::Record) -> f32;
+    // **向きは「小さいほど真の $s$」に揃える** (separation がそう解釈する)
+    let stats: [(&str, &Key); 8] = [
+        ("全画素の不一致率 (現行)", &|r| r.stats.overall),
+        ("セル内側の不一致率", &|r| r.stats.interior),
+        ("段差の割合 (符号反転)", &|r| {
+            -(r.profile.edge_share[0] + r.profile.edge_share[1]) / 2.0
+        }),
+        ("echo1 max(x,y)", &|r| {
+            r.profile.echo1[0].max(r.profile.echo1[1])
+        }),
+        ("echo1 平均", &|r| {
+            (r.profile.echo1[0] + r.profile.echo1[1]) / 2.0
+        }),
+        ("echo2 max(x,y)", &|r| {
+            r.profile.echo2[0].max(r.profile.echo2[1])
+        }),
+        ("echo2 平均", &|r| {
+            (r.profile.echo2[0] + r.profile.echo2[1]) / 2.0
+        }),
+        ("echo1 と echo2 の max", &|r| {
+            r.profile.echo1[0]
+                .max(r.profile.echo1[1])
+                .max(r.profile.echo2[0])
+                .max(r.profile.echo2[1])
+        }),
+    ];
+
+    type Pick = dyn Fn(&recon::Record) -> bool;
+    let contrasts: [(&str, &Pick); 4] = [
+        ("すべての s", &|_| true),
+        ("2 倍だけ", &|r| r.ratio() == 2.0),
+        ("倍数すべて", &|r| r.is_multiple()),
+        ("約数すべて", &|r| r.is_divisor()),
+    ];
+
+    println!("\n== 折り畳んだ差分エネルギーの分離能 (真の s vs …) ==");
+    print!("  {:<26}", "統計");
+    for (name, pick) in &contrasts {
+        let n = records.iter().filter(|r| pick(r)).count();
+        print!(" {:>14}", format!("{name} ({n})"));
+    }
+    println!();
+
+    for (name, key) in &stats {
+        print!("  {name:<26}");
+        for (_, pick) in &contrasts {
+            let subset: Vec<recon::Record> = records
+                .iter()
+                .filter(|r| r.is_truth || pick(r))
+                .cloned()
+                .collect();
+            let (_, acc) = recon::separation(&subset, key);
+            print!(" {:>13.1}%", acc * 100.0);
+        }
+        println!();
+    }
+
+    // 相関が当てにならない場面がどれだけあるか — 平らな形の相関は意味を持たない
+    let flat1 = records
+        .iter()
+        .filter(|r| r.profile.relief1[0] < 0.05)
+        .count();
+    let flat2 = records
+        .iter()
+        .filter(|r| r.profile.relief2[0] < 0.05)
+        .count();
+    println!(
+        "\n  折り畳みが平ら (起伏 < 0.05，x 軸): 1 階 {flat1} 件 / 2 階 {flat2} 件 (全 {} 件)",
+        records.len()
+    );
 }
 
 fn write_bands(path: &std::path::Path, records: &[bands::Record]) -> Result<()> {

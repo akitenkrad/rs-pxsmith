@@ -89,13 +89,20 @@ pub struct GridArgs {
     #[arg(long, default_value_t = 4)]
     pub phase_bands: usize,
     /// 帯どうしの位相のずれの許容 ($s$ に対する割合)
-    #[arg(long, default_value_t = 1.0 / 6.0)]
+    #[arg(long, default_value_t = 0.25)]
     pub phase_tolerance: f32,
+    /// 帯のずれの許容の下限 (画素)．**既定の 0 は「下限なし」** — 上げると非整数の
+    /// 周期を受け入れてしまう (校正記録)
+    #[arg(long, default_value_t = 0.0)]
+    pub phase_tolerance_floor: f32,
+    /// 帯ごとの位相を副画素で求める
+    #[arg(long)]
+    pub phase_subpixel: bool,
     /// 位相ずれ検査に要る帯あたりのセル数
     #[arg(long, default_value_t = 2)]
     pub phase_min_cells: usize,
-    /// これ未満の信頼度は棄却する．
-    #[arg(long, default_value_t = 0.03)]
+    /// これ未満の信頼度は棄却する．**$\hat{s}$ で割って使う** (既定)
+    #[arg(long, default_value_t = 0.10)]
     pub min_confidence: f32,
 }
 
@@ -110,8 +117,11 @@ impl From<&GridArgs> for GridParams {
             tau: a.tau,
             phase_bands: a.phase_bands,
             phase_tolerance: a.phase_tolerance,
+            phase_tolerance_floor: a.phase_tolerance_floor,
+            phase_subpixel: a.phase_subpixel,
             phase_min_cells: a.phase_min_cells,
             min_confidence: a.min_confidence,
+            confidence_per_scale: GridParams::default().confidence_per_scale,
         }
     }
 }

@@ -147,7 +147,10 @@ pub fn build(seed: u64, count: u32, seeds: &[sprite::Seed]) -> Manifest {
 /// 目録どおりに画像を書き出し，目録そのものも保存する．
 /// 元絵を 1 枚用意する．**種の選び方は `source_seed` だけで決まる** — 目録から
 /// 同じ絵を作り直せる．
-fn source_of(seeds: &[sprite::Seed], source_seed: u64) -> (Option<String>, px_core::RgbaCanvas) {
+pub fn source_of(
+    seeds: &[sprite::Seed],
+    source_seed: u64,
+) -> (Option<String>, px_core::RgbaCanvas) {
     if seeds.is_empty() {
         (None, sprite::synthesize(source_seed))
     } else {

@@ -96,6 +96,7 @@ pub enum Verdict {
 }
 
 impl Verdict {
+    /// CSV と画面の両方で使う識別子．**英語のまま変えない．**
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Exact => "exact",

@@ -38,6 +38,7 @@ pub enum Fallout {
 }
 
 impl Fallout {
+    /// CSV と画面の両方で使う識別子．**英語のまま変えない．**
     pub fn as_str(self) -> &'static str {
         match self {
             Self::NotRejected => "not_rejected",
@@ -50,6 +51,9 @@ impl Fallout {
         }
     }
 }
+
+/// `failed_gates` 欄に現れる関門の識別子．**集計する側が突き合わせるために持つ．**
+pub const GATES: [&str; 3] = ["epsilon", "recon", "phase_drift"];
 
 /// 1 件の解剖結果．
 #[derive(Clone, Debug)]
@@ -67,18 +71,26 @@ pub struct Record {
     pub confidence: Option<f32>,
     /// 真の $s$ より大きく，関門を通った $s$ のうち最小 (過大推定の相手)．
     pub larger_accepted: Option<u32>,
+    /// 真の $s$ が落ちた関門を**すべて**並べたもの (`|` 区切り)．
+    ///
+    /// [`Fallout`] は最初に落ちた関門しか言わないので，**2 つ以上の関門が同時に
+    /// 落としている件が先頭の関門に付け替えられる**．検証セットでは，順序が
+    /// $\varepsilon$ → 再構成 → 位相ずれ だったために「再構成検査が主犯」と読めて
+    /// いたが，実際には位相ずれ検査が真の $s$ の 42 / 101 を落としていた．
+    /// **どれか 1 つを直しても通るとは限らない**ことがこの欄で分かる．
+    pub failed_gates: String,
 }
 
-pub const HEADER: &str =
-    "file,truth_scale,fallout,v_truth,v_image,epsilon_ratio,confidence,larger_accepted";
+pub const HEADER: &str = "file,truth_scale,fallout,failed_gates,v_truth,v_image,epsilon_ratio,confidence,larger_accepted";
 
 impl Record {
     pub fn to_csv(&self) -> String {
         format!(
-            "{},{},{},{:.6},{:.6},{:.3},{},{}",
+            "{},{},{},{},{:.6},{:.6},{:.3},{},{}",
             self.file,
             self.truth_scale,
             self.fallout.as_str(),
+            self.failed_gates,
             self.v_truth,
             self.v_image,
             self.epsilon_ratio,
@@ -132,8 +144,23 @@ pub fn run(dir: &Path, manifest: &Manifest, params: &GridParams) -> Result<Vec<R
                 _ => Fallout::LowConfidence,
             };
 
+            let failed_gates = mine
+                .map(|c| {
+                    [
+                        (!c.passes_epsilon).then_some("epsilon"),
+                        (!c.passes_recon).then_some("recon"),
+                        (!c.passes_phase).then_some("phase_drift"),
+                    ]
+                    .into_iter()
+                    .flatten()
+                    .collect::<Vec<_>>()
+                    .join("|")
+                })
+                .unwrap_or_default();
+
             Ok(Record {
                 file: item.file.clone(),
+                failed_gates,
                 truth_scale: truth.scale,
                 fallout,
                 v_truth,
@@ -175,12 +202,23 @@ mod tests {
         assert_eq!(sorted.len(), names.len());
     }
 
+    /// `GATES` の識別子は `failed_gates` 欄に書く値と同じでなければならない．
+    /// **食い違うと関門ごとの集計が黙って 0 件になる．**
+    #[test]
+    fn the_gate_identifiers_match_what_the_column_writes() {
+        let written = [Fallout::Epsilon, Fallout::Recon, Fallout::PhaseDrift];
+        for (id, f) in GATES.iter().zip(written) {
+            assert_eq!(*id, f.as_str(), "{:?} の識別子が食い違っている", f);
+        }
+    }
+
     #[test]
     fn the_header_lists_as_many_columns_as_a_row_writes() {
         let r = Record {
             file: "a.png".to_string(),
             truth_scale: 6,
             fallout: Fallout::Epsilon,
+            failed_gates: "recon|phase_drift".to_string(),
             v_truth: 0.01,
             v_image: 0.05,
             epsilon_ratio: 1.2,

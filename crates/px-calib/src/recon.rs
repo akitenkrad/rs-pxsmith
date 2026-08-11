@@ -11,11 +11,26 @@
 //! 手続きは D62 (位相ずれ検査) のときと同じにする．**候補ごとに統計を出し，
 //! 「真の $s$ か否か」を単一閾値でどれだけ分けられるか**を均衡正解率で比べる．
 //! 分かれない量を実装しても意味が無い．
+//!
+//! > [!warning] 均衡正解率だけで採否を決めない
+//! > **この口で高い分離能を出した統計が，関門としては役に立たないことがある．**
+//! > 差分エネルギーの折り畳みは「真の $s$ vs 2 倍」で 87.1% を出しながら，選択規則
+//! > $\hat{s} = \max \{ s \mid \text{関門を通る} \}$ に入れると完全一致 15 / 101
+//! > だった (現行の再構成検査は 43 / 101) — 真の $s$ 自身も落とすためである．
+//! >
+//! > **関門は単独では測れない．** $\varepsilon$ と位相ずれ検査を通した後では，真の
+//! > $s$ が残っているのは 59 / 101 しかなく，そこに何を足しても 59 が上限になる．
+//! > CSV には `passes_epsilon` ・`passes_phase` を残してあるので，**他の関門を通した
+//! > 状態で数え直すこと**．
 
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use px_core::grid::{GridParams, ReconStats, recon_stats, scale_candidates};
+use px_core::grid::{
+    GridParams, PhaseContrast, ProfileStats, ReconStats, band_phases, band_phases_subpixel,
+    phase_contrast, phase_drift_spread, profile_stats, recon_stats, scale_candidates, split_gain,
+    split_recon_gain,
+};
 use rayon::prelude::*;
 
 use crate::dataset::{Manifest, Split};
@@ -26,6 +41,9 @@ pub struct Record {
     pub item_id: u32,
     pub scale: u32,
     pub truth_scale: u32,
+    /// 整数の格子がある件か．**無い件も測る** — 位相ずれ検査が本当に相手にしている
+    /// のは非整数の周期であり，真の格子と並べないと「揺れ」と「ずれ」を比べられない．
+    pub has_integer_grid: bool,
     /// **これが真の $s$ か．** 分けたいのはここである．
     pub is_truth: bool,
     pub filter: String,
@@ -36,18 +54,69 @@ pub struct Record {
     /// $2 s_*$ のセルは元の 4 画素を含むが，$s_*$ のセルは 1 画素しか含まないためである．
     /// 真の $s$ なら半分にしても平坦なままで比は 1 に近い．
     pub v_half: f32,
+    /// 差分エネルギーの折り畳み．**セル平均の残差とは別の情報**である．
+    pub profile: ProfileStats,
+    /// 半セルずらしたときの崩れ方．**同じ画像で 2 度測った比**なので補間が相殺する．
+    pub contrast: PhaseContrast,
+    /// 他の関門を通るか．**関門は単独では効かない** — 位相ずれ検査が非整数倍と
+    /// 非約数を落とした**後に**何が残っているかで，再構成検査の仕事が決まる．
+    pub passes_epsilon: bool,
+    pub passes_phase: bool,
+    /// 帯ごとの位相の食い違い (画素)．検査を飛ばした場合は `None`．
+    pub drift: Option<usize>,
+    /// 帯の数を 2 ・3 ・4 と変えたときの，帯ごとの位相そのもの．
+    ///
+    /// **ずれの最大値 (`cyclic_spread`) は帯 1 本の外れで決まってしまう．** 揺れに強い
+    /// まとめ方 (円周上の集中度など) と比べるために，生の並びを残す．帯の数は閾値では
+    /// なく**検査の適用範囲**を決めている — 帯が薄いと検査そのものが飛ぶ．
+    pub bands_by_count: [Option<(Vec<usize>, Vec<usize>)>; 3],
+    /// 同じものを**副画素**で測ったもの．整数の刻みが分けたい量と同じ大きさなので，
+    /// 細かくすれば «揺れ» と «ずれ» が分かれるかを見る．
+    pub subpixel_by_count: [Option<(Vec<f32>, Vec<f32>)>; 3],
+    /// セルを 4 分割したときに説明できる分散の割合．**倍数の抑止だけを担う候補**．
+    pub split_gain: f32,
+    /// 同じものを**不一致率**で測ったもの ($\delta$ の閾値を残したまま相対化する)．
+    pub split_recon_gain: f32,
 }
 
-pub const HEADER: &str = "item_id,scale,truth_scale,is_truth,filter,\
-overall,interior,border,median_delta_e,interior_median_delta_e,v,v_half";
+pub const HEADER: &str = "item_id,scale,truth_scale,has_integer_grid,is_truth,filter,\
+overall,interior,border,median_delta_e,interior_median_delta_e,v,v_half,\
+edge_share_x,edge_share_y,echo1_x,echo1_y,echo2_x,echo2_y,\
+relief1_x,relief1_y,relief2_x,relief2_y,\
+vmargin_x,vmargin_y,vratio_x,vratio_y,rratio_x,rratio_y,\
+passes_epsilon,passes_phase,drift,bx2,by2,bx3,by3,bx4,by4,\
+sx2,sy2,sx3,sy3,sx4,sy4,split_gain,split_recon_gain";
+
+/// 帯ごとの位相を `|` でつなぐ (CSV の 1 欄に収めるため)．
+fn join(v: Option<&Vec<usize>>) -> String {
+    v.map(|v| v.iter().map(usize::to_string).collect::<Vec<_>>().join("|"))
+        .unwrap_or_default()
+}
+
+/// 副画素の位相を `|` でつなぐ．
+fn join_f(v: Option<&Vec<f32>>) -> String {
+    v.map(|v| {
+        v.iter()
+            .map(|x| format!("{x:.3}"))
+            .collect::<Vec<_>>()
+            .join("|")
+    })
+    .unwrap_or_default()
+}
 
 impl Record {
     pub fn to_csv(&self) -> String {
+        let p = &self.profile;
+        let c = &self.contrast;
         format!(
-            "{},{},{},{},{},{:.5},{:.5},{:.5},{:.5},{:.5},{:.6},{:.6}",
+            "{},{},{},{},{},{},{:.5},{:.5},{:.5},{:.5},{:.5},{:.6},{:.6},\
+{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},\
+{:.5},{:.5},{:.4},{:.4},{:.4},{:.4},{},{},{},{},{},{},{},{},{},\
+{},{},{},{},{},{},{:.5},{:.5}",
             self.item_id,
             self.scale,
             self.truth_scale,
+            self.has_integer_grid,
             self.is_truth,
             self.filter,
             self.stats.overall,
@@ -57,7 +126,55 @@ impl Record {
             self.stats.interior_median_delta_e,
             self.v,
             self.v_half,
+            p.edge_share[0],
+            p.edge_share[1],
+            p.echo1[0],
+            p.echo1[1],
+            p.echo2[0],
+            p.echo2[1],
+            p.relief1[0],
+            p.relief1[1],
+            p.relief2[0],
+            p.relief2[1],
+            c.variance_margin[0],
+            c.variance_margin[1],
+            c.variance_ratio[0],
+            c.variance_ratio[1],
+            c.recon_ratio[0],
+            c.recon_ratio[1],
+            self.passes_epsilon,
+            self.passes_phase,
+            self.drift.map(|d| d as i32).unwrap_or(-1),
+            join(self.bands_by_count[0].as_ref().map(|b| &b.0)),
+            join(self.bands_by_count[0].as_ref().map(|b| &b.1)),
+            join(self.bands_by_count[1].as_ref().map(|b| &b.0)),
+            join(self.bands_by_count[1].as_ref().map(|b| &b.1)),
+            join(self.bands_by_count[2].as_ref().map(|b| &b.0)),
+            join(self.bands_by_count[2].as_ref().map(|b| &b.1)),
+            join_f(self.subpixel_by_count[0].as_ref().map(|b| &b.0)),
+            join_f(self.subpixel_by_count[0].as_ref().map(|b| &b.1)),
+            join_f(self.subpixel_by_count[1].as_ref().map(|b| &b.0)),
+            join_f(self.subpixel_by_count[1].as_ref().map(|b| &b.1)),
+            join_f(self.subpixel_by_count[2].as_ref().map(|b| &b.0)),
+            join_f(self.subpixel_by_count[2].as_ref().map(|b| &b.1)),
+            self.split_gain,
+            self.split_recon_gain,
         )
+    }
+
+    /// この候補が真の $s$ の何倍か．約数なら 1 未満になる．
+    pub fn ratio(&self) -> f32 {
+        self.scale as f32 / self.truth_scale as f32
+    }
+
+    /// 真の $s$ の整数倍 ($2$ 倍以上) か．**再構成検査が唯一止めている相手**である．
+    pub fn is_multiple(&self) -> bool {
+        !self.is_truth && self.scale.is_multiple_of(self.truth_scale)
+    }
+
+    /// 真の $s$ の約数か．検査を入れると勝ってしまう相手である．
+    pub fn is_divisor(&self) -> bool {
+        !self.is_truth && self.truth_scale.is_multiple_of(self.scale)
     }
 }
 
@@ -70,12 +187,13 @@ pub fn run(
     manifest: &Manifest,
     only: Option<Split>,
     params: &GridParams,
+    include_resized: bool,
 ) -> Result<Vec<Record>> {
     let items: Vec<_> = manifest
         .items
         .iter()
         .filter(|i| only.is_none_or(|s| i.split == s))
-        .filter(|i| i.has_integer_grid())
+        .filter(|i| include_resized || i.has_integer_grid())
         .collect();
 
     let nested: Vec<Vec<Record>> = items
@@ -96,11 +214,30 @@ pub fn run(
                     item_id: item.id,
                     scale: c.scale,
                     truth_scale: item.truth_scale,
-                    is_truth: c.scale == item.truth_scale,
+                    has_integer_grid: item.has_integer_grid(),
+                    is_truth: item.has_integer_grid() && c.scale == item.truth_scale,
                     filter: item.degradation.filter.as_str().to_string(),
                     stats: recon_stats(&img, c.scale, c.phase, params.delta),
                     v: c.mean_variance,
                     v_half: v_of(c.scale / 2),
+                    profile: profile_stats(&img, c.scale, c.phase),
+                    contrast: phase_contrast(&img, c.scale, c.phase, params.delta),
+                    passes_epsilon: c.passes_epsilon,
+                    passes_phase: c.passes_phase,
+                    bands_by_count: [2, 3, 4]
+                        .map(|b| band_phases(&img, c.scale, c.phase, b, params.phase_min_cells)),
+                    subpixel_by_count: [2, 3, 4].map(|b| {
+                        band_phases_subpixel(&img, c.scale, c.phase, b, params.phase_min_cells)
+                    }),
+                    split_gain: split_gain(&img, c.scale, c.phase),
+                    split_recon_gain: split_recon_gain(&img, c.scale, c.phase, params.delta),
+                    drift: phase_drift_spread(
+                        &img,
+                        c.scale,
+                        c.phase,
+                        params.phase_bands,
+                        params.phase_min_cells,
+                    ),
                 })
                 .collect())
         })
@@ -142,10 +279,30 @@ mod tests {
             item_id: 0,
             scale: 4,
             truth_scale: 4,
+            has_integer_grid: true,
             is_truth,
             filter: "nearest".to_string(),
             v: overall,
             v_half: overall,
+            profile: ProfileStats {
+                edge_share: [overall; 2],
+                echo1: [overall; 2],
+                echo2: [overall; 2],
+                relief1: [overall; 2],
+                relief2: [overall; 2],
+            },
+            contrast: PhaseContrast {
+                variance_margin: [overall; 2],
+                variance_ratio: [overall; 2],
+                recon_ratio: [overall; 2],
+            },
+            passes_epsilon: true,
+            passes_phase: true,
+            drift: None,
+            bands_by_count: [None, None, None],
+            subpixel_by_count: [None, None, None],
+            split_gain: overall,
+            split_recon_gain: overall,
             stats: ReconStats {
                 overall,
                 interior: overall,
@@ -180,6 +337,20 @@ mod tests {
         ];
         let (_, balanced) = separation(&records, |r| r.stats.overall);
         assert!(balanced <= 0.5 + 1e-6, "均衡正解率 {balanced}");
+    }
+
+    #[test]
+    fn a_candidate_knows_whether_it_is_a_multiple_or_a_divisor() {
+        let mut r = rec(false, 0.0);
+        r.truth_scale = 4;
+        r.scale = 8;
+        assert!(r.is_multiple() && !r.is_divisor());
+        r.scale = 2;
+        assert!(r.is_divisor() && !r.is_multiple());
+        // 真の s 自身はどちらでもない (自分自身の倍数でも約数でもある値だが除く)
+        r.scale = 4;
+        r.is_truth = true;
+        assert!(!r.is_multiple() && !r.is_divisor());
     }
 
     #[test]
