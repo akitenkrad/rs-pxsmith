@@ -18,6 +18,7 @@
       "category": "render",
       "license": "CC0 (自作)",
       "source": "自作 — px-calib render (種 7, 12 倍 / bicubic / リサイズ 1.30 / jpeg80)",
+      "no_grid": true,
       "note": "非整数倍リサイズ — 整数の格子は無い (棄却が正しい)"
     },
     {
@@ -25,6 +26,7 @@
       "category": "render",
       "license": "CC0 (自作)",
       "source": "自作 — px-calib render (種 7, 12 倍 / bicubic / リサイズ 1.30 / png)",
+      "no_grid": true,
       "note": "非整数倍リサイズ — 整数の格子は無い (棄却が正しい)"
     },
     {
@@ -45,6 +47,7 @@
       "category": "render",
       "license": "CC0 (自作)",
       "source": "自作 — px-calib render (種 7, 3 倍 / bilinear / リサイズ 0.85 / png)",
+      "no_grid": true,
       "note": "非整数倍リサイズ — 整数の格子は無い (棄却が正しい)"
     },
     {
@@ -52,6 +55,7 @@
       "category": "render",
       "license": "CC0 (自作)",
       "source": "自作 — px-calib render (種 7, 6 倍 / lanczos / リサイズ 1.30 / jpeg60)",
+      "no_grid": true,
       "note": "非整数倍リサイズ — 整数の格子は無い (棄却が正しい)"
     },
     {
@@ -59,6 +63,7 @@
       "category": "render",
       "license": "CC0 (自作)",
       "source": "自作 — px-calib render (種 7, 8 倍 / nearest / リサイズ 0.85 / jpeg60)",
+      "no_grid": true,
       "note": "非整数倍リサイズ — 整数の格子は無い (棄却が正しい)"
     },
     {
@@ -79,6 +84,7 @@
       "category": "render",
       "license": "CC0 (自作)",
       "source": "自作 — px-calib render (種 7, 12 倍 / lanczos / リサイズ 1.30 / jpeg80)",
+      "no_grid": true,
       "note": "非整数倍リサイズ — 整数の格子は無い (棄却が正しい)"
     },
     {
@@ -99,6 +105,7 @@
       "category": "render",
       "license": "CC0 (自作)",
       "source": "自作 — px-calib render (種 7, 6 倍 / nearest / リサイズ 1.30 / png)",
+      "no_grid": true,
       "note": "非整数倍リサイズ — 整数の格子は無い (棄却が正しい)"
     },
     {
@@ -106,6 +113,7 @@
       "category": "render",
       "license": "CC0 (自作)",
       "source": "自作 — px-calib render (種 7, 12 倍 / bicubic / リサイズ 0.85 / png)",
+      "no_grid": true,
       "note": "非整数倍リサイズ — 整数の格子は無い (棄却が正しい)"
     },
     {
@@ -113,6 +121,7 @@
       "category": "render",
       "license": "CC0 (自作)",
       "source": "自作 — px-calib render (種 7, 8 倍 / bilinear / リサイズ 1.30 / jpeg60)",
+      "no_grid": true,
       "note": "非整数倍リサイズ — 整数の格子は無い (棄却が正しい)"
     },
     {
@@ -120,6 +129,7 @@
       "category": "render",
       "license": "CC0 (自作)",
       "source": "自作 — px-calib render (種 7, 12 倍 / bicubic / リサイズ 0.85 / jpeg60)",
+      "no_grid": true,
       "note": "非整数倍リサイズ — 整数の格子は無い (棄却が正しい)"
     },
     {
@@ -127,6 +137,7 @@
       "category": "render",
       "license": "CC0 (自作)",
       "source": "自作 — px-calib render (種 7, 2 倍 / nearest / リサイズ 1.30 / png)",
+      "no_grid": true,
       "note": "非整数倍リサイズ — 整数の格子は無い (棄却が正しい)"
     },
     {
@@ -134,6 +145,7 @@
       "category": "render",
       "license": "CC0 (自作)",
       "source": "自作 — px-calib render (種 7, 6 倍 / bilinear / リサイズ 0.85 / png)",
+      "no_grid": true,
       "note": "非整数倍リサイズ — 整数の格子は無い (棄却が正しい)"
     },
     {
@@ -141,6 +153,7 @@
       "category": "render",
       "license": "CC0 (自作)",
       "source": "自作 — px-calib render (種 7, 12 倍 / bilinear / リサイズ 1.30 / jpeg60)",
+      "no_grid": true,
       "note": "非整数倍リサイズ — 整数の格子は無い (棄却が正しい)"
     },
     {
@@ -148,6 +161,7 @@
       "category": "render",
       "license": "CC0 (自作)",
       "source": "自作 — px-calib render (種 7, 4 倍 / bicubic / リサイズ 1.30 / png)",
+      "no_grid": true,
       "note": "非整数倍リサイズ — 整数の格子は無い (棄却が正しい)"
     },
     {
@@ -181,6 +195,7 @@
       "category": "render",
       "license": "CC0 (自作)",
       "source": "自作 — px-calib render (種 7, 6 倍 / lanczos / リサイズ 0.85 / jpeg80)",
+      "no_grid": true,
       "note": "非整数倍リサイズ — 整数の格子は無い (棄却が正しい)"
     },
     {
@@ -214,6 +229,7 @@
       "category": "render",
       "license": "CC0 (自作)",
       "source": "自作 — px-calib render (種 7, 6 倍 / lanczos / リサイズ 1.30 / jpeg60)",
+      "no_grid": true,
       "note": "非整数倍リサイズ — 整数の格子は無い (棄却が正しい)"
     },
     {
@@ -228,6 +244,1500 @@
           2
         ]
       }
+    },
+    {
+      "file": "ai-output/neg-000.png",
+      "category": "ai-output",
+      "license": "CC0 (自作 — ChatGPT の出力．OpenAI 規約により出力の権利は利用者に属する)",
+      "source": "ChatGPT_20260811_001.png (1254x1254 の中央を切り出し)",
+      "no_grid": true,
+      "note": "ingest が周期を読めなかった (縁が境界へ集中していない)．棄却が正しい"
+    },
+    {
+      "file": "ai-output/neg-001.png",
+      "category": "ai-output",
+      "license": "CC0 (自作 — ChatGPT の出力．OpenAI 規約により出力の権利は利用者に属する)",
+      "source": "ChatGPT_20260811_002.png (1536x1024 の中央を切り出し)",
+      "no_grid": true,
+      "note": "ingest が周期を読めなかった (縁が境界へ集中していない)．棄却が正しい"
+    },
+    {
+      "file": "ai-output/neg-002.png",
+      "category": "ai-output",
+      "license": "CC0 (自作 — ChatGPT の出力．OpenAI 規約により出力の権利は利用者に属する)",
+      "source": "ChatGPT_20260811_003.png (1535x1024 の中央を切り出し)",
+      "no_grid": true,
+      "note": "ingest が周期を読めなかった (縁が境界へ集中していない)．棄却が正しい"
+    },
+    {
+      "file": "ai-output/neg-003.png",
+      "category": "ai-output",
+      "license": "CC0 (自作 — ChatGPT の出力．OpenAI 規約により出力の権利は利用者に属する)",
+      "source": "ChatGPT_20260811_004.png (1448x1086 の中央を切り出し)",
+      "no_grid": true,
+      "note": "ingest が周期を読めなかった (縁が境界へ集中していない)．棄却が正しい"
+    },
+    {
+      "file": "ai-output/neg-004.png",
+      "category": "ai-output",
+      "license": "CC0 (自作 — ChatGPT の出力．OpenAI 規約により出力の権利は利用者に属する)",
+      "source": "ChatGPT_20260811_005.png (1254x1254 の中央を切り出し)",
+      "no_grid": true,
+      "note": "ingest が周期を読めなかった (縁が境界へ集中していない)．棄却が正しい"
+    },
+    {
+      "file": "ai-output/neg-005.png",
+      "category": "ai-output",
+      "license": "CC0 (自作 — ChatGPT の出力．OpenAI 規約により出力の権利は利用者に属する)",
+      "source": "ChatGPT_20260811_006.png (1254x1254 の中央を切り出し)",
+      "no_grid": true,
+      "note": "ingest が周期を読めなかった (縁が境界へ集中していない)．棄却が正しい"
+    },
+    {
+      "file": "ai-output/neg-006.png",
+      "category": "ai-output",
+      "license": "CC0 (自作 — ChatGPT の出力．OpenAI 規約により出力の権利は利用者に属する)",
+      "source": "ChatGPT_20260811_007.png (1254x1254 の中央を切り出し)",
+      "no_grid": true,
+      "note": "ingest が周期を読めなかった (縁が境界へ集中していない)．棄却が正しい"
+    },
+    {
+      "file": "ai-output/neg-007.png",
+      "category": "ai-output",
+      "license": "CC0 (自作 — ChatGPT の出力．OpenAI 規約により出力の権利は利用者に属する)",
+      "source": "ChatGPT_20260811_008.png (1254x1254 の中央を切り出し)",
+      "no_grid": true,
+      "note": "ingest が周期を読めなかった (縁が境界へ集中していない)．棄却が正しい"
+    },
+    {
+      "file": "ai-output/neg-008.png",
+      "category": "ai-output",
+      "license": "CC0 (自作 — ChatGPT の出力．OpenAI 規約により出力の権利は利用者に属する)",
+      "source": "ChatGPT_20260811_009.png (1672x941 の中央を切り出し)",
+      "no_grid": true,
+      "note": "ingest が周期を読めなかった (縁が境界へ集中していない)．棄却が正しい"
+    },
+    {
+      "file": "ai-output/neg-009.png",
+      "category": "ai-output",
+      "license": "CC0 (自作 — ChatGPT の出力．OpenAI 規約により出力の権利は利用者に属する)",
+      "source": "ChatGPT_20260811_010.png (1672x941 の中央を切り出し)",
+      "no_grid": true,
+      "note": "ingest が周期を読めなかった (縁が境界へ集中していない)．棄却が正しい"
+    },
+    {
+      "file": "ai-output/neg-010.png",
+      "category": "ai-output",
+      "license": "CC0 (自作 — ChatGPT の出力．OpenAI 規約により出力の権利は利用者に属する)",
+      "source": "ChatGPT_20260811_011.png (1672x941 の中央を切り出し)",
+      "no_grid": true,
+      "note": "ingest が周期を読めなかった (縁が境界へ集中していない)．棄却が正しい"
+    },
+    {
+      "file": "ai-output/neg-011.png",
+      "category": "ai-output",
+      "license": "CC0 (自作 — ChatGPT の出力．OpenAI 規約により出力の権利は利用者に属する)",
+      "source": "ChatGPT_20260811_012.png (1672x941 の中央を切り出し)",
+      "no_grid": true,
+      "note": "ingest が周期を読めなかった (縁が境界へ集中していない)．棄却が正しい"
+    },
+    {
+      "file": "ai-output/neg-012.png",
+      "category": "ai-output",
+      "license": "CC0 (自作 — ChatGPT の出力．OpenAI 規約により出力の権利は利用者に属する)",
+      "source": "ChatGPT_20260811_013.png (1672x941 の中央を切り出し)",
+      "no_grid": true,
+      "note": "ingest が周期を読めなかった (縁が境界へ集中していない)．棄却が正しい"
+    },
+    {
+      "file": "ai-output/neg-013.png",
+      "category": "ai-output",
+      "license": "CC0 (自作 — ChatGPT の出力．OpenAI 規約により出力の権利は利用者に属する)",
+      "source": "ChatGPT_20260811_014.png (1672x941 の中央を切り出し)",
+      "no_grid": true,
+      "note": "ingest が周期を読めなかった (縁が境界へ集中していない)．棄却が正しい"
+    },
+    {
+      "file": "ai-output/neg-014.png",
+      "category": "ai-output",
+      "license": "CC0 (自作 — ChatGPT の出力．OpenAI 規約により出力の権利は利用者に属する)",
+      "source": "ChatGPT_20260811_015.png (1672x941 の中央を切り出し)",
+      "no_grid": true,
+      "note": "ingest が周期を読めなかった (縁が境界へ集中していない)．棄却が正しい"
+    },
+    {
+      "file": "ai-output/neg-015.png",
+      "category": "ai-output",
+      "license": "CC0 (自作 — ChatGPT の出力．OpenAI 規約により出力の権利は利用者に属する)",
+      "source": "ChatGPT_20260811_016.png (1672x941 の中央を切り出し)",
+      "no_grid": true,
+      "note": "ingest が周期を読めなかった (縁が境界へ集中していない)．棄却が正しい"
+    },
+    {
+      "file": "ai-output/neg-016.png",
+      "category": "ai-output",
+      "license": "CC0 (自作 — ChatGPT の出力．OpenAI 規約により出力の権利は利用者に属する)",
+      "source": "ChatGPT_20260811_017.png (1672x941 の中央を切り出し)",
+      "no_grid": true,
+      "note": "ingest が周期を読めなかった (縁が境界へ集中していない)．棄却が正しい"
+    },
+    {
+      "file": "ai-output/neg-017.png",
+      "category": "ai-output",
+      "license": "CC0 (自作 — ChatGPT の出力．OpenAI 規約により出力の権利は利用者に属する)",
+      "source": "ChatGPT_20260811_018.png (1672x941 の中央を切り出し)",
+      "no_grid": true,
+      "note": "ingest が周期を読めなかった (縁が境界へ集中していない)．棄却が正しい"
+    },
+    {
+      "file": "ai-output/neg-018.png",
+      "category": "ai-output",
+      "license": "CC0 (自作 — ChatGPT の出力．OpenAI 規約により出力の権利は利用者に属する)",
+      "source": "ChatGPT_20260811_019.png (1672x941 の中央を切り出し)",
+      "no_grid": true,
+      "note": "ingest が周期を読めなかった (縁が境界へ集中していない)．棄却が正しい"
+    },
+    {
+      "file": "ai-output/neg-019.png",
+      "category": "ai-output",
+      "license": "CC0 (自作 — ChatGPT の出力．OpenAI 規約により出力の権利は利用者に属する)",
+      "source": "ChatGPT_20260811_020.png (1672x941 の中央を切り出し)",
+      "no_grid": true,
+      "note": "ingest が周期を読めなかった (縁が境界へ集中していない)．棄却が正しい"
+    },
+    {
+      "file": "ai-output/neg-020.png",
+      "category": "ai-output",
+      "license": "CC0 (自作 — ChatGPT の出力．OpenAI 規約により出力の権利は利用者に属する)",
+      "source": "ChatGPT_20260811_021.png (1672x941 の中央を切り出し)",
+      "no_grid": true,
+      "note": "ingest が周期を読めなかった (縁が境界へ集中していない)．棄却が正しい"
+    },
+    {
+      "file": "ai-output/neg-021.png",
+      "category": "ai-output",
+      "license": "CC0 (自作 — ChatGPT の出力．OpenAI 規約により出力の権利は利用者に属する)",
+      "source": "ChatGPT_20260811_022.png (1672x941 の中央を切り出し)",
+      "no_grid": true,
+      "note": "ingest が周期を読めなかった (縁が境界へ集中していない)．棄却が正しい"
+    },
+    {
+      "file": "ai-output/neg-022.png",
+      "category": "ai-output",
+      "license": "CC0 (自作 — ChatGPT の出力．OpenAI 規約により出力の権利は利用者に属する)",
+      "source": "ChatGPT_20260811_023.png (1672x941 の中央を切り出し)",
+      "no_grid": true,
+      "note": "ingest が周期を読めなかった (縁が境界へ集中していない)．棄却が正しい"
+    },
+    {
+      "file": "ai-output/neg-023.png",
+      "category": "ai-output",
+      "license": "CC0 (自作 — ChatGPT の出力．OpenAI 規約により出力の権利は利用者に属する)",
+      "source": "ChatGPT_20260811_024.png (1672x941 の中央を切り出し)",
+      "no_grid": true,
+      "note": "ingest が周期を読めなかった (縁が境界へ集中していない)．棄却が正しい"
+    },
+    {
+      "file": "ai-output/neg-024.png",
+      "category": "ai-output",
+      "license": "CC0 (自作 — ChatGPT の出力．OpenAI 規約により出力の権利は利用者に属する)",
+      "source": "ChatGPT_20260811_025.png (1672x941 の中央を切り出し)",
+      "no_grid": true,
+      "note": "ingest が周期を読めなかった (縁が境界へ集中していない)．棄却が正しい"
+    },
+    {
+      "file": "ai-output/neg-025.png",
+      "category": "ai-output",
+      "license": "CC0 (自作 — ChatGPT の出力．OpenAI 規約により出力の権利は利用者に属する)",
+      "source": "ChatGPT_20260811_026.png (1672x941 の中央を切り出し)",
+      "no_grid": true,
+      "note": "ingest が周期を読めなかった (縁が境界へ集中していない)．棄却が正しい"
+    },
+    {
+      "file": "ai-output/neg-026.png",
+      "category": "ai-output",
+      "license": "CC0 (自作 — ChatGPT の出力．OpenAI 規約により出力の権利は利用者に属する)",
+      "source": "ChatGPT_20260811_027.png (1672x941 の中央を切り出し)",
+      "no_grid": true,
+      "note": "ingest が周期を読めなかった (縁が境界へ集中していない)．棄却が正しい"
+    },
+    {
+      "file": "ai-output/neg-027.png",
+      "category": "ai-output",
+      "license": "CC0 (自作 — ChatGPT の出力．OpenAI 規約により出力の権利は利用者に属する)",
+      "source": "ChatGPT_20260811_028.png (1672x941 の中央を切り出し)",
+      "no_grid": true,
+      "note": "ingest が周期を読めなかった (縁が境界へ集中していない)．棄却が正しい"
+    },
+    {
+      "file": "ai-output/000.png",
+      "category": "ai-output",
+      "license": "CC0 (自作 — ChatGPT の出力．OpenAI 規約により出力の権利は利用者に属する)",
+      "source": "ChatGPT_20260811_001.png を周期 32 (指定) で縮小し 2 倍へ拡大 (nearest / png．px-calib ingest)",
+      "truth": {
+        "scale": 2,
+        "phase": [
+          0,
+          0
+        ]
+      },
+      "note": "元絵に格子は無い．縮小の粗さを指定し，こちらが決めた倍率で拡大して格子を作った (正解は拡大倍率)"
+    },
+    {
+      "file": "ai-output/001.png",
+      "category": "ai-output",
+      "license": "CC0 (自作 — ChatGPT の出力．OpenAI 規約により出力の権利は利用者に属する)",
+      "source": "ChatGPT_20260811_002.png を周期 32 (指定) で縮小し 3 倍へ拡大 (bilinear / png．px-calib ingest)",
+      "truth": {
+        "scale": 3,
+        "phase": [
+          2,
+          1
+        ]
+      },
+      "note": "元絵に格子は無い．縮小の粗さを指定し，こちらが決めた倍率で拡大して格子を作った (正解は拡大倍率)"
+    },
+    {
+      "file": "ai-output/002.png",
+      "category": "ai-output",
+      "license": "CC0 (自作 — ChatGPT の出力．OpenAI 規約により出力の権利は利用者に属する)",
+      "source": "ChatGPT_20260811_003.png を周期 32 (指定) で縮小し 4 倍へ拡大 (bicubic / png．px-calib ingest)",
+      "truth": {
+        "scale": 4,
+        "phase": [
+          2,
+          0
+        ]
+      },
+      "note": "元絵に格子は無い．縮小の粗さを指定し，こちらが決めた倍率で拡大して格子を作った (正解は拡大倍率)"
+    },
+    {
+      "file": "ai-output/003.png",
+      "category": "ai-output",
+      "license": "CC0 (自作 — ChatGPT の出力．OpenAI 規約により出力の権利は利用者に属する)",
+      "source": "ChatGPT_20260811_004.png を周期 32 (指定) で縮小し 6 倍へ拡大 (lanczos / png．px-calib ingest)",
+      "truth": {
+        "scale": 6,
+        "phase": [
+          3,
+          0
+        ]
+      },
+      "note": "元絵に格子は無い．縮小の粗さを指定し，こちらが決めた倍率で拡大して格子を作った (正解は拡大倍率)"
+    },
+    {
+      "file": "ai-output/004.png",
+      "category": "ai-output",
+      "license": "CC0 (自作 — ChatGPT の出力．OpenAI 規約により出力の権利は利用者に属する)",
+      "source": "ChatGPT_20260811_005.png を周期 32 (指定) で縮小し 8 倍へ拡大 (nearest / jpeg95．px-calib ingest)",
+      "truth": {
+        "scale": 8,
+        "phase": [
+          4,
+          0
+        ]
+      },
+      "note": "元絵に格子は無い．縮小の粗さを指定し，こちらが決めた倍率で拡大して格子を作った (正解は拡大倍率)"
+    },
+    {
+      "file": "ai-output/005.png",
+      "category": "ai-output",
+      "license": "CC0 (自作 — ChatGPT の出力．OpenAI 規約により出力の権利は利用者に属する)",
+      "source": "ChatGPT_20260811_006.png を周期 32 (指定) で縮小し 12 倍へ拡大 (bilinear / jpeg95．px-calib ingest)",
+      "truth": {
+        "scale": 12,
+        "phase": [
+          7,
+          2
+        ]
+      },
+      "note": "元絵に格子は無い．縮小の粗さを指定し，こちらが決めた倍率で拡大して格子を作った (正解は拡大倍率)"
+    },
+    {
+      "file": "ai-output/006.png",
+      "category": "ai-output",
+      "license": "CC0 (自作 — ChatGPT の出力．OpenAI 規約により出力の権利は利用者に属する)",
+      "source": "ChatGPT_20260811_007.png を周期 32 (指定) で縮小し 2 倍へ拡大 (bicubic / jpeg95．px-calib ingest)",
+      "truth": {
+        "scale": 2,
+        "phase": [
+          0,
+          0
+        ]
+      },
+      "note": "元絵に格子は無い．縮小の粗さを指定し，こちらが決めた倍率で拡大して格子を作った (正解は拡大倍率)"
+    },
+    {
+      "file": "ai-output/007.png",
+      "category": "ai-output",
+      "license": "CC0 (自作 — ChatGPT の出力．OpenAI 規約により出力の権利は利用者に属する)",
+      "source": "ChatGPT_20260811_008.png を周期 32 (指定) で縮小し 3 倍へ拡大 (lanczos / jpeg95．px-calib ingest)",
+      "truth": {
+        "scale": 3,
+        "phase": [
+          2,
+          1
+        ]
+      },
+      "note": "元絵に格子は無い．縮小の粗さを指定し，こちらが決めた倍率で拡大して格子を作った (正解は拡大倍率)"
+    },
+    {
+      "file": "ai-output/008.png",
+      "category": "ai-output",
+      "license": "CC0 (自作 — ChatGPT の出力．OpenAI 規約により出力の権利は利用者に属する)",
+      "source": "ChatGPT_20260811_009.png を周期 32 (指定) で縮小し 4 倍へ拡大 (nearest / jpeg80．px-calib ingest)",
+      "truth": {
+        "scale": 4,
+        "phase": [
+          0,
+          0
+        ]
+      },
+      "note": "元絵に格子は無い．縮小の粗さを指定し，こちらが決めた倍率で拡大して格子を作った (正解は拡大倍率)"
+    },
+    {
+      "file": "ai-output/009.png",
+      "category": "ai-output",
+      "license": "CC0 (自作 — ChatGPT の出力．OpenAI 規約により出力の権利は利用者に属する)",
+      "source": "ChatGPT_20260811_010.png を周期 32 (指定) で縮小し 6 倍へ拡大 (bilinear / jpeg80．px-calib ingest)",
+      "truth": {
+        "scale": 6,
+        "phase": [
+          3,
+          0
+        ]
+      },
+      "note": "元絵に格子は無い．縮小の粗さを指定し，こちらが決めた倍率で拡大して格子を作った (正解は拡大倍率)"
+    },
+    {
+      "file": "ai-output/010.png",
+      "category": "ai-output",
+      "license": "CC0 (自作 — ChatGPT の出力．OpenAI 規約により出力の権利は利用者に属する)",
+      "source": "ChatGPT_20260811_011.png を周期 32 (指定) で縮小し 8 倍へ拡大 (bicubic / jpeg80．px-calib ingest)",
+      "truth": {
+        "scale": 8,
+        "phase": [
+          6,
+          4
+        ]
+      },
+      "note": "元絵に格子は無い．縮小の粗さを指定し，こちらが決めた倍率で拡大して格子を作った (正解は拡大倍率)"
+    },
+    {
+      "file": "ai-output/011.png",
+      "category": "ai-output",
+      "license": "CC0 (自作 — ChatGPT の出力．OpenAI 規約により出力の権利は利用者に属する)",
+      "source": "ChatGPT_20260811_012.png を周期 32 (指定) で縮小し 12 倍へ拡大 (lanczos / jpeg80．px-calib ingest)",
+      "truth": {
+        "scale": 12,
+        "phase": [
+          1,
+          2
+        ]
+      },
+      "note": "元絵に格子は無い．縮小の粗さを指定し，こちらが決めた倍率で拡大して格子を作った (正解は拡大倍率)"
+    },
+    {
+      "file": "ai-output/012.png",
+      "category": "ai-output",
+      "license": "CC0 (自作 — ChatGPT の出力．OpenAI 規約により出力の権利は利用者に属する)",
+      "source": "ChatGPT_20260811_013.png を周期 32 (指定) で縮小し 2 倍へ拡大 (nearest / jpeg60．px-calib ingest)",
+      "truth": {
+        "scale": 2,
+        "phase": [
+          0,
+          0
+        ]
+      },
+      "note": "元絵に格子は無い．縮小の粗さを指定し，こちらが決めた倍率で拡大して格子を作った (正解は拡大倍率)"
+    },
+    {
+      "file": "ai-output/013.png",
+      "category": "ai-output",
+      "license": "CC0 (自作 — ChatGPT の出力．OpenAI 規約により出力の権利は利用者に属する)",
+      "source": "ChatGPT_20260811_014.png を周期 32 (指定) で縮小し 3 倍へ拡大 (bilinear / jpeg60．px-calib ingest)",
+      "truth": {
+        "scale": 3,
+        "phase": [
+          2,
+          1
+        ]
+      },
+      "note": "元絵に格子は無い．縮小の粗さを指定し，こちらが決めた倍率で拡大して格子を作った (正解は拡大倍率)"
+    },
+    {
+      "file": "ai-output/014.png",
+      "category": "ai-output",
+      "license": "CC0 (自作 — ChatGPT の出力．OpenAI 規約により出力の権利は利用者に属する)",
+      "source": "ChatGPT_20260811_015.png を周期 32 (指定) で縮小し 4 倍へ拡大 (bicubic / jpeg60．px-calib ingest)",
+      "truth": {
+        "scale": 4,
+        "phase": [
+          2,
+          0
+        ]
+      },
+      "note": "元絵に格子は無い．縮小の粗さを指定し，こちらが決めた倍率で拡大して格子を作った (正解は拡大倍率)"
+    },
+    {
+      "file": "ai-output/015.png",
+      "category": "ai-output",
+      "license": "CC0 (自作 — ChatGPT の出力．OpenAI 規約により出力の権利は利用者に属する)",
+      "source": "ChatGPT_20260811_016.png を周期 32 (指定) で縮小し 6 倍へ拡大 (lanczos / jpeg60．px-calib ingest)",
+      "truth": {
+        "scale": 6,
+        "phase": [
+          3,
+          0
+        ]
+      },
+      "note": "元絵に格子は無い．縮小の粗さを指定し，こちらが決めた倍率で拡大して格子を作った (正解は拡大倍率)"
+    },
+    {
+      "file": "ai-output/016.png",
+      "category": "ai-output",
+      "license": "CC0 (自作 — ChatGPT の出力．OpenAI 規約により出力の権利は利用者に属する)",
+      "source": "ChatGPT_20260811_017.png を周期 32 (指定) で縮小し 8 倍へ拡大 (nearest / png．px-calib ingest)",
+      "truth": {
+        "scale": 8,
+        "phase": [
+          0,
+          0
+        ]
+      },
+      "note": "元絵に格子は無い．縮小の粗さを指定し，こちらが決めた倍率で拡大して格子を作った (正解は拡大倍率)"
+    },
+    {
+      "file": "ai-output/017.png",
+      "category": "ai-output",
+      "license": "CC0 (自作 — ChatGPT の出力．OpenAI 規約により出力の権利は利用者に属する)",
+      "source": "ChatGPT_20260811_018.png を周期 32 (指定) で縮小し 12 倍へ拡大 (bilinear / png．px-calib ingest)",
+      "truth": {
+        "scale": 12,
+        "phase": [
+          7,
+          2
+        ]
+      },
+      "note": "元絵に格子は無い．縮小の粗さを指定し，こちらが決めた倍率で拡大して格子を作った (正解は拡大倍率)"
+    },
+    {
+      "file": "ai-output/018.png",
+      "category": "ai-output",
+      "license": "CC0 (自作 — ChatGPT の出力．OpenAI 規約により出力の権利は利用者に属する)",
+      "source": "ChatGPT_20260811_019.png を周期 32 (指定) で縮小し 2 倍へ拡大 (bicubic / png．px-calib ingest)",
+      "truth": {
+        "scale": 2,
+        "phase": [
+          0,
+          0
+        ]
+      },
+      "note": "元絵に格子は無い．縮小の粗さを指定し，こちらが決めた倍率で拡大して格子を作った (正解は拡大倍率)"
+    },
+    {
+      "file": "ai-output/019.png",
+      "category": "ai-output",
+      "license": "CC0 (自作 — ChatGPT の出力．OpenAI 規約により出力の権利は利用者に属する)",
+      "source": "ChatGPT_20260811_020.png を周期 32 (指定) で縮小し 3 倍へ拡大 (lanczos / png．px-calib ingest)",
+      "truth": {
+        "scale": 3,
+        "phase": [
+          2,
+          1
+        ]
+      },
+      "note": "元絵に格子は無い．縮小の粗さを指定し，こちらが決めた倍率で拡大して格子を作った (正解は拡大倍率)"
+    },
+    {
+      "file": "ai-output/020.png",
+      "category": "ai-output",
+      "license": "CC0 (自作 — ChatGPT の出力．OpenAI 規約により出力の権利は利用者に属する)",
+      "source": "ChatGPT_20260811_021.png を周期 32 (指定) で縮小し 4 倍へ拡大 (nearest / jpeg95．px-calib ingest)",
+      "truth": {
+        "scale": 4,
+        "phase": [
+          0,
+          0
+        ]
+      },
+      "note": "元絵に格子は無い．縮小の粗さを指定し，こちらが決めた倍率で拡大して格子を作った (正解は拡大倍率)"
+    },
+    {
+      "file": "ai-output/021.png",
+      "category": "ai-output",
+      "license": "CC0 (自作 — ChatGPT の出力．OpenAI 規約により出力の権利は利用者に属する)",
+      "source": "ChatGPT_20260811_022.png を周期 32 (指定) で縮小し 6 倍へ拡大 (bilinear / jpeg95．px-calib ingest)",
+      "truth": {
+        "scale": 6,
+        "phase": [
+          3,
+          0
+        ]
+      },
+      "note": "元絵に格子は無い．縮小の粗さを指定し，こちらが決めた倍率で拡大して格子を作った (正解は拡大倍率)"
+    },
+    {
+      "file": "ai-output/022.png",
+      "category": "ai-output",
+      "license": "CC0 (自作 — ChatGPT の出力．OpenAI 規約により出力の権利は利用者に属する)",
+      "source": "ChatGPT_20260811_023.png を周期 32 (指定) で縮小し 8 倍へ拡大 (bicubic / jpeg95．px-calib ingest)",
+      "truth": {
+        "scale": 8,
+        "phase": [
+          2,
+          4
+        ]
+      },
+      "note": "元絵に格子は無い．縮小の粗さを指定し，こちらが決めた倍率で拡大して格子を作った (正解は拡大倍率)"
+    },
+    {
+      "file": "ai-output/023.png",
+      "category": "ai-output",
+      "license": "CC0 (自作 — ChatGPT の出力．OpenAI 規約により出力の権利は利用者に属する)",
+      "source": "ChatGPT_20260811_024.png を周期 32 (指定) で縮小し 12 倍へ拡大 (lanczos / jpeg95．px-calib ingest)",
+      "truth": {
+        "scale": 12,
+        "phase": [
+          1,
+          2
+        ]
+      },
+      "note": "元絵に格子は無い．縮小の粗さを指定し，こちらが決めた倍率で拡大して格子を作った (正解は拡大倍率)"
+    },
+    {
+      "file": "ai-output/024.png",
+      "category": "ai-output",
+      "license": "CC0 (自作 — ChatGPT の出力．OpenAI 規約により出力の権利は利用者に属する)",
+      "source": "ChatGPT_20260811_025.png を周期 32 (指定) で縮小し 2 倍へ拡大 (nearest / jpeg80．px-calib ingest)",
+      "truth": {
+        "scale": 2,
+        "phase": [
+          0,
+          0
+        ]
+      },
+      "note": "元絵に格子は無い．縮小の粗さを指定し，こちらが決めた倍率で拡大して格子を作った (正解は拡大倍率)"
+    },
+    {
+      "file": "ai-output/025.png",
+      "category": "ai-output",
+      "license": "CC0 (自作 — ChatGPT の出力．OpenAI 規約により出力の権利は利用者に属する)",
+      "source": "ChatGPT_20260811_026.png を周期 32 (指定) で縮小し 3 倍へ拡大 (bilinear / jpeg80．px-calib ingest)",
+      "truth": {
+        "scale": 3,
+        "phase": [
+          2,
+          1
+        ]
+      },
+      "note": "元絵に格子は無い．縮小の粗さを指定し，こちらが決めた倍率で拡大して格子を作った (正解は拡大倍率)"
+    },
+    {
+      "file": "ai-output/026.png",
+      "category": "ai-output",
+      "license": "CC0 (自作 — ChatGPT の出力．OpenAI 規約により出力の権利は利用者に属する)",
+      "source": "ChatGPT_20260811_027.png を周期 32 (指定) で縮小し 4 倍へ拡大 (bicubic / jpeg80．px-calib ingest)",
+      "truth": {
+        "scale": 4,
+        "phase": [
+          2,
+          0
+        ]
+      },
+      "note": "元絵に格子は無い．縮小の粗さを指定し，こちらが決めた倍率で拡大して格子を作った (正解は拡大倍率)"
+    },
+    {
+      "file": "ai-output/027.png",
+      "category": "ai-output",
+      "license": "CC0 (自作 — ChatGPT の出力．OpenAI 規約により出力の権利は利用者に属する)",
+      "source": "ChatGPT_20260811_028.png を周期 32 (指定) で縮小し 6 倍へ拡大 (lanczos / jpeg80．px-calib ingest)",
+      "truth": {
+        "scale": 6,
+        "phase": [
+          3,
+          0
+        ]
+      },
+      "note": "元絵に格子は無い．縮小の粗さを指定し，こちらが決めた倍率で拡大して格子を作った (正解は拡大倍率)"
+    },
+    {
+      "file": "other/000.png",
+      "category": "other",
+      "license": "CC0 (Kenney — Tiny Dungeon)",
+      "source": "tile_0001.png を入力をそのまま元絵として使いし，2 倍へ拡大 (nearest / png．px-calib ingest)",
+      "truth": {
+        "scale": 2,
+        "phase": [
+          0,
+          0
+        ]
+      },
+      "note": "配布されている元絵 (縮小していない) を，こちらが決めた倍率で拡大した．**中身は本物のドット絵**"
+    },
+    {
+      "file": "other/001.png",
+      "category": "other",
+      "license": "CC0 (Kenney — Tiny Dungeon)",
+      "source": "tile_0005.png を入力をそのまま元絵として使いし，3 倍へ拡大 (bilinear / png．px-calib ingest)",
+      "truth": {
+        "scale": 3,
+        "phase": [
+          2,
+          1
+        ]
+      },
+      "note": "配布されている元絵 (縮小していない) を，こちらが決めた倍率で拡大した．**中身は本物のドット絵**"
+    },
+    {
+      "file": "other/002.png",
+      "category": "other",
+      "license": "CC0 (Kenney — Tiny Dungeon)",
+      "source": "tile_0009.png を入力をそのまま元絵として使いし，4 倍へ拡大 (bicubic / png．px-calib ingest)",
+      "truth": {
+        "scale": 4,
+        "phase": [
+          2,
+          0
+        ]
+      },
+      "note": "配布されている元絵 (縮小していない) を，こちらが決めた倍率で拡大した．**中身は本物のドット絵**"
+    },
+    {
+      "file": "other/003.png",
+      "category": "other",
+      "license": "CC0 (Kenney — Tiny Dungeon)",
+      "source": "tile_0017.png を入力をそのまま元絵として使いし，6 倍へ拡大 (lanczos / png．px-calib ingest)",
+      "truth": {
+        "scale": 6,
+        "phase": [
+          3,
+          0
+        ]
+      },
+      "note": "配布されている元絵 (縮小していない) を，こちらが決めた倍率で拡大した．**中身は本物のドット絵**"
+    },
+    {
+      "file": "other/004.png",
+      "category": "other",
+      "license": "CC0 (Kenney — Tiny Dungeon)",
+      "source": "tile_0021.png を入力をそのまま元絵として使いし，8 倍へ拡大 (nearest / jpeg95．px-calib ingest)",
+      "truth": {
+        "scale": 8,
+        "phase": [
+          4,
+          0
+        ]
+      },
+      "note": "配布されている元絵 (縮小していない) を，こちらが決めた倍率で拡大した．**中身は本物のドット絵**"
+    },
+    {
+      "file": "other/005.png",
+      "category": "other",
+      "license": "CC0 (Kenney — Tiny Dungeon)",
+      "source": "tile_0025.png を入力をそのまま元絵として使いし，12 倍へ拡大 (bilinear / jpeg95．px-calib ingest)",
+      "truth": {
+        "scale": 12,
+        "phase": [
+          7,
+          2
+        ]
+      },
+      "note": "配布されている元絵 (縮小していない) を，こちらが決めた倍率で拡大した．**中身は本物のドット絵**"
+    },
+    {
+      "file": "other/006.png",
+      "category": "other",
+      "license": "CC0 (Kenney — Tiny Dungeon)",
+      "source": "tile_0029.png を入力をそのまま元絵として使いし，2 倍へ拡大 (bicubic / jpeg95．px-calib ingest)",
+      "truth": {
+        "scale": 2,
+        "phase": [
+          0,
+          0
+        ]
+      },
+      "note": "配布されている元絵 (縮小していない) を，こちらが決めた倍率で拡大した．**中身は本物のドット絵**"
+    },
+    {
+      "file": "other/007.png",
+      "category": "other",
+      "license": "CC0 (Kenney — Tiny Dungeon)",
+      "source": "tile_0033.png を入力をそのまま元絵として使いし，3 倍へ拡大 (lanczos / jpeg95．px-calib ingest)",
+      "truth": {
+        "scale": 3,
+        "phase": [
+          2,
+          1
+        ]
+      },
+      "note": "配布されている元絵 (縮小していない) を，こちらが決めた倍率で拡大した．**中身は本物のドット絵**"
+    },
+    {
+      "file": "other/008.png",
+      "category": "other",
+      "license": "CC0 (Kenney — Tiny Dungeon)",
+      "source": "tile_0038.png を入力をそのまま元絵として使いし，4 倍へ拡大 (nearest / jpeg80．px-calib ingest)",
+      "truth": {
+        "scale": 4,
+        "phase": [
+          0,
+          0
+        ]
+      },
+      "note": "配布されている元絵 (縮小していない) を，こちらが決めた倍率で拡大した．**中身は本物のドット絵**"
+    },
+    {
+      "file": "other/009.png",
+      "category": "other",
+      "license": "CC0 (Kenney — Tiny Dungeon)",
+      "source": "tile_0044.png を入力をそのまま元絵として使いし，6 倍へ拡大 (bilinear / jpeg80．px-calib ingest)",
+      "truth": {
+        "scale": 6,
+        "phase": [
+          3,
+          0
+        ]
+      },
+      "note": "配布されている元絵 (縮小していない) を，こちらが決めた倍率で拡大した．**中身は本物のドット絵**"
+    },
+    {
+      "file": "other/010.png",
+      "category": "other",
+      "license": "CC0 (Kenney — Tiny Dungeon)",
+      "source": "tile_0054.png を入力をそのまま元絵として使いし，8 倍へ拡大 (bicubic / jpeg80．px-calib ingest)",
+      "truth": {
+        "scale": 8,
+        "phase": [
+          6,
+          4
+        ]
+      },
+      "note": "配布されている元絵 (縮小していない) を，こちらが決めた倍率で拡大した．**中身は本物のドット絵**"
+    },
+    {
+      "file": "other/011.png",
+      "category": "other",
+      "license": "CC0 (Kenney — Tiny Dungeon)",
+      "source": "tile_0058.png を入力をそのまま元絵として使いし，12 倍へ拡大 (lanczos / jpeg80．px-calib ingest)",
+      "truth": {
+        "scale": 12,
+        "phase": [
+          1,
+          2
+        ]
+      },
+      "note": "配布されている元絵 (縮小していない) を，こちらが決めた倍率で拡大した．**中身は本物のドット絵**"
+    },
+    {
+      "file": "other/012.png",
+      "category": "other",
+      "license": "CC0 (Kenney — Tiny Dungeon)",
+      "source": "tile_0065.png を入力をそのまま元絵として使いし，2 倍へ拡大 (nearest / jpeg60．px-calib ingest)",
+      "truth": {
+        "scale": 2,
+        "phase": [
+          0,
+          0
+        ]
+      },
+      "note": "配布されている元絵 (縮小していない) を，こちらが決めた倍率で拡大した．**中身は本物のドット絵**"
+    },
+    {
+      "file": "other/013.png",
+      "category": "other",
+      "license": "CC0 (Kenney — Tiny Dungeon)",
+      "source": "tile_0069.png を入力をそのまま元絵として使いし，3 倍へ拡大 (bilinear / jpeg60．px-calib ingest)",
+      "truth": {
+        "scale": 3,
+        "phase": [
+          2,
+          1
+        ]
+      },
+      "note": "配布されている元絵 (縮小していない) を，こちらが決めた倍率で拡大した．**中身は本物のドット絵**"
+    },
+    {
+      "file": "other/014.png",
+      "category": "other",
+      "license": "CC0 (Kenney — Tiny Dungeon)",
+      "source": "tile_0074.png を入力をそのまま元絵として使いし，4 倍へ拡大 (bicubic / jpeg60．px-calib ingest)",
+      "truth": {
+        "scale": 4,
+        "phase": [
+          2,
+          0
+        ]
+      },
+      "note": "配布されている元絵 (縮小していない) を，こちらが決めた倍率で拡大した．**中身は本物のドット絵**"
+    },
+    {
+      "file": "other/015.png",
+      "category": "other",
+      "license": "CC0 (Kenney — Tiny Dungeon)",
+      "source": "tile_0078.png を入力をそのまま元絵として使いし，6 倍へ拡大 (lanczos / jpeg60．px-calib ingest)",
+      "truth": {
+        "scale": 6,
+        "phase": [
+          3,
+          0
+        ]
+      },
+      "note": "配布されている元絵 (縮小していない) を，こちらが決めた倍率で拡大した．**中身は本物のドット絵**"
+    },
+    {
+      "file": "other/016.png",
+      "category": "other",
+      "license": "CC0 (Kenney — Tiny Dungeon)",
+      "source": "tile_0082.png を入力をそのまま元絵として使いし，8 倍へ拡大 (nearest / png．px-calib ingest)",
+      "truth": {
+        "scale": 8,
+        "phase": [
+          0,
+          0
+        ]
+      },
+      "note": "配布されている元絵 (縮小していない) を，こちらが決めた倍率で拡大した．**中身は本物のドット絵**"
+    },
+    {
+      "file": "other/017.png",
+      "category": "other",
+      "license": "CC0 (Kenney — Tiny Dungeon)",
+      "source": "tile_0086.png を入力をそのまま元絵として使いし，12 倍へ拡大 (bilinear / png．px-calib ingest)",
+      "truth": {
+        "scale": 12,
+        "phase": [
+          7,
+          2
+        ]
+      },
+      "note": "配布されている元絵 (縮小していない) を，こちらが決めた倍率で拡大した．**中身は本物のドット絵**"
+    },
+    {
+      "file": "other/018.png",
+      "category": "other",
+      "license": "CC0 (Kenney — Tiny Dungeon)",
+      "source": "tile_0090.png を入力をそのまま元絵として使いし，2 倍へ拡大 (bicubic / png．px-calib ingest)",
+      "truth": {
+        "scale": 2,
+        "phase": [
+          0,
+          0
+        ]
+      },
+      "note": "配布されている元絵 (縮小していない) を，こちらが決めた倍率で拡大した．**中身は本物のドット絵**"
+    },
+    {
+      "file": "other/019.png",
+      "category": "other",
+      "license": "CC0 (Kenney — Tiny Dungeon)",
+      "source": "tile_0094.png を入力をそのまま元絵として使いし，3 倍へ拡大 (lanczos / png．px-calib ingest)",
+      "truth": {
+        "scale": 3,
+        "phase": [
+          2,
+          1
+        ]
+      },
+      "note": "配布されている元絵 (縮小していない) を，こちらが決めた倍率で拡大した．**中身は本物のドット絵**"
+    },
+    {
+      "file": "other/020.png",
+      "category": "other",
+      "license": "CC0 (Kenney — Tiny Dungeon)",
+      "source": "tile_0098.png を入力をそのまま元絵として使いし，4 倍へ拡大 (nearest / jpeg95．px-calib ingest)",
+      "truth": {
+        "scale": 4,
+        "phase": [
+          0,
+          0
+        ]
+      },
+      "note": "配布されている元絵 (縮小していない) を，こちらが決めた倍率で拡大した．**中身は本物のドット絵**"
+    },
+    {
+      "file": "other/021.png",
+      "category": "other",
+      "license": "CC0 (Kenney — Tiny Dungeon)",
+      "source": "tile_0104.png を入力をそのまま元絵として使いし，6 倍へ拡大 (bilinear / jpeg95．px-calib ingest)",
+      "truth": {
+        "scale": 6,
+        "phase": [
+          3,
+          0
+        ]
+      },
+      "note": "配布されている元絵 (縮小していない) を，こちらが決めた倍率で拡大した．**中身は本物のドット絵**"
+    },
+    {
+      "file": "other/022.png",
+      "category": "other",
+      "license": "CC0 (Kenney — Tiny Dungeon)",
+      "source": "tile_0108.png を入力をそのまま元絵として使いし，8 倍へ拡大 (bicubic / jpeg95．px-calib ingest)",
+      "truth": {
+        "scale": 8,
+        "phase": [
+          2,
+          4
+        ]
+      },
+      "note": "配布されている元絵 (縮小していない) を，こちらが決めた倍率で拡大した．**中身は本物のドット絵**"
+    },
+    {
+      "file": "other/023.png",
+      "category": "other",
+      "license": "CC0 (Kenney — Tiny Dungeon)",
+      "source": "tile_0112.png を入力をそのまま元絵として使いし，12 倍へ拡大 (lanczos / jpeg95．px-calib ingest)",
+      "truth": {
+        "scale": 12,
+        "phase": [
+          1,
+          2
+        ]
+      },
+      "note": "配布されている元絵 (縮小していない) を，こちらが決めた倍率で拡大した．**中身は本物のドット絵**"
+    },
+    {
+      "file": "other/024.png",
+      "category": "other",
+      "license": "CC0 (Dungeon Crawl Stone Soup — OpenGameArt)",
+      "source": "boots_iron2.png を入力をそのまま元絵として使いし，2 倍へ拡大 (nearest / png．px-calib ingest)",
+      "truth": {
+        "scale": 2,
+        "phase": [
+          0,
+          0
+        ]
+      },
+      "note": "配布されている元絵 (縮小していない) を，こちらが決めた倍率で拡大した．**中身は本物のドット絵**"
+    },
+    {
+      "file": "other/025.png",
+      "category": "other",
+      "license": "CC0 (Dungeon Crawl Stone Soup — OpenGameArt)",
+      "source": "centaur_darkbrown_m.png を入力をそのまま元絵として使いし，3 倍へ拡大 (bilinear / png．px-calib ingest)",
+      "truth": {
+        "scale": 3,
+        "phase": [
+          2,
+          1
+        ]
+      },
+      "note": "配布されている元絵 (縮小していない) を，こちらが決めた倍率で拡大した．**中身は本物のドット絵**"
+    },
+    {
+      "file": "other/026.png",
+      "category": "other",
+      "license": "CC0 (Dungeon Crawl Stone Soup — OpenGameArt)",
+      "source": "choko.png を入力をそのまま元絵として使いし，4 倍へ拡大 (bicubic / png．px-calib ingest)",
+      "truth": {
+        "scale": 4,
+        "phase": [
+          2,
+          0
+        ]
+      },
+      "note": "配布されている元絵 (縮小していない) を，こちらが決めた倍率で拡大した．**中身は本物のドット絵**"
+    },
+    {
+      "file": "other/027.png",
+      "category": "other",
+      "license": "CC0 (Dungeon Crawl Stone Soup — OpenGameArt)",
+      "source": "cloud_miasma.png を入力をそのまま元絵として使いし，6 倍へ拡大 (lanczos / png．px-calib ingest)",
+      "truth": {
+        "scale": 6,
+        "phase": [
+          3,
+          0
+        ]
+      },
+      "note": "配布されている元絵 (縮小していない) を，こちらが決めた倍率で拡大した．**中身は本物のドット絵**"
+    },
+    {
+      "file": "other/028.png",
+      "category": "other",
+      "license": "CC0 (Dungeon Crawl Stone Soup — OpenGameArt)",
+      "source": "cobble_blood12.png を入力をそのまま元絵として使いし，8 倍へ拡大 (nearest / jpeg95．px-calib ingest)",
+      "truth": {
+        "scale": 8,
+        "phase": [
+          4,
+          0
+        ]
+      },
+      "note": "配布されている元絵 (縮小していない) を，こちらが決めた倍率で拡大した．**中身は本物のドット絵**"
+    },
+    {
+      "file": "other/029.png",
+      "category": "other",
+      "license": "CC0 (Dungeon Crawl Stone Soup — OpenGameArt)",
+      "source": "crystal_wall02.png を入力をそのまま元絵として使いし，12 倍へ拡大 (bilinear / jpeg95．px-calib ingest)",
+      "truth": {
+        "scale": 12,
+        "phase": [
+          7,
+          2
+        ]
+      },
+      "note": "配布されている元絵 (縮小していない) を，こちらが決めた倍率で拡大した．**中身は本物のドット絵**"
+    },
+    {
+      "file": "other/030.png",
+      "category": "other",
+      "license": "CC0 (Dungeon Crawl Stone Soup — OpenGameArt)",
+      "source": "deep_elf_knight.png を入力をそのまま元絵として使いし，2 倍へ拡大 (bicubic / jpeg95．px-calib ingest)",
+      "truth": {
+        "scale": 2,
+        "phase": [
+          0,
+          0
+        ]
+      },
+      "note": "配布されている元絵 (縮小していない) を，こちらが決めた倍率で拡大した．**中身は本物のドット絵**"
+    },
+    {
+      "file": "other/031.png",
+      "category": "other",
+      "license": "CC0 (Dungeon Crawl Stone Soup — OpenGameArt)",
+      "source": "dngn_altar_jiyva09.png を入力をそのまま元絵として使いし，3 倍へ拡大 (lanczos / jpeg95．px-calib ingest)",
+      "truth": {
+        "scale": 3,
+        "phase": [
+          2,
+          1
+        ]
+      },
+      "note": "配布されている元絵 (縮小していない) を，こちらが決めた倍率で拡大した．**中身は本物のドット絵**"
+    },
+    {
+      "file": "other/032.png",
+      "category": "other",
+      "license": "CC0 (Dungeon Crawl Stone Soup — OpenGameArt)",
+      "source": "dngn_entrance.png を入力をそのまま元絵として使いし，4 倍へ拡大 (nearest / jpeg80．px-calib ingest)",
+      "truth": {
+        "scale": 4,
+        "phase": [
+          0,
+          0
+        ]
+      },
+      "note": "配布されている元絵 (縮小していない) を，こちらが決めた倍率で拡大した．**中身は本物のドット絵**"
+    },
+    {
+      "file": "other/033.png",
+      "category": "other",
+      "license": "CC0 (Dungeon Crawl Stone Soup — OpenGameArt)",
+      "source": "dngn_shoals_shallow_water_disturbance3.png を入力をそのまま元絵として使いし，6 倍へ拡大 (bilinear / jpeg80．px-calib ingest)",
+      "truth": {
+        "scale": 6,
+        "phase": [
+          3,
+          0
+        ]
+      },
+      "note": "配布されている元絵 (縮小していない) を，こちらが決めた倍率で拡大した．**中身は本物のドット絵**"
+    },
+    {
+      "file": "other/034.png",
+      "category": "other",
+      "license": "CC0 (Dungeon Crawl Stone Soup — OpenGameArt)",
+      "source": "enchantment.png を入力をそのまま元絵として使いし，8 倍へ拡大 (bicubic / jpeg80．px-calib ingest)",
+      "truth": {
+        "scale": 8,
+        "phase": [
+          6,
+          4
+        ]
+      },
+      "note": "配布されている元絵 (縮小していない) を，こちらが決めた倍率で拡大した．**中身は本物のドット絵**"
+    },
+    {
+      "file": "other/035.png",
+      "category": "other",
+      "license": "CC0 (Dungeon Crawl Stone Soup — OpenGameArt)",
+      "source": "grass_flowers_red1.png を入力をそのまま元絵として使いし，12 倍へ拡大 (lanczos / jpeg80．px-calib ingest)",
+      "truth": {
+        "scale": 12,
+        "phase": [
+          1,
+          2
+        ]
+      },
+      "note": "配布されている元絵 (縮小していない) を，こちらが決めた倍率で拡大した．**中身は本物のドット絵**"
+    },
+    {
+      "file": "other/036.png",
+      "category": "other",
+      "license": "CC0 (Dungeon Crawl Stone Soup — OpenGameArt)",
+      "source": "grizzly_bear.png を入力をそのまま元絵として使いし，2 倍へ拡大 (nearest / jpeg60．px-calib ingest)",
+      "truth": {
+        "scale": 2,
+        "phase": [
+          0,
+          0
+        ]
+      },
+      "note": "配布されている元絵 (縮小していない) を，こちらが決めた倍率で拡大した．**中身は本物のドット絵**"
+    },
+    {
+      "file": "other/037.png",
+      "category": "other",
+      "license": "CC0 (Dungeon Crawl Stone Soup — OpenGameArt)",
+      "source": "hydra5.png を入力をそのまま元絵として使いし，3 倍へ拡大 (bilinear / jpeg60．px-calib ingest)",
+      "truth": {
+        "scale": 3,
+        "phase": [
+          2,
+          1
+        ]
+      },
+      "note": "配布されている元絵 (縮小していない) を，こちらが決めた倍率で拡大した．**中身は本物のドット絵**"
+    },
+    {
+      "file": "other/038.png",
+      "category": "other",
+      "license": "CC0 (Dungeon Crawl Stone Soup — OpenGameArt)",
+      "source": "ilsuiw_water.png を入力をそのまま元絵として使いし，4 倍へ拡大 (bicubic / jpeg60．px-calib ingest)",
+      "truth": {
+        "scale": 4,
+        "phase": [
+          2,
+          0
+        ]
+      },
+      "note": "配布されている元絵 (縮小していない) を，こちらが決めた倍率で拡大した．**中身は本物のドット絵**"
+    },
+    {
+      "file": "other/039.png",
+      "category": "other",
+      "license": "CC0 (Dungeon Crawl Stone Soup — OpenGameArt)",
+      "source": "orc_warlord.png を入力をそのまま元絵として使いし，6 倍へ拡大 (lanczos / jpeg60．px-calib ingest)",
+      "truth": {
+        "scale": 6,
+        "phase": [
+          3,
+          0
+        ]
+      },
+      "note": "配布されている元絵 (縮小していない) を，こちらが決めた倍率で拡大した．**中身は本物のドット絵**"
+    },
+    {
+      "file": "other/040.png",
+      "category": "other",
+      "license": "CC0 (Dungeon Crawl Stone Soup — OpenGameArt)",
+      "source": "pedestal_n.png を入力をそのまま元絵として使いし，8 倍へ拡大 (nearest / png．px-calib ingest)",
+      "truth": {
+        "scale": 8,
+        "phase": [
+          0,
+          0
+        ]
+      },
+      "note": "配布されている元絵 (縮小していない) を，こちらが決めた倍率で拡大した．**中身は本物のドット絵**"
+    },
+    {
+      "file": "other/041.png",
+      "category": "other",
+      "license": "CC0 (Dungeon Crawl Stone Soup — OpenGameArt)",
+      "source": "ring_mail1.png を入力をそのまま元絵として使いし，12 倍へ拡大 (bilinear / png．px-calib ingest)",
+      "truth": {
+        "scale": 12,
+        "phase": [
+          7,
+          2
+        ]
+      },
+      "note": "配布されている元絵 (縮小していない) を，こちらが決めた倍率で拡大した．**中身は本物のドット絵**"
+    },
+    {
+      "file": "other/042.png",
+      "category": "other",
+      "license": "CC0 (Dungeon Crawl Stone Soup — OpenGameArt)",
+      "source": "skeleton_dragon.png を入力をそのまま元絵として使いし，2 倍へ拡大 (bicubic / png．px-calib ingest)",
+      "truth": {
+        "scale": 2,
+        "phase": [
+          0,
+          0
+        ]
+      },
+      "note": "配布されている元絵 (縮小していない) を，こちらが決めた倍率で拡大した．**中身は本物のドット絵**"
+    },
+    {
+      "file": "other/043.png",
+      "category": "other",
+      "license": "CC0 (Dungeon Crawl Stone Soup — OpenGameArt)",
+      "source": "slime3.png を入力をそのまま元絵として使いし，3 倍へ拡大 (lanczos / png．px-calib ingest)",
+      "truth": {
+        "scale": 3,
+        "phase": [
+          2,
+          1
+        ]
+      },
+      "note": "配布されている元絵 (縮小していない) を，こちらが決めた倍率で拡大した．**中身は本物のドット絵**"
+    },
+    {
+      "file": "other/044.png",
+      "category": "other",
+      "license": "CC0 (Dungeon Crawl Stone Soup — OpenGameArt)",
+      "source": "ugly_thing3.png を入力をそのまま元絵として使いし，4 倍へ拡大 (nearest / jpeg95．px-calib ingest)",
+      "truth": {
+        "scale": 4,
+        "phase": [
+          0,
+          0
+        ]
+      },
+      "note": "配布されている元絵 (縮小していない) を，こちらが決めた倍率で拡大した．**中身は本物のドット絵**"
+    },
+    {
+      "file": "other/045.png",
+      "category": "other",
+      "license": "CC0 (Dungeon Crawl Stone Soup — OpenGameArt)",
+      "source": "urand_folly.png を入力をそのまま元絵として使いし，6 倍へ拡大 (bilinear / jpeg95．px-calib ingest)",
+      "truth": {
+        "scale": 6,
+        "phase": [
+          3,
+          0
+        ]
+      },
+      "note": "配布されている元絵 (縮小していない) を，こちらが決めた倍率で拡大した．**中身は本物のドット絵**"
+    },
+    {
+      "file": "other/046.png",
+      "category": "other",
+      "license": "CC0 (Dungeon Crawl Stone Soup — OpenGameArt)",
+      "source": "vault3.png を入力をそのまま元絵として使いし，8 倍へ拡大 (bicubic / jpeg95．px-calib ingest)",
+      "truth": {
+        "scale": 8,
+        "phase": [
+          2,
+          4
+        ]
+      },
+      "note": "配布されている元絵 (縮小していない) を，こちらが決めた倍率で拡大した．**中身は本物のドット絵**"
+    },
+    {
+      "file": "other/047.png",
+      "category": "other",
+      "license": "CC0 (Dungeon Crawl Stone Soup — OpenGameArt)",
+      "source": "zonguldrok_lich2.png を入力をそのまま元絵として使いし，12 倍へ拡大 (lanczos / jpeg95．px-calib ingest)",
+      "truth": {
+        "scale": 12,
+        "phase": [
+          1,
+          2
+        ]
+      },
+      "note": "配布されている元絵 (縮小していない) を，こちらが決めた倍率で拡大した．**中身は本物のドット絵**"
+    },
+    {
+      "file": "screenshot/000.png",
+      "category": "screenshot",
+      "license": "CC0 (Kenney — Tiled 見本地図を px-calib scene で描き出したもの)",
+      "source": "kenney_monochrome-pirates_sample-cave.png を入力をそのまま元絵として使用し，2 倍へ拡大 (nearest / png．px-calib ingest)",
+      "truth": {
+        "scale": 2,
+        "phase": [
+          0,
+          0
+        ]
+      },
+      "note": "配布されている元絵 (縮小していない) を，こちらが決めた倍率で拡大した．**中身は本物のドット絵**"
+    },
+    {
+      "file": "screenshot/001.png",
+      "category": "screenshot",
+      "license": "CC0 (Kenney — Tiled 見本地図を px-calib scene で描き出したもの)",
+      "source": "kenney_monochrome-pirates_sample-overworld.png を入力をそのまま元絵として使用し，2 倍へ拡大 (bilinear / png．px-calib ingest)",
+      "truth": {
+        "scale": 2,
+        "phase": [
+          1,
+          0
+        ]
+      },
+      "note": "配布されている元絵 (縮小していない) を，こちらが決めた倍率で拡大した．**中身は本物のドット絵**"
+    },
+    {
+      "file": "screenshot/002.png",
+      "category": "screenshot",
+      "license": "CC0 (Kenney — Tiled 見本地図を px-calib scene で描き出したもの)",
+      "source": "kenney_pico-8-city_sample-map.png を入力をそのまま元絵として使用し，4 倍へ拡大 (bicubic / png．px-calib ingest)",
+      "truth": {
+        "scale": 4,
+        "phase": [
+          2,
+          0
+        ]
+      },
+      "note": "配布されている元絵 (縮小していない) を，こちらが決めた倍率で拡大した．**中身は本物のドット絵**"
+    },
+    {
+      "file": "screenshot/003.png",
+      "category": "screenshot",
+      "license": "CC0 (Kenney — Tiled 見本地図を px-calib scene で描き出したもの)",
+      "source": "kenney_roguelike-rpg-pack_sample_indoor.png を入力をそのまま元絵として使用し，2 倍へ拡大 (lanczos / png．px-calib ingest)",
+      "truth": {
+        "scale": 2,
+        "phase": [
+          1,
+          0
+        ]
+      },
+      "note": "配布されている元絵 (縮小していない) を，こちらが決めた倍率で拡大した．**中身は本物のドット絵**"
+    },
+    {
+      "file": "screenshot/004.png",
+      "category": "screenshot",
+      "license": "CC0 (Kenney — Tiled 見本地図を px-calib scene で描き出したもの)",
+      "source": "kenney_roguelike-rpg-pack_sample_map.png を入力をそのまま元絵として使用し，2 倍へ拡大 (nearest / jpeg95．px-calib ingest)",
+      "truth": {
+        "scale": 2,
+        "phase": [
+          0,
+          0
+        ]
+      },
+      "note": "配布されている元絵 (縮小していない) を，こちらが決めた倍率で拡大した．**中身は本物のドット絵**"
+    },
+    {
+      "file": "screenshot/005.png",
+      "category": "screenshot",
+      "license": "CC0 (Kenney — Tiled 見本地図を px-calib scene で描き出したもの)",
+      "source": "kenney_tiny-battle_sampleMap.png を入力をそのまま元絵として使用し，2 倍へ拡大 (bilinear / jpeg95．px-calib ingest)",
+      "truth": {
+        "scale": 2,
+        "phase": [
+          1,
+          0
+        ]
+      },
+      "note": "配布されている元絵 (縮小していない) を，こちらが決めた倍率で拡大した．**中身は本物のドット絵**"
+    },
+    {
+      "file": "screenshot/006.png",
+      "category": "screenshot",
+      "license": "CC0 (Kenney — Tiled 見本地図を px-calib scene で描き出したもの)",
+      "source": "kenney_tiny-dungeon_sampleMap.png を入力をそのまま元絵として使用し，2 倍へ拡大 (bicubic / jpeg95．px-calib ingest)",
+      "truth": {
+        "scale": 2,
+        "phase": [
+          0,
+          0
+        ]
+      },
+      "note": "配布されている元絵 (縮小していない) を，こちらが決めた倍率で拡大した．**中身は本物のドット絵**"
+    },
+    {
+      "file": "screenshot/007.png",
+      "category": "screenshot",
+      "license": "CC0 (Kenney — Tiled 見本地図を px-calib scene で描き出したもの)",
+      "source": "kenney_tiny-ski_sampleMap.png を入力をそのまま元絵として使用し，2 倍へ拡大 (lanczos / jpeg95．px-calib ingest)",
+      "truth": {
+        "scale": 2,
+        "phase": [
+          1,
+          0
+        ]
+      },
+      "note": "配布されている元絵 (縮小していない) を，こちらが決めた倍率で拡大した．**中身は本物のドット絵**"
+    },
+    {
+      "file": "screenshot/008.png",
+      "category": "screenshot",
+      "license": "CC0 (Kenney — Platformer Art Pixel の Sample.png)",
+      "source": "Sample.png を1254x633 から元絵を復元 (3.000 倍で拡大されていた)し，2 倍へ拡大 (nearest / png．px-calib ingest)",
+      "truth": {
+        "scale": 2,
+        "phase": [
+          0,
+          0
+        ]
+      },
+      "note": "非整数倍で拡大されて配られていた絵から元絵を厳密に復元し，こちらが決めた倍率で拡大し直した．**中身は本物のドット絵**"
+    },
+    {
+      "file": "screenshot/neg-000.png",
+      "category": "screenshot",
+      "license": "CC0 (Kenney — 紹介用レンダ．非整数倍で拡大され補間も掛かっている)",
+      "source": "Sample.png (918x515 の中央を切り出し)",
+      "no_grid": true,
+      "note": "ingest が周期を読めなかった (縁が境界へ集中していない)．棄却が正しい"
+    },
+    {
+      "file": "screenshot/neg-001.png",
+      "category": "screenshot",
+      "license": "CC0 (Kenney — 紹介用レンダ．非整数倍で拡大され補間も掛かっている)",
+      "source": "Sample A.png (918x515 の中央を切り出し)",
+      "no_grid": true,
+      "note": "ingest が周期を読めなかった (縁が境界へ集中していない)．棄却が正しい"
+    },
+    {
+      "file": "screenshot/neg-002.png",
+      "category": "screenshot",
+      "license": "CC0 (Kenney — 紹介用レンダ．非整数倍で拡大され補間も掛かっている)",
+      "source": "Sample B.png (918x515 の中央を切り出し)",
+      "no_grid": true,
+      "note": "ingest が周期を読めなかった (縁が境界へ集中していない)．棄却が正しい"
+    },
+    {
+      "file": "screenshot/neg-003.png",
+      "category": "screenshot",
+      "license": "CC0 (Kenney — 紹介用レンダ．非整数倍で拡大され補間も掛かっている)",
+      "source": "Sample.png (918x515 の中央を切り出し)",
+      "no_grid": true,
+      "note": "ingest が周期を読めなかった (縁が境界へ集中していない)．棄却が正しい"
+    },
+    {
+      "file": "screenshot/neg-004.png",
+      "category": "screenshot",
+      "license": "CC0 (Kenney — 紹介用レンダ．非整数倍で拡大され補間も掛かっている)",
+      "source": "Sample.png (918x515 の中央を切り出し)",
+      "no_grid": true,
+      "note": "ingest が周期を読めなかった (縁が境界へ集中していない)．棄却が正しい"
+    },
+    {
+      "file": "screenshot/neg-005.png",
+      "category": "screenshot",
+      "license": "CC0 (Kenney — 紹介用レンダ．非整数倍で拡大され補間も掛かっている)",
+      "source": "Sample.png (918x515 の中央を切り出し)",
+      "no_grid": true,
+      "note": "ingest が周期を読めなかった (縁が境界へ集中していない)．棄却が正しい"
+    },
+    {
+      "file": "screenshot/neg-006.png",
+      "category": "screenshot",
+      "license": "CC0 (Kenney — 紹介用レンダ．非整数倍で拡大され補間も掛かっている)",
+      "source": "Sample.png (918x515 の中央を切り出し)",
+      "no_grid": true,
+      "note": "ingest が周期を読めなかった (縁が境界へ集中していない)．棄却が正しい"
+    },
+    {
+      "file": "screenshot/neg-007.png",
+      "category": "screenshot",
+      "license": "CC0 (Kenney — 紹介用レンダ．非整数倍で拡大され補間も掛かっている)",
+      "source": "Sample1.png (918x515 の中央を切り出し)",
+      "no_grid": true,
+      "note": "ingest が周期を読めなかった (縁が境界へ集中していない)．棄却が正しい"
+    },
+    {
+      "file": "screenshot/neg-008.png",
+      "category": "screenshot",
+      "license": "CC0 (Kenney — 紹介用レンダ．非整数倍で拡大され補間も掛かっている)",
+      "source": "Sample2.png (918x515 の中央を切り出し)",
+      "no_grid": true,
+      "note": "ingest が周期を読めなかった (縁が境界へ集中していない)．棄却が正しい"
+    },
+    {
+      "file": "screenshot/neg-009.png",
+      "category": "screenshot",
+      "license": "CC0 (Kenney — 紹介用レンダ．非整数倍で拡大され補間も掛かっている)",
+      "source": "Sample.png (918x515 の中央を切り出し)",
+      "no_grid": true,
+      "note": "ingest が周期を読めなかった (縁が境界へ集中していない)．棄却が正しい"
     }
   ]
 }
