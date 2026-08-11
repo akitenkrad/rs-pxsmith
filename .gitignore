@@ -20,3 +20,6 @@ debug/
 
 # 実データ枠の検証結果 (px-calib real で作り直せる)
 testdata/grid-eval/real/results.csv
+
+# 再配布できない実データ (game-materials.com 等)．入手元は SOURCES.md に記録する
+testdata/grid-eval/real/local/

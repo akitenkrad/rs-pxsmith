@@ -19,6 +19,12 @@
 //!
 //! 周期が読めない画像は**拒否する**．黙って正例に仕立てると，格子の無いものを
 //! 「格子あり」として採点してしまう．拒否したものは負例の候補として報告する．
+//!
+//! > [!warning] 「ドット絵風」は目視で判定できない
+//! > 配布素材の背景画 22 件は，縮小表示ではブロックが並んで見えるが，拡大すると縁が
+//! > 滑らかで境界が無かった．画風であって格子ではない．**隣接行の近似一致率も当てに
+//! > ならない** — 平坦な領域が広いと 90% を超え，格子があるように見えてしまう．
+//! > 縁のエネルギーが境界へ集中しているかを見ること．
 
 use std::path::Path;
 
@@ -28,11 +34,23 @@ use px_core::{Rgba8, RgbaCanvas};
 /// 探す周期の上限 (見かけのブロックの一辺)．
 pub const MAX_PERIOD: usize = 64;
 
-/// 縮小後に許す一辺の範囲．外れたら拒否する．
-pub const NATIVE_RANGE: std::ops::RangeInclusive<u32> = 12..=64;
+/// 縮小後に許す一辺の下限．
+pub const NATIVE_MIN: u32 = 12;
 
-/// 自己相関のピークをどれだけ強く要求するか (最大値に対する比)．
-const PEAK_RATIO: f32 = 0.55;
+/// 縮小後に許す一辺の上限 (既定)．スプライトを想定した値で，背景画は 160x90 などに
+/// なるので呼び出し側で広げる．
+pub const NATIVE_MAX: u32 = 64;
+
+/// 仕立てた画像の一辺の上限．**推定の費用は面積 x $s^2$ で効く** — 870x493 で
+/// `px conform` が 20 秒かかった．これを超えないよう倍率を抑える．
+pub const OUTPUT_MAX: u32 = 1000;
+
+/// 境界と内部の縁の比をどれだけ要求するか．**下回ったら格子は無いと見なす**．
+const MIN_CONTRAST: f32 = 1.8;
+
+/// 集中度 (縁がどれだけ境界へ寄っているか) の下限．1.0 が理想で，外れた周期では
+/// $1/p$ 程度まで落ちる．JPEG の雑音を見込んで少し緩めてある．
+const MIN_CONCENTRATION: f32 = 0.6;
 
 /// 取り込めなかった理由．
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -45,7 +63,11 @@ pub enum Refusal {
     ///
     /// 大きい画像で `period` が 2 ・3 と出た場合はブロック構造ではなく高周波の雑音を
     /// 拾っている．周期も一緒に報告しないと，そのことが読み取れない．
-    OutOfRange { native: u32, period: usize },
+    OutOfRange {
+        native: u32,
+        period: usize,
+        max: u32,
+    },
 }
 
 impl std::fmt::Display for Refusal {
@@ -55,11 +77,14 @@ impl std::fmt::Display for Refusal {
             Self::NonUniform { x, y } => {
                 write!(f, "ブロックの大きさが一定でない (横 {x} / 縦 {y})")
             }
-            Self::OutOfRange { native, period } => write!(
+            Self::OutOfRange {
+                native,
+                period,
+                max,
+            } => write!(
                 f,
-                "周期 {period} → 縮小後が {native} 画素角 (受け入れは {}〜{}){}",
-                NATIVE_RANGE.start(),
-                NATIVE_RANGE.end(),
+                "周期 {period} → 縮小後が {native} 画素角 (受け入れは {}〜{max}){}",
+                NATIVE_MIN,
                 if *period <= 3 {
                     "．ブロック構造ではなく雑音を拾っている"
                 } else {
@@ -98,55 +123,83 @@ fn edge_profile(img: &RgbaCanvas, horizontal: bool) -> Vec<f32> {
         .collect()
 }
 
-/// 自己相関から基本周期を読む．
+/// 縁のエネルギーがブロック境界へどれだけ集中しているかで周期を読む．
 ///
-/// **倍数も相関するので，強い山のうち最小のものを採る．** 最大値だけを見ると
-/// 2 倍・3 倍の位置を掴む．
-fn fundamental_period(profile: &[f32]) -> Option<usize> {
-    // 周期 k を読むには最低でも数周期分の長さが要る．上限は画像に追随させる —
-    // 固定にすると小さい画像が「周期なし」になってしまう
-    let max_k = MAX_PERIOD.min(profile.len() / 4);
-    if max_k < 2 {
+/// **自己相関は JPEG に耐えない．** 圧縮が 8x8 の格子を持ち込むうえ，高周波の雑音とも
+/// 相関するので，周期 2 ・4 を掴んでしまう (実測: 1920 画素の背景画で周期 2) ．
+///
+/// 代わりに「境界の縁 / 内部の縁」の比を見る．本物の格子なら縁は境界に集まり，内部は
+/// 平坦になる．多数の行で平均するので，JPEG の雑音は打ち消し合う．
+fn boundary_stats(profile: &[f32], p: usize) -> Option<(f32, f32)> {
+    // 返り値は (持ち上がり, 境界と内部の比)
+    if p < 2 || profile.len() < p * 4 {
         return None;
     }
-    let mean = profile.iter().sum::<f32>() / profile.len() as f32;
-    let centered: Vec<f32> = profile.iter().map(|v| v - mean).collect();
-    let energy: f32 = centered.iter().map(|v| v * v).sum();
-    if energy <= f32::EPSILON {
-        return None;
+    // 位相ごとに「その位置に来る縁の平均」を出し，最も強い位相を境界とみなす
+    let mut sums = vec![0.0f32; p];
+    let mut counts = vec![0u32; p];
+    for (i, v) in profile.iter().enumerate() {
+        sums[i % p] += v;
+        counts[i % p] += 1;
     }
-
-    let corr: Vec<f32> = (2..=max_k)
-        .map(|k| {
-            let s: f32 = centered
-                .iter()
-                .zip(centered.iter().skip(k))
-                .map(|(a, b)| a * b)
-                .sum();
-            s / energy
-        })
+    let means: Vec<f32> = sums
+        .iter()
+        .zip(&counts)
+        .map(|(s, c)| if *c == 0 { 0.0 } else { s / *c as f32 })
         .collect();
-
-    let peak = corr.iter().copied().fold(f32::MIN, f32::max);
-    // 相関がそもそも弱ければ格子は無い
-    if peak < 0.15 {
+    let boundary = means.iter().copied().fold(f32::MIN, f32::max);
+    let interior = (means.iter().sum::<f32>() - boundary) / (p - 1) as f32;
+    if boundary <= f32::EPSILON {
         return None;
     }
-    // 強い山のうち最小の $k$ が基本周期
-    corr.iter()
-        .position(|c| *c >= peak * PEAK_RATIO)
-        .map(|i| i + 2)
+    let overall = means.iter().sum::<f32>() / p as f32;
+    // 内部が 0 (完璧な格子) は**最良の証拠**である．0 除算を避けるために下限を置くが，
+    // 「情報なし」として捨ててはいけない
+    let contrast = boundary / interior.max(boundary * 1.0e-4);
+    // 持ち上がり = 境界の強さ / 全体の平均．**倍数では飽和し，半分では半減する** —
+    // これが基本周期を選ぶ手がかりになる
+    let lift = boundary / overall.max(f32::EPSILON);
+    Some((lift, contrast))
+}
+
+/// 基本周期を読む．
+///
+/// 手がかりは**集中度** $= \mathrm{lift} / p$ である．周期 $p$ に縁がすべて乗っていれば
+/// 境界の平均は全体平均の $p$ 倍になるので集中度は 1 に届く．外れた $p$ では 1/p 程度に
+/// 落ちる (実測: 真の周期 4 の画像で $p = 4$ が 1.00 ・$p = 8$ が 0.51 ・$p = 12$ が 0.35) ．
+///
+/// **真の周期の約数もすべて集中度 1 になる** ($4 \mid x$ なら $2 \mid x$) ので，
+/// 条件を満たす中で**最大**の $p$ を採る．
+fn fundamental_period(profile: &[f32]) -> Option<usize> {
+    let max_p = MAX_PERIOD.min(profile.len() / 4);
+    if max_p < 2 {
+        return None;
+    }
+    (2..=max_p)
+        .filter_map(|p| boundary_stats(profile, p).map(|(l, c)| (p, l, c)))
+        // 境界と内部に差が無ければ格子は無い
+        .filter(|(_, _, c)| *c >= MIN_CONTRAST)
+        .filter(|(p, l, _)| *l / *p as f32 >= MIN_CONCENTRATION)
+        .map(|(p, _, _)| p)
+        .max()
 }
 
 /// 見かけのブロック周期．縦横がずれていたら非一様として拒否する．
 pub fn detect_period(img: &RgbaCanvas) -> std::result::Result<usize, Refusal> {
     let px = fundamental_period(&edge_profile(img, true)).ok_or(Refusal::NoPeriod)?;
     let py = fundamental_period(&edge_profile(img, false)).ok_or(Refusal::NoPeriod)?;
+
     // 1 画素のずれは丸めの範囲として許す
-    if px.abs_diff(py) > 1 {
-        return Err(Refusal::NonUniform { x: px, y: py });
+    if px.abs_diff(py) <= 1 {
+        return Ok(px.min(py));
     }
-    Ok(px.min(py))
+    // 一方が他方の倍数なら，**元絵自身がその方向に繰り返しを持っている**だけである
+    // (縦に 2 行周期の模様があれば，4 倍に拡大した画像は縦に周期 8 を持つ) ．
+    // 格子の周期は小さい方
+    if px.max(py) % px.min(py) == 0 {
+        return Ok(px.min(py));
+    }
+    Err(Refusal::NonUniform { x: px, y: py })
 }
 
 /// 周期で縮小する．**平均を採る** — 数十万色あるので最頻色は意味を持たない．
@@ -211,6 +264,8 @@ pub struct Ingested {
     pub period: usize,
     /// 縮小後の大きさ．
     pub native: (u32, u32),
+    /// **実際に使った倍率**．出来上がりが大きくなりすぎる場合は指定より下がる．
+    pub scale: u32,
 }
 
 /// 1 枚を正例へ仕立てる．
@@ -218,6 +273,7 @@ pub fn ingest_one(
     path: &Path,
     scale: u32,
     crop: (u32, u32),
+    native_max: u32,
 ) -> Result<std::result::Result<(RgbaCanvas, Ingested), Refusal>> {
     let img =
         px_io::png::read_rgba(path).with_context(|| format!("{} を読めない", path.display()))?;
@@ -228,19 +284,24 @@ pub fn ingest_one(
     };
     let native = downscale_mean(&img, period);
     let side = native.width().min(native.height());
-    if !NATIVE_RANGE.contains(&side) {
+    if !(NATIVE_MIN..=native_max).contains(&side) {
         return Ok(Err(Refusal::OutOfRange {
             native: side,
             period,
+            max: native_max,
         }));
     }
 
+    // 出来上がりが大きすぎると推定に時間がかかるので倍率を抑える
+    let longest = native.width().max(native.height());
+    let scale = scale.min((OUTPUT_MAX / longest.max(1)).max(2));
     let out = upscale(&native, scale, crop);
     Ok(Ok((
         out,
         Ingested {
             period,
             native: (native.width(), native.height()),
+            scale,
         },
     )))
 }
@@ -329,7 +390,7 @@ mod tests {
             .find(|c| c.width() >= 40 && c.height() >= 40)
             .expect("大きい元絵がある");
         let big = blow_up(&src, 8); // AI 出力の代わり (周期 8)
-        let (out, info) = ingest_one(&write_temp(&big, "ingest_case.png"), 6, (2, 1))
+        let (out, info) = ingest_one(&write_temp(&big, "ingest_case.png"), 6, (2, 1), NATIVE_MAX)
             .unwrap()
             .expect("拒否された");
         assert_eq!(info.period, 8);

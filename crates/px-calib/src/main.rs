@@ -146,6 +146,9 @@ enum Command {
         /// 目録に書くライセンス
         #[arg(long, default_value = "CC0 (自作)")]
         license: String,
+        /// 縮小後に許す一辺の上限．背景画は 160x90 などになるので広げる
+        #[arg(long, default_value_t = ingest::NATIVE_MAX)]
+        native_max: u32,
     },
     /// 実データ枠の素材を自作レンダで作る (区分 `render`)
     Render {
@@ -289,8 +292,17 @@ fn main() -> Result<()> {
             crop,
             category,
             license,
+            native_max,
         } => {
-            ingest_images(&dir, &images, scale, crop.as_deref(), &category, &license)?;
+            ingest_images(
+                &dir,
+                &images,
+                scale,
+                crop.as_deref(),
+                &category,
+                &license,
+                native_max,
+            )?;
         }
 
         Command::Render { dir, count, seed } => {
@@ -434,6 +446,7 @@ fn ingest_images(
     crop: Option<&str>,
     category: &str,
     license: &str,
+    native_max: u32,
 ) -> Result<()> {
     anyhow::ensure!(!images.is_empty(), "入力画像を 1 つ以上指定すること");
     let category = match category {
@@ -469,7 +482,7 @@ fn ingest_images(
             None => ((i as u32) % s, (i as u32 * 2) % s),
         };
 
-        match ingest::ingest_one(path, s, c)? {
+        match ingest::ingest_one(path, s, c, native_max)? {
             Err(reason) => {
                 println!("  拒否 {:<40} {reason}", file_name(path));
                 refused.push((path.clone(), reason));
@@ -477,6 +490,9 @@ fn ingest_images(
             Ok((img, info)) => {
                 let name = format!("{sub}/{:03}.png", accepted);
                 px_io::png::write_rgba(dir.join(&name), &img)?;
+                // 出来上がりが大きすぎる場合，倍率は指定より下がっている．
+                // **正解には実際に使った方を書く**
+                let s = info.scale;
                 let phase = ingest::truth_phase(s, c);
                 println!(
                     "  取込 {:<40} 周期 {:>2} → 元絵 {}x{} → {} 倍 ({}x{}) 位相 ({},{})",
