@@ -12,3 +12,6 @@ debug/
 # 環境
 .env
 .DS_Store
+
+# 校正の評価データセット (px-calib gen で作り直せる)
+grid-eval/

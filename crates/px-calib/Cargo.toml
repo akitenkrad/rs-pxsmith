@@ -1,0 +1,23 @@
+[package]
+edition.workspace = true
+name = "px-calib"
+publish.workspace = true
+repository.workspace = true
+version.workspace = true
+
+[[bin]]
+name = "px-calib"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true }
+image = { workspace = true }
+px-core = { workspace = true }
+px-io = { workspace = true }
+rayon = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true
