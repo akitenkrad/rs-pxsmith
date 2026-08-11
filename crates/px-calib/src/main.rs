@@ -24,6 +24,7 @@ mod bands;
 mod confidence;
 mod dataset;
 mod degrade;
+mod ingest;
 mod metrics;
 mod real;
 mod render;
@@ -126,6 +127,25 @@ enum Command {
         delta: f32,
         #[arg(long, default_value_t = 0.3)]
         tau: f32,
+    },
+    /// ドット絵風の画像を実データ枠の正例へ仕立てる
+    Ingest {
+        /// 入力画像 (生成 AI の出力など)
+        images: Vec<PathBuf>,
+        #[arg(long, default_value = "testdata/grid-eval/real")]
+        dir: PathBuf,
+        /// 拡大倍率．省略すると 2〜12 を巡回して条件を散らす
+        #[arg(long)]
+        scale: Option<u32>,
+        /// 位相をずらすために切り落とす画素数 `DX,DY`．省略すると倍率から散らす
+        #[arg(long)]
+        crop: Option<String>,
+        /// 区分
+        #[arg(long, default_value = "ai-output")]
+        category: String,
+        /// 目録に書くライセンス
+        #[arg(long, default_value = "CC0 (自作)")]
+        license: String,
     },
     /// 実データ枠の素材を自作レンダで作る (区分 `render`)
     Render {
@@ -262,6 +282,17 @@ fn main() -> Result<()> {
             report_confidence(&records);
         }
 
+        Command::Ingest {
+            images,
+            dir,
+            scale,
+            crop,
+            category,
+            license,
+        } => {
+            ingest_images(&dir, &images, scale, crop.as_deref(), &category, &license)?;
+        }
+
         Command::Render { dir, count, seed } => {
             let items = render_real_items(&dir, count, seed)?;
             println!("{} 件を {} へ書いた", items, dir.display());
@@ -391,6 +422,113 @@ fn render_real_items(dir: &std::path::Path, count: u32, seed: u64) -> Result<usi
     let json = serde_json::to_string_pretty(&real::Manifest { items })?;
     px_io::atomic::write(dir.join("manifest.json"), json.as_bytes())?;
     Ok(n)
+}
+
+/// ドット絵風の画像を正例へ仕立てて目録へ足す．
+///
+/// **拒否したものは黙って捨てない** — 理由を出す．負例の候補になる．
+fn ingest_images(
+    dir: &std::path::Path,
+    images: &[PathBuf],
+    scale: Option<u32>,
+    crop: Option<&str>,
+    category: &str,
+    license: &str,
+) -> Result<()> {
+    anyhow::ensure!(!images.is_empty(), "入力画像を 1 つ以上指定すること");
+    let category = match category {
+        "ai-output" => real::Category::AiOutput,
+        "render" => real::Category::Render,
+        "screenshot" => real::Category::Screenshot,
+        "other" => real::Category::Other,
+        other => anyhow::bail!("区分は ai-output / render / screenshot / other: {other}"),
+    };
+    let sub = match category {
+        real::Category::AiOutput => "ai-output",
+        real::Category::Render => "render",
+        real::Category::Screenshot => "screenshot",
+        real::Category::Other => "other",
+    };
+    std::fs::create_dir_all(dir.join(sub))?;
+
+    // 既にある目録は残す．同じ出力名だけ差し替える
+    let mut manifest = real::read(dir).unwrap_or(real::Manifest { items: Vec::new() });
+    let mut accepted = 0usize;
+    let mut refused = Vec::new();
+
+    for (i, path) in images.iter().enumerate() {
+        // 倍率と位相を散らす — 1 つの条件に偏ると分布のずれを測れない
+        let s = scale.unwrap_or(degrade::SCALES[i % degrade::SCALES.len()]);
+        let c = match crop {
+            Some(text) => {
+                let (a, b) = text
+                    .split_once(',')
+                    .context("--crop は DX,DY の形で書くこと")?;
+                (a.trim().parse()?, b.trim().parse()?)
+            }
+            None => ((i as u32) % s, (i as u32 * 2) % s),
+        };
+
+        match ingest::ingest_one(path, s, c)? {
+            Err(reason) => {
+                println!("  拒否 {:<40} {reason}", file_name(path));
+                refused.push((path.clone(), reason));
+            }
+            Ok((img, info)) => {
+                let name = format!("{sub}/{:03}.png", accepted);
+                px_io::png::write_rgba(dir.join(&name), &img)?;
+                let phase = ingest::truth_phase(s, c);
+                println!(
+                    "  取込 {:<40} 周期 {:>2} → 元絵 {}x{} → {} 倍 ({}x{}) 位相 ({},{})",
+                    file_name(path),
+                    info.period,
+                    info.native.0,
+                    info.native.1,
+                    s,
+                    img.width(),
+                    img.height(),
+                    phase.0,
+                    phase.1,
+                );
+                manifest.items.retain(|it| it.file != name);
+                manifest.items.push(real::Item {
+                    file: name,
+                    category,
+                    license: license.to_string(),
+                    source: format!(
+                        "{} を周期 {} で縮小し {} 倍へ拡大 (px-calib ingest)",
+                        file_name(path),
+                        info.period,
+                        s
+                    ),
+                    truth: Some(real::Truth {
+                        scale: s,
+                        phase: Some(phase),
+                    }),
+                    note: None,
+                });
+                accepted += 1;
+            }
+        }
+    }
+
+    let json = serde_json::to_string_pretty(&manifest)?;
+    px_io::atomic::write(dir.join("manifest.json"), json.as_bytes())?;
+    println!(
+        "\n  取り込み {accepted} 件 / 拒否 {} 件．目録は {} 件になった",
+        refused.len(),
+        manifest.items.len()
+    );
+    if !refused.is_empty() {
+        println!("  拒否したものは**負例の候補**である．捨てずに取っておくこと");
+    }
+    Ok(())
+}
+
+fn file_name(p: &std::path::Path) -> String {
+    p.file_name()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default()
 }
 
 fn write_bands(path: &std::path::Path, records: &[bands::Record]) -> Result<()> {

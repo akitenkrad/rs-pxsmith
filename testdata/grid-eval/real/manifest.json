@@ -1,0 +1,233 @@
+{
+  "items": [
+    {
+      "file": "render/000.png",
+      "category": "render",
+      "license": "CC0 (自作)",
+      "source": "自作 — px-calib render (種 7, 2 倍 / bicubic / リサイズ keep / jpeg80)",
+      "truth": {
+        "scale": 2,
+        "phase": [
+          1,
+          0
+        ]
+      }
+    },
+    {
+      "file": "render/001.png",
+      "category": "render",
+      "license": "CC0 (自作)",
+      "source": "自作 — px-calib render (種 7, 12 倍 / bicubic / リサイズ 1.30 / jpeg80)",
+      "note": "非整数倍リサイズ — 整数の格子は無い (棄却が正しい)"
+    },
+    {
+      "file": "render/002.png",
+      "category": "render",
+      "license": "CC0 (自作)",
+      "source": "自作 — px-calib render (種 7, 12 倍 / bicubic / リサイズ 1.30 / png)",
+      "note": "非整数倍リサイズ — 整数の格子は無い (棄却が正しい)"
+    },
+    {
+      "file": "render/003.png",
+      "category": "render",
+      "license": "CC0 (自作)",
+      "source": "自作 — px-calib render (種 7, 6 倍 / bilinear / リサイズ keep / jpeg60)",
+      "truth": {
+        "scale": 6,
+        "phase": [
+          3,
+          3
+        ]
+      }
+    },
+    {
+      "file": "render/004.png",
+      "category": "render",
+      "license": "CC0 (自作)",
+      "source": "自作 — px-calib render (種 7, 3 倍 / bilinear / リサイズ 0.85 / png)",
+      "note": "非整数倍リサイズ — 整数の格子は無い (棄却が正しい)"
+    },
+    {
+      "file": "render/005.png",
+      "category": "render",
+      "license": "CC0 (自作)",
+      "source": "自作 — px-calib render (種 7, 6 倍 / lanczos / リサイズ 1.30 / jpeg60)",
+      "note": "非整数倍リサイズ — 整数の格子は無い (棄却が正しい)"
+    },
+    {
+      "file": "render/006.png",
+      "category": "render",
+      "license": "CC0 (自作)",
+      "source": "自作 — px-calib render (種 7, 8 倍 / nearest / リサイズ 0.85 / jpeg60)",
+      "note": "非整数倍リサイズ — 整数の格子は無い (棄却が正しい)"
+    },
+    {
+      "file": "render/007.png",
+      "category": "render",
+      "license": "CC0 (自作)",
+      "source": "自作 — px-calib render (種 7, 2 倍 / bicubic / リサイズ keep / jpeg80)",
+      "truth": {
+        "scale": 2,
+        "phase": [
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "file": "render/008.png",
+      "category": "render",
+      "license": "CC0 (自作)",
+      "source": "自作 — px-calib render (種 7, 12 倍 / lanczos / リサイズ 1.30 / jpeg80)",
+      "note": "非整数倍リサイズ — 整数の格子は無い (棄却が正しい)"
+    },
+    {
+      "file": "render/009.png",
+      "category": "render",
+      "license": "CC0 (自作)",
+      "source": "自作 — px-calib render (種 7, 12 倍 / bilinear / リサイズ keep / jpeg95)",
+      "truth": {
+        "scale": 12,
+        "phase": [
+          4,
+          4
+        ]
+      }
+    },
+    {
+      "file": "render/010.png",
+      "category": "render",
+      "license": "CC0 (自作)",
+      "source": "自作 — px-calib render (種 7, 6 倍 / nearest / リサイズ 1.30 / png)",
+      "note": "非整数倍リサイズ — 整数の格子は無い (棄却が正しい)"
+    },
+    {
+      "file": "render/011.png",
+      "category": "render",
+      "license": "CC0 (自作)",
+      "source": "自作 — px-calib render (種 7, 12 倍 / bicubic / リサイズ 0.85 / png)",
+      "note": "非整数倍リサイズ — 整数の格子は無い (棄却が正しい)"
+    },
+    {
+      "file": "render/012.png",
+      "category": "render",
+      "license": "CC0 (自作)",
+      "source": "自作 — px-calib render (種 7, 8 倍 / bilinear / リサイズ 1.30 / jpeg60)",
+      "note": "非整数倍リサイズ — 整数の格子は無い (棄却が正しい)"
+    },
+    {
+      "file": "render/013.png",
+      "category": "render",
+      "license": "CC0 (自作)",
+      "source": "自作 — px-calib render (種 7, 12 倍 / bicubic / リサイズ 0.85 / jpeg60)",
+      "note": "非整数倍リサイズ — 整数の格子は無い (棄却が正しい)"
+    },
+    {
+      "file": "render/014.png",
+      "category": "render",
+      "license": "CC0 (自作)",
+      "source": "自作 — px-calib render (種 7, 2 倍 / nearest / リサイズ 1.30 / png)",
+      "note": "非整数倍リサイズ — 整数の格子は無い (棄却が正しい)"
+    },
+    {
+      "file": "render/015.png",
+      "category": "render",
+      "license": "CC0 (自作)",
+      "source": "自作 — px-calib render (種 7, 6 倍 / bilinear / リサイズ 0.85 / png)",
+      "note": "非整数倍リサイズ — 整数の格子は無い (棄却が正しい)"
+    },
+    {
+      "file": "render/016.png",
+      "category": "render",
+      "license": "CC0 (自作)",
+      "source": "自作 — px-calib render (種 7, 12 倍 / bilinear / リサイズ 1.30 / jpeg60)",
+      "note": "非整数倍リサイズ — 整数の格子は無い (棄却が正しい)"
+    },
+    {
+      "file": "render/017.png",
+      "category": "render",
+      "license": "CC0 (自作)",
+      "source": "自作 — px-calib render (種 7, 4 倍 / bicubic / リサイズ 1.30 / png)",
+      "note": "非整数倍リサイズ — 整数の格子は無い (棄却が正しい)"
+    },
+    {
+      "file": "render/018.png",
+      "category": "render",
+      "license": "CC0 (自作)",
+      "source": "自作 — px-calib render (種 7, 3 倍 / bicubic / リサイズ keep / jpeg60)",
+      "truth": {
+        "scale": 3,
+        "phase": [
+          2,
+          1
+        ]
+      }
+    },
+    {
+      "file": "render/019.png",
+      "category": "render",
+      "license": "CC0 (自作)",
+      "source": "自作 — px-calib render (種 7, 3 倍 / bicubic / リサイズ keep / jpeg95)",
+      "truth": {
+        "scale": 3,
+        "phase": [
+          0,
+          1
+        ]
+      }
+    },
+    {
+      "file": "render/020.png",
+      "category": "render",
+      "license": "CC0 (自作)",
+      "source": "自作 — px-calib render (種 7, 6 倍 / lanczos / リサイズ 0.85 / jpeg80)",
+      "note": "非整数倍リサイズ — 整数の格子は無い (棄却が正しい)"
+    },
+    {
+      "file": "render/021.png",
+      "category": "render",
+      "license": "CC0 (自作)",
+      "source": "自作 — px-calib render (種 7, 2 倍 / lanczos / リサイズ keep / jpeg60)",
+      "truth": {
+        "scale": 2,
+        "phase": [
+          0,
+          1
+        ]
+      }
+    },
+    {
+      "file": "render/022.png",
+      "category": "render",
+      "license": "CC0 (自作)",
+      "source": "自作 — px-calib render (種 7, 3 倍 / bicubic / リサイズ keep / png)",
+      "truth": {
+        "scale": 3,
+        "phase": [
+          0,
+          1
+        ]
+      }
+    },
+    {
+      "file": "render/023.png",
+      "category": "render",
+      "license": "CC0 (自作)",
+      "source": "自作 — px-calib render (種 7, 6 倍 / lanczos / リサイズ 1.30 / jpeg60)",
+      "note": "非整数倍リサイズ — 整数の格子は無い (棄却が正しい)"
+    },
+    {
+      "file": "render/024.png",
+      "category": "render",
+      "license": "CC0 (自作)",
+      "source": "自作 — px-calib render (種 7, 6 倍 / bicubic / リサイズ keep / jpeg60)",
+      "truth": {
+        "scale": 6,
+        "phase": [
+          1,
+          2
+        ]
+      }
+    }
+  ]
+}

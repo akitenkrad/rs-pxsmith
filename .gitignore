@@ -13,5 +13,10 @@ debug/
 .env
 .DS_Store
 
-# 校正の評価データセット (px-calib gen で作り直せる)
-grid-eval/
+# 校正の評価データセット (px-calib gen で作り直せる)．
+# **先頭の / が要る** — 無いと testdata/grid-eval/ (実データ枠．こちらは追跡する) まで
+# 巻き込む
+/grid-eval/
+
+# 実データ枠の検証結果 (px-calib real で作り直せる)
+testdata/grid-eval/real/results.csv
