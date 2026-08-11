@@ -20,6 +20,7 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 
+mod bands;
 mod dataset;
 mod degrade;
 mod metrics;
@@ -80,6 +81,24 @@ enum Command {
         #[arg(long, num_args = 1..)]
         tau: Vec<f32>,
     },
+    /// 再構成誤差を帯ごとに測る (掃引の行き止まりを抜けられるかの実測)
+    Bands {
+        #[arg(long, default_value = DEFAULT_DIR)]
+        dir: PathBuf,
+        /// 出力する CSV．既定は <dir>/bands.csv
+        #[arg(long)]
+        out: Option<PathBuf>,
+        /// 対象の分割．`all` で両方
+        #[arg(long, default_value = "validation")]
+        split: String,
+        /// 掃引で完全一致率が最大だった水準
+        #[arg(long, default_value_t = 0.02)]
+        epsilon: f32,
+        #[arg(long, default_value_t = 0.15)]
+        delta: f32,
+        #[arg(long, default_value_t = 0.02)]
+        tau: f32,
+    },
     /// 掃引の結果から指標を出す
     Report {
         #[arg(long, default_value = DEFAULT_DIR)]
@@ -131,12 +150,7 @@ fn main() -> Result<()> {
             tau,
         } => {
             let manifest = dataset::read(&dir)?;
-            let only = match split.as_str() {
-                "validation" => Some(Split::Validation),
-                "test" => Some(Split::Test),
-                "all" => None,
-                other => anyhow::bail!("分割は validation / test / all のいずれか: {other}"),
-            };
+            let only = parse_split(&split)?;
 
             let default = ParamGrid::default();
             let grid = ParamGrid {
@@ -159,6 +173,22 @@ fn main() -> Result<()> {
             println!("{} 行を {} へ書いた", rows.len(), path.display());
         }
 
+        Command::Bands {
+            dir,
+            out,
+            split,
+            epsilon,
+            delta,
+            tau,
+        } => {
+            let manifest = dataset::read(&dir)?;
+            let only = parse_split(&split)?;
+            let records = bands::run(&dir, &manifest, only, epsilon, delta, tau)?;
+            let path = out.unwrap_or_else(|| dir.join("bands.csv"));
+            write_bands(&path, &records)?;
+            report_bands(&records);
+        }
+
         Command::Report {
             dir,
             sweep: sweep_path,
@@ -178,6 +208,74 @@ fn or_default(given: Vec<f32>, fallback: &[f32]) -> Vec<f32> {
         fallback.to_vec()
     } else {
         given
+    }
+}
+
+fn parse_split(split: &str) -> Result<Option<Split>> {
+    match split {
+        "validation" => Ok(Some(Split::Validation)),
+        "test" => Ok(Some(Split::Test)),
+        "all" => Ok(None),
+        other => anyhow::bail!("分割は validation / test / all のいずれか: {other}"),
+    }
+}
+
+fn write_bands(path: &std::path::Path, records: &[bands::Record]) -> Result<()> {
+    let mut text = String::from(bands::RECORD_HEADER);
+    text.push('\n');
+    for r in records {
+        text.push_str(&r.to_csv());
+        text.push('\n');
+    }
+    px_io::atomic::write(path, text.as_bytes())
+        .with_context(|| format!("{} を書けない", path.display()))?;
+    println!("{} 件を {} へ書いた", records.len(), path.display());
+    Ok(())
+}
+
+/// 帯の統計が 2 種類の件を分けられているかを表に出す．
+fn report_bands(records: &[bands::Record]) {
+    let (accept, reject): (Vec<&bands::Record>, Vec<&bands::Record>) =
+        records.iter().partition(|r| r.should_accept);
+    println!(
+        "\n== 帯ごとの再構成誤差 ==\n  受け入れるべき件 {} / 棄却すべき件 {}",
+        accept.len(),
+        reject.len()
+    );
+
+    let show = |name: &str, key: &dyn Fn(&bands::Record) -> f32| {
+        let q = |rows: &[&bands::Record]| {
+            let v: Vec<f32> = rows.iter().map(|r| key(r)).collect();
+            bands::quartiles(&v)
+        };
+        let (a1, a2, a3) = q(&accept);
+        let (r1, r2, r3) = q(&reject);
+        println!(
+            "  {name:<16} 受け入れ Q1/中央/Q3 = {a1:.3} / {a2:.3} / {a3:.3}   棄却 = {r1:.3} / {r2:.3} / {r3:.3}"
+        );
+    };
+    show("全体の不一致率", &|r| r.overall);
+    show("帯のばらつき", &|r| r.spread);
+    show("相対ばらつき", &|r| r.relative_spread);
+    show("傾き", &|r| r.slope);
+    show("位相のずれ (画素)", &|r| r.phase_spread as f32);
+    show("位相のずれ (正規化)", &|r| r.phase_drift);
+
+    println!("\n  単一閾値で分けたときの均衡正解率 (0.5 = 分けられていない)");
+    for (name, key) in [
+        (
+            "全体の不一致率 (現行)",
+            &(|r: &bands::Record| r.overall) as &dyn Fn(&bands::Record) -> f32,
+        ),
+        ("帯のばらつき", &|r: &bands::Record| r.spread),
+        ("相対ばらつき", &|r: &bands::Record| r.relative_spread),
+        ("位相のずれ", &|r: &bands::Record| r.phase_drift),
+        ("位相のずれ + 不一致率", &|r: &bands::Record| {
+            r.phase_drift.max(r.overall * 2.0)
+        }),
+    ] {
+        let (t, acc) = bands::best_threshold(records, key);
+        println!("    {name:<22} 閾値 {t:.4} で {:.1}%", acc * 100.0);
     }
 }
 
