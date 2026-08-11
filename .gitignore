@@ -1,0 +1,14 @@
+# Cargo
+target/
+debug/
+**/*.rs.bk
+*.pdb
+
+# Cargo.lock は bin を含むのでコミットする (実装計画書 6 章)
+
+# 中間キャッシュ (設計書 6.15)
+.pxcache/
+
+# 環境
+.env
+.DS_Store

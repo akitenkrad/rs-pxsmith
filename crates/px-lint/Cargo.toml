@@ -1,0 +1,14 @@
+[package]
+edition.workspace = true
+name = "px-lint"
+publish.workspace = true
+repository.workspace = true
+version.workspace = true
+
+[dependencies]
+px-core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

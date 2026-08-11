@@ -1,0 +1,20 @@
+[package]
+edition.workspace = true
+name = "px-io"
+publish.workspace = true
+repository.workspace = true
+version.workspace = true
+
+[dependencies]
+aseprite-io = { workspace = true }
+image = { workspace = true }
+px-core = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+toml = { workspace = true }
+
+[dev-dependencies]
+px-core = { workspace = true }
+
+[lints]
+workspace = true

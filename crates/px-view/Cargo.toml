@@ -1,0 +1,21 @@
+[package]
+edition.workspace = true
+name = "px-view"
+publish.workspace = true
+repository.workspace = true
+version.workspace = true
+
+[dependencies]
+image = { workspace = true }
+px-core = { workspace = true }
+thiserror = { workspace = true }
+viuer = { workspace = true }
+
+[features]
+default = []
+# viuer の Sixel 対応を引き継ぐ．端末が Kitty / iTerm2 のいずれでもない環境向け
+icy_sixel = ["viuer/icy_sixel"]
+sixel = ["viuer/sixel"]
+
+[lints]
+workspace = true

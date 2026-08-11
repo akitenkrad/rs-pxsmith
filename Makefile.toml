@@ -1,0 +1,46 @@
+[config]
+default_to_workspace = false
+
+# ============ BUILD TASKS ============
+[tasks.release-build]
+description = "Build the workspace in release mode."
+script = """cargo build --workspace --release"""
+
+[tasks.dev-build]
+description = "Build the workspace."
+script = """cargo build --workspace"""
+
+# ============ LINT TASKS ============
+[tasks.format-all]
+dependencies = ["sort-cargo-toml", "clippy", "reformat"]
+description = "Format all code in the project."
+
+[tasks.sort-cargo-toml]
+description = "Sort the Cargo.toml files in the project."
+install_crate = "taplo-cli"
+script = """taplo fmt --option reorder_keys=true"""
+
+[tasks.reformat]
+description = "Reformat the code using rustfmt."
+script = """cargo fmt --all -- --emit files"""
+
+[tasks.clippy]
+description = "Lint the workspace."
+script = """cargo clippy --workspace --all-targets -- -D warnings"""
+
+# ============ TEST TASKS ============
+[tasks.nextest-run]
+dependencies = ["dev-build"]
+description = "Run all tests in the project."
+install_crate = "cargo-nextest"
+script = """cargo nextest run --workspace --status-level all"""
+
+[tasks.test]
+description = "Run all tests with cargo test."
+script = """cargo test --workspace"""
+
+# M0 の完了判定．testdata/aseprite/ に実ファイルが無ければ失敗する
+[tasks.verify-aseprite-corpus]
+description = "Require the real .aseprite corpus and check byte-exact round-trip."
+env = { PXFORGE_REQUIRE_ASEPRITE_CORPUS = "1" }
+script = """cargo test -p px-io --test aseprite_roundtrip"""

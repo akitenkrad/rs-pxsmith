@@ -1,0 +1,24 @@
+[package]
+edition.workspace = true
+name = "px"
+publish.workspace = true
+repository.workspace = true
+version.workspace = true
+
+[[bin]]
+name = "px"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true }
+px-core = { workspace = true }
+px-io = { workspace = true }
+px-lint = { workspace = true }
+px-macro = { workspace = true }
+serde_json = { workspace = true }
+px-view = { workspace = true }
+notify = { workspace = true }
+
+[lints]
+workspace = true

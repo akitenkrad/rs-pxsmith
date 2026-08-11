@@ -1,0 +1,16 @@
+[package]
+edition.workspace = true
+name = "px-core"
+publish.workspace = true
+repository.workspace = true
+version.workspace = true
+
+[dependencies]
+aseprite-io = { workspace = true }
+palette = { workspace = true }
+quantette = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

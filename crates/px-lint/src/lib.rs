@@ -1,0 +1,262 @@
+//! `px-lint` — 品質検査 (設計書 7 章)．
+//!
+//! lint は 2 つの役割を持つ．人の目の代わりに形式的性質を検査する役割と，
+//! **生成 AI ループの評価関数**としての役割である．後者のために `px-gen` からも
+//! 参照されるので独立したクレートにしてある (設計書 2.1)．
+//!
+//! # 分類 (7.2)
+//!
+//! | 分類 | 扱い |
+//! | --- | --- |
+//! | `blocking` | 生成ループの判定に用いる．違反があれば再生成する |
+//! | `advisory` | 報告のみ．偽陽性が避けられない主観寄りのルールを置く |
+//!
+//! # スコープ (7.1，D47)
+//!
+//! | スコープ | 対象 |
+//! | --- | --- |
+//! | `static` | 単一の静止画 |
+//! | `keyframe` | `kind = "key"` / `"breakdown"` のフレームのみ |
+//! | `sequence` | フレーム列全体 |
+//!
+//! ジャギー・AA 系を `keyframe` に限定するのが要点である．これがないと `px anim` の
+//! 出力が自らの lint に大量に落ちる．
+//!
+//! # 実装済みのルール
+//!
+//! M2 で実装するのは**色・格子・ディザ系の 11 ルール**である
+//! (1 ・2 ・3 ・5 ・9 ・10 ・11 ・15 ・16 ・17 ・18)．形・陰影系は M3，
+//! G5 依存の 3 件は M7，フレーム間は M4 で足す．
+
+pub mod rules;
+
+pub use rules::{LintConfig, lint_canvas, lint_frame};
+
+use px_core::math::{IRect, IVec2};
+use serde::{Deserialize, Serialize};
+
+/// 違反の重さ (設計書 7.2)．
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Severity {
+    /// 生成ループはこれがあれば再生成する．
+    Blocking,
+    /// 報告のみ．
+    Advisory,
+}
+
+/// 検査の範囲 (設計書 7.1)．
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Scope {
+    Static,
+    Keyframe,
+    Sequence,
+}
+
+/// ルールの定義．
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct Rule {
+    /// 設計書 7.3 の番号．
+    pub id: u8,
+    pub name: &'static str,
+    pub severity: Severity,
+    pub scope: Scope,
+}
+
+/// M2 で実装するルール (設計書 7.3)．
+pub const RULES: &[Rule] = &[
+    Rule {
+        id: 1,
+        name: "パレット逸脱",
+        severity: Severity::Blocking,
+        scope: Scope::Static,
+    },
+    Rule {
+        id: 2,
+        name: "格子崩れ",
+        severity: Severity::Blocking,
+        scope: Scope::Static,
+    },
+    Rule {
+        id: 3,
+        name: "孤立ピクセル",
+        severity: Severity::Blocking,
+        scope: Scope::Static,
+    },
+    Rule {
+        id: 5,
+        name: "彩度カーブ異常",
+        severity: Severity::Blocking,
+        scope: Scope::Static,
+    },
+    Rule {
+        id: 9,
+        name: "ミクセル",
+        severity: Severity::Blocking,
+        scope: Scope::Static,
+    },
+    Rule {
+        id: 10,
+        name: "ディザの塊化",
+        severity: Severity::Blocking,
+        scope: Scope::Static,
+    },
+    Rule {
+        id: 11,
+        name: "明度差不足",
+        severity: Severity::Advisory,
+        scope: Scope::Static,
+    },
+    Rule {
+        id: 15,
+        name: "ディザ過多",
+        severity: Severity::Advisory,
+        scope: Scope::Static,
+    },
+    Rule {
+        id: 16,
+        name: "大面積の高彩度色",
+        severity: Severity::Advisory,
+        scope: Scope::Static,
+    },
+    Rule {
+        id: 17,
+        name: "高コントラスト間のディザ",
+        severity: Severity::Advisory,
+        scope: Scope::Static,
+    },
+    Rule {
+        id: 18,
+        name: "純黒の使用",
+        severity: Severity::Advisory,
+        scope: Scope::Static,
+    },
+];
+
+/// 番号からルールを引く．
+pub fn rule(id: u8) -> Option<&'static Rule> {
+    RULES.iter().find(|r| r.id == id)
+}
+
+/// 見つかった違反 1 件．
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Violation {
+    pub rule: u8,
+    pub name: String,
+    pub severity: Severity,
+    pub scope: Scope,
+    pub message: String,
+    /// 違反の位置 (画素)．
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub at: Option<[i32; 2]>,
+    /// 違反の範囲．
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub area: Option<[i32; 4]>,
+}
+
+impl Violation {
+    pub(crate) fn new(rule: &Rule, message: impl Into<String>) -> Self {
+        Self {
+            rule: rule.id,
+            name: rule.name.to_string(),
+            severity: rule.severity,
+            scope: rule.scope,
+            message: message.into(),
+            at: None,
+            area: None,
+        }
+    }
+
+    pub(crate) fn at(mut self, p: IVec2) -> Self {
+        self.at = Some([p.x, p.y]);
+        self
+    }
+
+    pub(crate) fn area(mut self, r: IRect) -> Self {
+        self.area = Some([r.x, r.y, r.w as i32, r.h as i32]);
+        self
+    }
+
+    pub fn is_blocking(&self) -> bool {
+        self.severity == Severity::Blocking
+    }
+}
+
+/// 検査の結果．
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Report {
+    pub violations: Vec<Violation>,
+}
+
+impl Report {
+    pub fn push(&mut self, v: Violation) {
+        self.violations.push(v);
+    }
+
+    pub fn extend(&mut self, other: Report) {
+        self.violations.extend(other.violations);
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.violations.is_empty()
+    }
+
+    pub fn blocking(&self) -> impl Iterator<Item = &Violation> {
+        self.violations.iter().filter(|v| v.is_blocking())
+    }
+
+    pub fn advisory(&self) -> impl Iterator<Item = &Violation> {
+        self.violations.iter().filter(|v| !v.is_blocking())
+    }
+
+    /// 生成ループの判定 — **`advisory` 違反は許容する** (設計書 8.2)．
+    pub fn has_blocking(&self) -> bool {
+        self.blocking().next().is_some()
+    }
+
+    /// 違反をルール番号順に並べ替える (報告の決定論性)．
+    pub fn sorted(mut self) -> Self {
+        self.violations.sort_by_key(|v| {
+            (
+                v.rule,
+                v.at.unwrap_or([i32::MAX, i32::MAX]),
+                v.message.clone(),
+            )
+        });
+        self
+    }
+
+    /// 生成ループへ返す助言文 (設計書 8.2 の `ToPromptHint`)．
+    pub fn to_prompt_hint(&self) -> String {
+        let mut out = String::new();
+        for v in self.blocking() {
+            out.push_str(&format!(
+                "- ルール {} ({}): {}\n",
+                v.rule, v.name, v.message
+            ));
+        }
+        out
+    }
+}
+
+impl std::fmt::Display for Report {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.violations.is_empty() {
+            return writeln!(f, "違反なし");
+        }
+        for v in &self.violations {
+            let tag = if v.is_blocking() {
+                "blocking"
+            } else {
+                "advisory"
+            };
+            write!(f, "[{tag}] ルール {} {}: {}", v.rule, v.name, v.message)?;
+            if let Some([x, y]) = v.at {
+                write!(f, " ({x}, {y})")?;
+            }
+            writeln!(f)?;
+        }
+        Ok(())
+    }
+}

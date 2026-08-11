@@ -1,0 +1,29 @@
+[meta]
+format = 1
+name = "hero_body"
+layer = "body"
+subpixel_exclude = false
+
+[palette]
+ref = "pal.hex"
+map = { "." = "transparent", "k" = 0, "h" = 12 }
+
+[[frame]]
+name = "idle"
+kind = "key"
+duration_ms = 83
+data = '''
+..kk..
+.khhk.
+..kk..
+'''
+
+[[frame]]
+name = "idle2"
+kind = "inbetween"
+duration_ms = 42
+data = '''
+..kk..
+.khhk.
+.k..k.
+'''

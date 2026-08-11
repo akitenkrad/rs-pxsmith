@@ -1,0 +1,44 @@
+[workspace]
+members = [
+  "crates/px",
+  "crates/px-core",
+  "crates/px-io",
+  "crates/px-lint",
+  "crates/px-macro",
+  "crates/px-view",
+]
+resolver = "3"
+
+[workspace.package]
+edition = "2024"
+publish = false
+repository = "https://github.com/akitenkrad/rs-pxforge"
+version = "0.1.0"
+
+[workspace.dependencies]
+anyhow = "1.0.100"
+aseprite-io = "0.2.0"
+clap = { version = "4.5", features = ["derive"] }
+image = "0.25.10"
+palette = "0.7.7"
+px-core = { path = "crates/px-core" }
+quantette = { version = "0.6", default-features = false, features = ["kmeans", "std"] }
+px-io = { path = "crates/px-io" }
+px-lint = { path = "crates/px-lint" }
+px-macro = { path = "crates/px-macro" }
+px-view = { path = "crates/px-view" }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.145"
+thiserror = "2.0.17"
+notify = "8.2"
+proc-macro2 = "1.0"
+quote = "1.0"
+syn = "2.0"
+toml = "1.1"
+viuer = "0.11"
+
+[workspace.lints.clippy]
+all = "warn"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"

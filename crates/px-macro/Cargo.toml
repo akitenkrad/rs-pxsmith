@@ -1,0 +1,21 @@
+[package]
+edition.workspace = true
+name = "px-macro"
+publish.workspace = true
+repository.workspace = true
+version.workspace = true
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2 = { workspace = true }
+px-io = { workspace = true }
+quote = { workspace = true }
+syn = { workspace = true, features = ["full"] }
+
+[dev-dependencies]
+px-core = { workspace = true }
+
+[lints]
+workspace = true
