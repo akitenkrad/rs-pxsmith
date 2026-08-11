@@ -130,6 +130,7 @@ G4 (局所格子推定) は格子推定器そのものなので M2 で `conform`
 | 評価データセット (合成 500 件) | 済 | `px-calib gen`．正解つき．`grid-eval/` へ生成する |
 | 位相ずれ検査 (D62) | 済 | `grid.rs` の `phase_drift_ok`．帯 4 ・許容 $s/6$ |
 | 信頼度の対照群 (D63) | 済 | $\hat{s}$ より大きい $s$ に限定 |
+| 実データ枠の受け皿 | 済 (25 件) | `testdata/grid-eval/real/`．`px-calib render` / `real` |
 | **数値の校正** | **既定値は校正済み．マクロ平均 88.1% / 目標 95%** | `docs/investigations/grid-calibration.md` |
 
 ### 実装中に分かったこと

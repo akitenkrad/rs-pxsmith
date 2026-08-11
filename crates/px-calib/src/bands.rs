@@ -442,6 +442,7 @@ pub fn run(
         // 「検査が通した答えを選り分けられるか」という元の問いのまま測る
         phase_bands: 0,
         phase_tolerance: 1.0,
+        phase_min_cells: 2,
         min_confidence: 0.0,
     };
 

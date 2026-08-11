@@ -76,6 +76,19 @@ pub struct GridParams {
     pub phase_bands: usize,
     /// 帯どうしの位相のずれの許容．**$s$ に対する割合**で持つ．
     pub phase_tolerance: f32,
+    /// 位相ずれ検査を行うために帯 1 本へ要るセル数．
+    ///
+    /// 下回ると検査そのものを行わない (候補は通る) ．**大きい $s$ ほど帯が薄くなるので，
+    /// この値が大きいと過大推定の抜け穴になる** — 2 では候補の 23% で検査が働かず，
+    /// $s = 12$ ・$16$ の過大推定がそこから漏れている．
+    ///
+    /// > **1 にすると評価データセットの成績は上がるが (88.1% → 90.1%) ，採らない．**
+    /// > 帯あたり 1 セルでは位相が当てにならず，24 画素角のスプライトを 4 倍した画像で
+    /// > 真のスケールを落とす (試験 `recovers_the_phase_when_the_image_is_cropped`) ．
+    /// > 評価データセットの元絵は 16〜48 画素角なので**真のスケールでは常に 16 セル以上**
+    /// > あり，この失敗を見られない — 掃引の数字が良くなるのは，データセットが
+    /// > 見ていない場面を代償にしているからである．小さい絵を入れてから測り直す．
+    pub phase_min_cells: usize,
     /// この値未満の信頼度は棄却する．
     pub min_confidence: f32,
 }
@@ -92,6 +105,7 @@ impl Default for GridParams {
             phase_bands: 4,
             // 0 で 67.3% ・1/8 で 72.3% ・1/6 で 75.2% ・1/4 で 73.0% ・3/8 で 60.2%
             phase_tolerance: 1.0 / 6.0,
+            phase_min_cells: 2,
             // 運転点．0 だと非整数の周期に答えを返してしまう (正棄却 65.3%)．
             // 0.03 で 93.0% まで上がり，完全一致率の代償は 85.1% → 83.2% で済む
             min_confidence: 0.03,
@@ -348,16 +362,21 @@ fn cyclic_spread(phases: &[usize], s: usize) -> usize {
 ///
 /// 帯あたりのセル数が足りない場合は検査を行わない (`true` を返す) ．少ないセルから
 /// 求めた位相は当てにならず，落とす根拠にならない．
-fn phase_drift_ok(it: &Integral, s: usize, d: IVec2, bands: usize, tolerance: f32) -> bool {
+fn phase_drift_ok(
+    it: &Integral,
+    s: usize,
+    d: IVec2,
+    bands: usize,
+    tolerance: f32,
+    min_cells: usize,
+) -> bool {
     if bands < 2 {
         return true;
     }
     let (dx, dy) = (d.x.max(0) as usize, d.y.max(0) as usize);
-    // 帯 1 つにこれだけのセルが要る．下回ったら検査しない
-    const MIN_CELLS_PER_BAND: usize = 2;
     let cells_x = it.w.saturating_sub(dx) / s;
     let cells_y = it.h.saturating_sub(dy) / s;
-    if cells_x < MIN_CELLS_PER_BAND * bands || cells_y < MIN_CELLS_PER_BAND * bands {
+    if cells_x < min_cells * bands || cells_y < min_cells * bands {
         return true;
     }
 
@@ -481,6 +500,7 @@ fn evaluate(
                 c.phase,
                 params.phase_bands,
                 params.phase_tolerance,
+                params.phase_min_cells,
             )
         })
         .collect();
@@ -541,6 +561,7 @@ pub fn scale_candidates(img: &RgbaCanvas, params: &GridParams) -> (Vec<ScaleCand
                     phase,
                     params.phase_bands,
                     params.phase_tolerance,
+                    params.phase_min_cells,
                 ),
             })
         })
@@ -857,7 +878,7 @@ mod tests {
                     ((scale - phase.1) % scale) as i32,
                 );
                 assert!(
-                    phase_drift_ok(&it, scale as usize, d, 4, 0.0),
+                    phase_drift_ok(&it, scale as usize, d, 4, 0.0, 2),
                     "{scale} 倍 ・位相 {phase:?} で帯ごとに位相が違う"
                 );
             }
@@ -871,7 +892,7 @@ mod tests {
         let it = Integral::new(&img);
         let d = best_phase(&it, 8).expect("位相はある").1;
         assert!(
-            !phase_drift_ok(&it, 8, d, 4, 1.0 / 6.0),
+            !phase_drift_ok(&it, 8, d, 4, 1.0 / 6.0, 2),
             "非整数の周期を通してしまった"
         );
     }
@@ -882,7 +903,7 @@ mod tests {
         let img = upscaled(&PATTERN, &palette(), 4, (0, 0));
         let it = Integral::new(&img);
         assert!(
-            phase_drift_ok(&it, 4, ivec2(0, 0), 8, 0.0),
+            phase_drift_ok(&it, 4, ivec2(0, 0), 8, 0.0, 2),
             "セルが足りないのに棄却している"
         );
     }
@@ -892,8 +913,14 @@ mod tests {
         let img = resampled(&WIDE, &palette(), 7.8);
         let it = Integral::new(&img);
         let d = best_phase(&it, 8).expect("位相はある").1;
-        assert!(phase_drift_ok(&it, 8, d, 0, 0.0), "帯 0 で検査が働いている");
-        assert!(phase_drift_ok(&it, 8, d, 1, 0.0), "帯 1 では比べようがない");
+        assert!(
+            phase_drift_ok(&it, 8, d, 0, 0.0, 2),
+            "帯 0 で検査が働いている"
+        );
+        assert!(
+            phase_drift_ok(&it, 8, d, 1, 0.0, 2),
+            "帯 1 では比べようがない"
+        );
     }
 
     #[test]

@@ -16,6 +16,7 @@
 | `aseprite/aseprite-tests/*.aseprite` (19 件) | Aseprite 本体のテストスプライト．タイルマップ・リンクセル・グループ・スライス・タグ・ユーザデータ props を含む | Aseprite 公式 — https://github.com/aseprite/aseprite/tree/main/tests/sprites (`aseprite-io` 0.2.0 の `tests/fixtures/` 経由で取得) | MIT (Igara Studio S.A. / David Capello)．原文は同ディレクトリの `LICENSE` |
 | `generated/sample.aseprite` | `cargo run -p px-io --example make_sample` の出力 | 自作 | CC0 (自作) |
 | `../palettes/sweetie-16.hex` | Sweetie 16 パレット | GrafxKid — https://lospec.com/palette-list/sweetie-16 | CC0 |
+| `grid-eval/real/render/*.png` (25 件) | 実データ枠の `render` 区分．球と床のレイトレーシングを縮小し，合成データと同じ劣化をかけたもの | 自作 — `cargo run -p px-calib -- render` | CC0 (自作) |
 
 ## 未調達のもの
 
@@ -23,7 +24,9 @@
 | --- | --- | --- | --- |
 | **独立した `.aseprite` 素材** | 数点．**最新版 Aseprite が書いた，未知チャンクを含みうるもの** | `aseprite/independent/` | R3 の残り (下記) |
 | 合成データの種 | きれいなドット絵．ここから 500 件を合成する | `grid-eval/seeds/` | M2 の格子推定の補正 |
-| 実データ (格子推定) | 20〜30 件．自作 3D レンダ・自作 AI 出力・CC0 素材で構成した画面 | `grid-eval/real/` | M2 の完了条件．**最もリードタイムが長い** |
+| 実データ (格子推定) — `render` | 済 (25 件，自作レンダ) | `grid-eval/real/render/` | — |
+| 実データ (格子推定) — `ai-output` | 未 | `grid-eval/real/ai-output/` | M2 の完了条件 |
+| 実データ (格子推定) — `screenshot` | 未．CC0 素材で組んだ画面 | `grid-eval/real/screenshot/` | M2 の完了条件 |
 | lint 正例 | CC0 の良質なドット絵 | `lint-cases/positive/` | M2・M3 の閾値決定 (誤検出率の測定) |
 | lint 負例 | 自作の失敗例 (ジャギー・バンディング・pillow shading・単色影・揺れる線) | `lint-cases/negative/` | M2・M3 の閾値決定 (検出率の測定) |
 

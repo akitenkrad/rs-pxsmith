@@ -25,6 +25,8 @@ mod confidence;
 mod dataset;
 mod degrade;
 mod metrics;
+mod real;
+mod render;
 mod rng;
 mod sprite;
 mod sweep;
@@ -87,6 +89,9 @@ enum Command {
         /// 帯どうしの位相のずれの許容 ($s$ に対する割合)
         #[arg(long, default_value_t = 1.0 / 6.0)]
         phase_tolerance: f32,
+        /// 位相ずれ検査に要る帯あたりのセル数
+        #[arg(long, default_value_t = 2)]
+        phase_min_cells: usize,
     },
     /// 再構成誤差を帯ごとに測る (掃引の行き止まりを抜けられるかの実測)
     Bands {
@@ -121,6 +126,23 @@ enum Command {
         delta: f32,
         #[arg(long, default_value_t = 0.3)]
         tau: f32,
+    },
+    /// 実データ枠の素材を自作レンダで作る (区分 `render`)
+    Render {
+        #[arg(long, default_value = "testdata/grid-eval/real")]
+        dir: PathBuf,
+        #[arg(long, default_value_t = 25)]
+        count: u32,
+        #[arg(long, default_value_t = 7)]
+        seed: u64,
+    },
+    /// 実データ (合成でない入力) を推定して 1 件ずつ並べる
+    Real {
+        /// 素材と目録の置き場所
+        #[arg(long, default_value = "testdata/grid-eval/real")]
+        dir: PathBuf,
+        #[arg(long)]
+        out: Option<PathBuf>,
     },
     /// 掃引の結果から指標を出す
     Report {
@@ -173,6 +195,7 @@ fn main() -> Result<()> {
             tau,
             phase_bands,
             phase_tolerance,
+            phase_min_cells,
         } => {
             let manifest = dataset::read(&dir)?;
             let only = parse_split(&split)?;
@@ -182,6 +205,7 @@ fn main() -> Result<()> {
                 max_scale,
                 phase_bands,
                 phase_tolerance,
+                phase_min_cells,
                 epsilons: or_default(epsilon, &default.epsilons),
                 deltas: or_default(delta, &default.deltas),
                 taus: or_default(tau, &default.taus),
@@ -238,6 +262,51 @@ fn main() -> Result<()> {
             report_confidence(&records);
         }
 
+        Command::Render { dir, count, seed } => {
+            let items = render_real_items(&dir, count, seed)?;
+            println!("{} 件を {} へ書いた", items, dir.display());
+        }
+
+        Command::Real { dir, out } => {
+            let manifest = real::read(&dir)?;
+            let outcomes = real::run(&dir, &manifest, &px_core::grid::GridParams::default())?;
+            let path = out.unwrap_or_else(|| dir.join("results.csv"));
+            let mut text = String::from(real::HEADER);
+            text.push('\n');
+            for o in &outcomes {
+                text.push_str(&o.to_csv());
+                text.push('\n');
+            }
+            px_io::atomic::write(&path, text.as_bytes())
+                .with_context(|| format!("{} を書けない", path.display()))?;
+            println!("{} 件を {} へ書いた\n", outcomes.len(), path.display());
+
+            for o in &outcomes {
+                let answer = match (o.scale_hat, o.phase_hat) {
+                    (Some(s), Some(p)) => format!("s={s} 位相=({},{})", p.0, p.1),
+                    _ => format!("棄却 ({})", o.error.clone().unwrap_or_default()),
+                };
+                println!(
+                    "  {:<34} {:>4}x{:<4} {answer:<24} 信頼度 {:<7} {}",
+                    o.file,
+                    o.width,
+                    o.height,
+                    o.confidence
+                        .map(|c| format!("{c:.3}"))
+                        .unwrap_or_else(|| "-".to_string()),
+                    o.verdict.as_str(),
+                );
+            }
+            let unknown = outcomes
+                .iter()
+                .filter(|o| o.verdict == real::Verdict::Unknown)
+                .count();
+            println!(
+                "\n  正解が分かっている {} 件 / 人が見る {unknown} 件．\n  **率で語らないこと** — 20〜30 件では 1 件が 3〜5% 動く",
+                outcomes.len() - unknown
+            );
+        }
+
         Command::Report {
             dir,
             sweep: sweep_path,
@@ -267,6 +336,61 @@ fn parse_split(split: &str) -> Result<Option<Split>> {
         "all" => Ok(None),
         other => anyhow::bail!("分割は validation / test / all のいずれか: {other}"),
     }
+}
+
+/// 自作レンダで実データ枠の素材を作る．
+///
+/// 劣化のかけ方は合成データと同じ ([`degrade`]) だが，**元絵の作り方が違う** —
+/// 平坦な数色ではなく陰影の階調を持つ．目録には正解を書く (自作なので分かる) ．
+fn render_real_items(dir: &std::path::Path, count: u32, seed: u64) -> Result<usize> {
+    use degrade::{COMPRESSIONS, Degradation, FILTERS, RESIZES, SCALES};
+
+    std::fs::create_dir_all(dir.join("render"))
+        .with_context(|| format!("{} を作れない", dir.display()))?;
+
+    let mut items = Vec::new();
+    for i in 0..count {
+        let mut rng = rng::Rng::new(seed ^ u64::from(i).wrapping_mul(0x9e37_79b9_7f4a_7c15));
+        let source = render::render(rng.next_u64());
+        let scale = SCALES[rng.below(SCALES.len() as u32) as usize];
+        let degradation = Degradation {
+            scale,
+            filter: FILTERS[rng.below(FILTERS.len() as u32) as usize],
+            resize: RESIZES[rng.below(RESIZES.len() as u32) as usize],
+            compression: COMPRESSIONS[rng.below(COMPRESSIONS.len() as u32) as usize],
+            crop: (rng.below(scale), rng.below(scale)),
+        };
+        let img = degradation.apply(&source)?;
+        let file = format!("render/{i:03}.png");
+        px_io::png::write_rgba(dir.join(&file), &img)?;
+
+        items.push(real::Item {
+            file,
+            category: real::Category::Render,
+            license: "CC0 (自作)".to_string(),
+            source: format!(
+                "自作 — px-calib render (種 {seed}, {} 倍 / {} / リサイズ {} / {})",
+                degradation.scale,
+                degradation.filter.as_str(),
+                degradation.resize.as_str(),
+                degradation.compression.as_str(),
+            ),
+            // 非整数倍リサイズを挟んだ件に整数の格子は無い．正解を書かない
+            truth: degradation.truth_phase().map(|p| real::Truth {
+                scale: degradation.scale,
+                phase: Some(p),
+            }),
+            note: degradation
+                .truth_phase()
+                .is_none()
+                .then(|| "非整数倍リサイズ — 整数の格子は無い (棄却が正しい)".to_string()),
+        });
+    }
+
+    let n = items.len();
+    let json = serde_json::to_string_pretty(&real::Manifest { items })?;
+    px_io::atomic::write(dir.join("manifest.json"), json.as_bytes())?;
+    Ok(n)
 }
 
 fn write_bands(path: &std::path::Path, records: &[bands::Record]) -> Result<()> {

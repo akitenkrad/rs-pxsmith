@@ -91,6 +91,9 @@ pub struct GridArgs {
     /// 帯どうしの位相のずれの許容 ($s$ に対する割合)
     #[arg(long, default_value_t = 1.0 / 6.0)]
     pub phase_tolerance: f32,
+    /// 位相ずれ検査に要る帯あたりのセル数
+    #[arg(long, default_value_t = 2)]
+    pub phase_min_cells: usize,
     /// これ未満の信頼度は棄却する．
     #[arg(long, default_value_t = 0.03)]
     pub min_confidence: f32,
@@ -105,6 +108,7 @@ impl From<&GridArgs> for GridParams {
             tau: a.tau,
             phase_bands: a.phase_bands,
             phase_tolerance: a.phase_tolerance,
+            phase_min_cells: a.phase_min_cells,
             min_confidence: a.min_confidence,
         }
     }

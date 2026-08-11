@@ -43,15 +43,18 @@ pub struct Record {
     pub relative_margin: f32,
     /// 全候補の $(s, \bar{V}(s))$．**別の定義を試すには曲線ごと要る**．
     pub curve: Vec<(u32, f32)>,
+    /// 候補ごとの関門の通過状況 `s:erp` (通ったものだけ文字が立つ) ．
+    /// **真のスケールがどこで落ちたのかを見るために要る**．
+    pub gates: Vec<(u32, bool, bool, bool)>,
 }
 
 pub const HEADER: &str = "item_id,has_integer_grid,truth_scale,scale_hat,correct,confidence,\
-v_hat,v_rival,rival_scale,v_image,margin,relative_margin,curve";
+v_hat,v_rival,rival_scale,v_image,margin,relative_margin,curve,gates";
 
 impl Record {
     pub fn to_csv(&self) -> String {
         format!(
-            "{},{},{},{},{},{:.6},{:.8},{:.8},{},{:.8},{:.8},{:.4},{}",
+            "{},{},{},{},{},{:.6},{:.8},{:.8},{},{:.8},{:.8},{:.4},{},{}",
             self.item_id,
             self.has_integer_grid,
             self.truth_scale,
@@ -67,6 +70,14 @@ impl Record {
             self.curve
                 .iter()
                 .map(|(s, v)| format!("{s}:{v:.8}"))
+                .collect::<Vec<_>>()
+                .join(" "),
+            self.gates
+                .iter()
+                .map(|(s, e, r, p)| {
+                    let flag = |ok: bool, c: char| if ok { c } else { '-' };
+                    format!("{s}:{}{}{}", flag(*e, 'e'), flag(*r, 'r'), flag(*p, 'p'))
+                })
                 .collect::<Vec<_>>()
                 .join(" "),
         )
@@ -109,6 +120,10 @@ fn measure(item: &Item, cands: &[ScaleCandidate], v_image: f32, hat: u32, correc
             f32::NAN
         },
         curve: cands.iter().map(|c| (c.scale, c.mean_variance)).collect(),
+        gates: cands
+            .iter()
+            .map(|c| (c.scale, c.passes_epsilon, c.passes_recon, c.passes_phase))
+            .collect(),
     }
 }
 
@@ -119,6 +134,12 @@ pub fn run(
     only: Option<Split>,
     params: &GridParams,
 ) -> Result<Vec<Record>> {
+    // 運転点は測定の対象外にする — 棄却された件こそ「なぜ落ちたのか」を見たい
+    let params = &GridParams {
+        min_confidence: 0.0,
+        ..*params
+    };
+
     let items: Vec<&Item> = manifest
         .items
         .iter()

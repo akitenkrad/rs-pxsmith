@@ -21,6 +21,7 @@ pub struct ParamGrid {
     /// 位相ずれ検査の帯の数．掃引はしないが，検査ごと外して比べられるようにする
     pub phase_bands: usize,
     pub phase_tolerance: f32,
+    pub phase_min_cells: usize,
     pub epsilons: Vec<f32>,
     pub deltas: Vec<f32>,
     pub taus: Vec<f32>,
@@ -32,6 +33,7 @@ impl Default for ParamGrid {
             max_scale: 16,
             phase_bands: 4,
             phase_tolerance: 1.0 / 6.0,
+            phase_min_cells: 2,
             // 予備調査で「補間を挟むと必要な ε が 1 桁以上大きくなる」ことが
             // 分かっている (開発ノート 5 節)．既定の 2e-4 から 2 桁上まで見る
             epsilons: vec![2.0e-4, 5.0e-4, 1.0e-3, 2.0e-3, 5.0e-3, 1.0e-2, 2.0e-2],
@@ -55,6 +57,7 @@ impl ParamGrid {
                         tau,
                         phase_bands: self.phase_bands,
                         phase_tolerance: self.phase_tolerance,
+                        phase_min_cells: self.phase_min_cells,
                         min_confidence: 0.0,
                     });
                 }
