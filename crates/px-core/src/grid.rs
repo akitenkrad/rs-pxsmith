@@ -18,6 +18,18 @@
 //! 成立せず評価データセットのほぼ全件が棄却される．画素色差の許容 $\delta$ と
 //! 不一致画素率の許容 $\tau$ の 2 段で判定する．
 //!
+//! # 位相ずれ検査
+//!
+//! 再構成検査だけでは**非整数の周期を落とせない**．画像全体で 1 つの割合しか見ないので，
+//! 補間による一様な滲みと，非整数倍リサイズによる距離に比例したずれが同じ数に潰れる．
+//! 合成 500 件では，どちらを優先しても他方が落ちる反比例になり，閾値の選び直しでは
+//! 抜けられなかった (`docs/investigations/grid-calibration.md`)．
+//!
+//! そこで画像を帯に切り，帯ごとに最も合う位相を求めて揃っているかを見る．**位相は
+//! 絵の中身に左右されない** — 本物の格子なら何が描いてあろうとどの帯でも同じ値になり，
+//! 偽物なら帯が進むほどずれる．実測では単一閾値で均衡正解率 95.9% (再構成検査だけなら
+//! 76.6%) だった．
+//!
 //! # 性能
 //!
 //! 位相探索は**積分画像 (summed-area table) で定数時間化する**．セル分散は
@@ -43,6 +55,10 @@ pub struct GridParams {
     pub delta: f32,
     /// 再構成の不一致画素率の許容 $\tau$．
     pub tau: f32,
+    /// 位相ずれ検査で画像を切る帯の数 (縦横それぞれ)．0 で検査を飛ばす．
+    pub phase_bands: usize,
+    /// 帯どうしの位相のずれの許容．**$s$ に対する割合**で持つ．
+    pub phase_tolerance: f32,
     /// この値未満の信頼度は棄却する．
     pub min_confidence: f32,
 }
@@ -54,6 +70,11 @@ impl Default for GridParams {
             epsilon: 2.0e-4,
             delta: 0.02,
             tau: 0.02,
+            phase_bands: 4,
+            // 合成 500 件の検証セットで測った値 (均衡正解率 95.9%)．
+            // 0 にすると 89.3% ・1/4 で 95.0% ・3/8 で 94.9% だった．
+            // **推定器へ組み込んだ後の掃引はまだ回していないので暫定である**
+            phase_tolerance: 1.0 / 6.0,
             min_confidence: 0.0,
         }
     }
@@ -229,6 +250,119 @@ fn best_phase(it: &Integral, s: usize) -> Option<(f32, IVec2)> {
     best
 }
 
+/// 矩形の中だけでセル内平均分散を測る．位相は**画像の原点を基準**に与える．
+fn mean_cell_variance_in(
+    it: &Integral,
+    s: usize,
+    rect: (usize, usize, usize, usize),
+    dx: usize,
+    dy: usize,
+) -> Option<f32> {
+    let (x0, y0, x1, y1) = rect;
+    let mut acc = 0.0f64;
+    let mut count = 0usize;
+    let mut y = first_cell(y0, dy, s);
+    while y + s <= y1 {
+        let mut x = first_cell(x0, dx, s);
+        while x + s <= x1 {
+            acc += it.variance(x, y, x + s, y + s);
+            count += 1;
+            x += s;
+        }
+        y += s;
+    }
+    (count > 0).then(|| (acc / count as f64) as f32)
+}
+
+/// 帯の中で最初にセルが始まる座標．
+///
+/// **位相は画像の原点を基準に測る．** 帯の左端を基準にすると帯ごとに違う物差しで
+/// 測ることになり，本物の格子でもずれが出て何も分からなくなる．
+fn first_cell(band_start: usize, phase: usize, s: usize) -> usize {
+    band_start + (phase + s - band_start % s) % s
+}
+
+/// 帯 1 つの中で最も合う位相．**同点は小さい方**を採る (設計書 6.15 規則 2)．
+fn best_phase_in(
+    it: &Integral,
+    s: usize,
+    rect: (usize, usize, usize, usize),
+    fixed: usize,
+    horizontal: bool,
+) -> Option<usize> {
+    let mut best: Option<(f32, usize)> = None;
+    for p in 0..s {
+        let (dx, dy) = if horizontal { (p, fixed) } else { (fixed, p) };
+        let Some(v) = mean_cell_variance_in(it, s, rect, dx, dy) else {
+            continue;
+        };
+        match best {
+            Some((bv, _)) if bv <= v => {}
+            _ => best = Some((v, p)),
+        }
+    }
+    best.map(|(_, p)| p)
+}
+
+/// 巡回的な最大距離．位相は $s$ で一周するので 0 と $s - 1$ は隣どうしである．
+fn cyclic_spread(phases: &[usize], s: usize) -> usize {
+    let mut worst = 0;
+    for (i, a) in phases.iter().enumerate() {
+        for b in &phases[i + 1..] {
+            let d = a.abs_diff(*b);
+            worst = worst.max(d.min(s - d));
+        }
+    }
+    worst
+}
+
+/// 位相ずれ検査 — 帯ごとに最も合う位相を求め，帯の間で揃っているかを見る．
+///
+/// **再構成検査だけでは非整数の周期を落とせない．** 周期 $s \cdot r$ ($r$ が非整数) の
+/// 入力を整数 $q$ で近似すると，セル境界は 1 セルあたり $|q - s r|$ ずつずれていく．
+/// ところが再構成検査は画像全体で 1 つの割合しか見ないので，このずれが「補間による
+/// 一様な滲み」と同じ数に潰れてしまう．評価データセットではどちらを優先しても
+/// もう一方が落ちる反比例になり，閾値の選び直しでは抜けられなかった．
+///
+/// 位相は**絵の中身に左右されない**ところが違う．格子が本物なら，何が描いてあろうと
+/// どの帯でも同じ位相が最も合う．偽物なら帯が進むほどずれる．
+///
+/// 帯あたりのセル数が足りない場合は検査を行わない (`true` を返す) ．少ないセルから
+/// 求めた位相は当てにならず，落とす根拠にならない．
+fn phase_drift_ok(it: &Integral, s: usize, d: IVec2, bands: usize, tolerance: f32) -> bool {
+    if bands < 2 {
+        return true;
+    }
+    let (dx, dy) = (d.x.max(0) as usize, d.y.max(0) as usize);
+    // 帯 1 つにこれだけのセルが要る．下回ったら検査しない
+    const MIN_CELLS_PER_BAND: usize = 2;
+    let cells_x = it.w.saturating_sub(dx) / s;
+    let cells_y = it.h.saturating_sub(dy) / s;
+    if cells_x < MIN_CELLS_PER_BAND * bands || cells_y < MIN_CELLS_PER_BAND * bands {
+        return true;
+    }
+
+    let mut by_x = Vec::with_capacity(bands);
+    let mut by_y = Vec::with_capacity(bands);
+    for b in 0..bands {
+        let x0 = it.w * b / bands;
+        let x1 = it.w * (b + 1) / bands;
+        let y0 = it.h * b / bands;
+        let y1 = it.h * (b + 1) / bands;
+        let Some(px) = best_phase_in(it, s, (x0, 0, x1, it.h), dy, true) else {
+            return true;
+        };
+        let Some(py) = best_phase_in(it, s, (0, y0, it.w, y1), dx, false) else {
+            return true;
+        };
+        by_x.push(px);
+        by_y.push(py);
+    }
+
+    let spread = cyclic_spread(&by_x, s).max(cyclic_spread(&by_y, s));
+    spread as f32 <= s as f32 * tolerance
+}
+
 /// 再構成誤差の判定 — 画素色差 $\delta$ を超える画素の割合が $\tau$ 以下か．
 fn recon_ok(img: &RgbaCanvas, it: &Integral, s: usize, d: IVec2, delta: f32, tau: f32) -> bool {
     let (dx, dy) = (d.x as usize, d.y as usize);
@@ -310,6 +444,16 @@ fn evaluate(
         .iter()
         .filter(|c| c.mean_variance <= params.epsilon)
         .filter(|c| recon_ok(img, it, c.scale as usize, c.phase, params.delta, params.tau))
+        // 非整数の周期を落とす．再構成検査と違い，絵の中身に左右されない
+        .filter(|c| {
+            phase_drift_ok(
+                it,
+                c.scale as usize,
+                c.phase,
+                params.phase_bands,
+                params.phase_tolerance,
+            )
+        })
         .collect();
 
     // 閾値を満たす最大の s．集合の最大値なので同点は起きない
@@ -564,6 +708,110 @@ mod tests {
     }
 
     const PATTERN: [&str; 6] = ["001122", "011223", "112233", "223300", "233001", "330011"];
+
+    /// 12 x 12 の広めの模様．帯に切って測るには 1 帯あたり 2 セル以上が要る．
+    const WIDE: [&str; 12] = [
+        "001122330011",
+        "011223300112",
+        "112233001122",
+        "122330011223",
+        "223300112233",
+        "233001122330",
+        "330011223300",
+        "300112233001",
+        "001122330011",
+        "011223300112",
+        "112233001122",
+        "122330011223",
+    ];
+
+    /// 非整数倍で最近傍リサンプルした画像．周期 `period` は整数にならない．
+    ///
+    /// これが位相ずれ検査の相手である — 周期 7.8 を 8 と読むと，セル境界が
+    /// 1 セルあたり 0.2 画素ずつずれていく．
+    fn resampled(pattern: &[&str], colors: &[Rgba8], period: f32) -> RgbaCanvas {
+        let pw = pattern[0].len() as f32;
+        let ph = pattern.len() as f32;
+        let w = (pw * period) as u32;
+        let h = (ph * period) as u32;
+        let mut out = RgbaCanvas::filled(w, h, Rgba8::TRANSPARENT);
+        for y in 0..h {
+            for x in 0..w {
+                let sx = ((x as f32 / period) as usize).min(pattern[0].len() - 1);
+                let sy = ((y as f32 / period) as usize).min(pattern.len() - 1);
+                let index = (pattern[sy].as_bytes()[sx] - b'0') as usize;
+                out.set(x as i32, y as i32, colors[index]);
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn a_true_grid_fits_the_same_phase_in_every_band() {
+        for scale in [4u32, 6, 8] {
+            for phase in [(0u32, 0u32), (2, 3)] {
+                let img = upscaled(&WIDE, &palette(), scale, phase);
+                let it = Integral::new(&img);
+                let d = ivec2(
+                    ((scale - phase.0) % scale) as i32,
+                    ((scale - phase.1) % scale) as i32,
+                );
+                assert!(
+                    phase_drift_ok(&it, scale as usize, d, 4, 0.0),
+                    "{scale} 倍 ・位相 {phase:?} で帯ごとに位相が違う"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_non_integer_period_fails_the_phase_check() {
+        // 周期 7.8 を 8 と読ませる．1 セルあたり 0.2 画素ずつずれる
+        let img = resampled(&WIDE, &palette(), 7.8);
+        let it = Integral::new(&img);
+        let d = best_phase(&it, 8).expect("位相はある").1;
+        assert!(
+            !phase_drift_ok(&it, 8, d, 4, 1.0 / 6.0),
+            "非整数の周期を通してしまった"
+        );
+    }
+
+    #[test]
+    fn the_phase_check_is_skipped_when_the_bands_would_be_too_thin() {
+        // 帯あたり 2 セルに満たないときは，位相が当てにならないので落とす根拠にしない
+        let img = upscaled(&PATTERN, &palette(), 4, (0, 0));
+        let it = Integral::new(&img);
+        assert!(
+            phase_drift_ok(&it, 4, ivec2(0, 0), 8, 0.0),
+            "セルが足りないのに棄却している"
+        );
+    }
+
+    #[test]
+    fn the_phase_check_can_be_turned_off() {
+        let img = resampled(&WIDE, &palette(), 7.8);
+        let it = Integral::new(&img);
+        let d = best_phase(&it, 8).expect("位相はある").1;
+        assert!(phase_drift_ok(&it, 8, d, 0, 0.0), "帯 0 で検査が働いている");
+        assert!(phase_drift_ok(&it, 8, d, 1, 0.0), "帯 1 では比べようがない");
+    }
+
+    #[test]
+    fn phases_wrap_around_the_scale() {
+        assert_eq!(cyclic_spread(&[0, 7], 8), 1, "0 と s-1 は隣どうし");
+        assert_eq!(cyclic_spread(&[0, 4], 8), 4);
+        assert_eq!(cyclic_spread(&[2, 2, 2, 2], 8), 0);
+    }
+
+    #[test]
+    fn a_band_measures_its_phase_from_the_image_origin() {
+        // 帯の左端を基準にすると帯ごとに違う物差しになる
+        assert_eq!(first_cell(0, 3, 8), 3);
+        assert_eq!(first_cell(8, 3, 8), 11);
+        assert_eq!(first_cell(10, 3, 8), 11);
+        assert_eq!(first_cell(11, 3, 8), 11);
+        assert_eq!(first_cell(12, 3, 8), 19);
+    }
 
     #[test]
     fn recovers_the_scale_of_a_clean_upscale() {

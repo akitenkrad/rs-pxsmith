@@ -438,6 +438,10 @@ pub fn run(
         epsilon,
         delta,
         tau,
+        // 帯の統計は自前で測る．推定器の側の検査は切って，
+        // 「検査が通した答えを選り分けられるか」という元の問いのまま測る
+        phase_bands: 0,
+        phase_tolerance: 1.0,
         min_confidence: 0.0,
     };
 

@@ -85,6 +85,12 @@ pub struct GridArgs {
     /// 再構成の不一致画素率の許容 $\tau$．
     #[arg(long, default_value_t = 0.02)]
     pub tau: f32,
+    /// 位相ずれ検査で画像を切る帯の数．0 で検査を飛ばす
+    #[arg(long, default_value_t = 4)]
+    pub phase_bands: usize,
+    /// 帯どうしの位相のずれの許容 ($s$ に対する割合)
+    #[arg(long, default_value_t = 1.0 / 6.0)]
+    pub phase_tolerance: f32,
     /// これ未満の信頼度は棄却する．
     #[arg(long, default_value_t = 0.0)]
     pub min_confidence: f32,
@@ -97,6 +103,8 @@ impl From<&GridArgs> for GridParams {
             epsilon: a.epsilon,
             delta: a.delta,
             tau: a.tau,
+            phase_bands: a.phase_bands,
+            phase_tolerance: a.phase_tolerance,
             min_confidence: a.min_confidence,
         }
     }

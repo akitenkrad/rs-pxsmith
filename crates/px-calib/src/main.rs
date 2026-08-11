@@ -80,6 +80,12 @@ enum Command {
         /// 再構成の不一致画素率の許容 (複数指定可)
         #[arg(long, num_args = 1..)]
         tau: Vec<f32>,
+        /// 位相ずれ検査の帯の数．0 で検査を外す
+        #[arg(long, default_value_t = 4)]
+        phase_bands: usize,
+        /// 帯どうしの位相のずれの許容 ($s$ に対する割合)
+        #[arg(long, default_value_t = 1.0 / 6.0)]
+        phase_tolerance: f32,
     },
     /// 再構成誤差を帯ごとに測る (掃引の行き止まりを抜けられるかの実測)
     Bands {
@@ -148,6 +154,8 @@ fn main() -> Result<()> {
             epsilon,
             delta,
             tau,
+            phase_bands,
+            phase_tolerance,
         } => {
             let manifest = dataset::read(&dir)?;
             let only = parse_split(&split)?;
@@ -155,6 +163,8 @@ fn main() -> Result<()> {
             let default = ParamGrid::default();
             let grid = ParamGrid {
                 max_scale,
+                phase_bands,
+                phase_tolerance,
                 epsilons: or_default(epsilon, &default.epsilons),
                 deltas: or_default(delta, &default.deltas),
                 taus: or_default(tau, &default.taus),
