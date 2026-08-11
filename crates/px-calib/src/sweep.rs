@@ -25,6 +25,9 @@ pub struct ParamGrid {
     pub epsilons: Vec<f32>,
     pub deltas: Vec<f32>,
     pub taus: Vec<f32>,
+    /// $\varepsilon$ を画像分散に対する割合として扱うか．**掃引 1 回につき 1 通り**
+    /// — 絶対値と割合では意味のある水準の桁が違うので，同じ列に混ぜない
+    pub normalize_epsilon: bool,
 }
 
 impl Default for ParamGrid {
@@ -39,6 +42,7 @@ impl Default for ParamGrid {
             epsilons: vec![2.0e-4, 5.0e-4, 1.0e-3, 2.0e-3, 5.0e-3, 1.0e-2, 2.0e-2],
             deltas: vec![0.01, 0.02, 0.05, 0.10],
             taus: vec![0.01, 0.02, 0.05, 0.10],
+            normalize_epsilon: false,
         }
     }
 }
@@ -58,7 +62,10 @@ impl ParamGrid {
                         phase_bands: self.phase_bands,
                         phase_tolerance: self.phase_tolerance,
                         phase_min_cells: self.phase_min_cells,
+                        // **0 で回す．** 信頼度を行に残しておけば，下限は集計側で
+                        // いくらでも掃ける (Row::outcome_at)
                         min_confidence: 0.0,
+                        normalize_epsilon: self.normalize_epsilon,
                     });
                 }
             }
@@ -120,6 +127,8 @@ impl Outcome {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Row {
     pub param_id: usize,
+    /// $\varepsilon$ が割合か絶対値か．**ファイルだけで意味が決まるように残す**
+    pub normalized: bool,
     pub epsilon: f32,
     pub delta: f32,
     pub tau: f32,
@@ -140,7 +149,7 @@ pub struct Row {
     pub mean_variance: Option<f32>,
 }
 
-pub const HEADER: &str = "param_id,epsilon,delta,tau,item_id,split,has_integer_grid,truth_scale,\
+pub const HEADER: &str = "param_id,normalized,epsilon,delta,tau,item_id,split,has_integer_grid,truth_scale,\
 truth_phase_x,truth_phase_y,effective_scale,filter,resize,compression,error,scale_hat,phase_hat_x,\
 phase_hat_y,confidence,mean_variance,outcome";
 
@@ -151,8 +160,9 @@ fn opt<T: std::fmt::Display>(v: Option<T>) -> String {
 impl Row {
     pub fn to_csv(&self) -> String {
         format!(
-            "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+            "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
             self.param_id,
+            self.normalized,
             self.epsilon,
             self.delta,
             self.tau,
@@ -179,7 +189,32 @@ impl Row {
     /// 結末．**行の内容から毎回求める．** 採点の定義を変えたときに，掃引をやり直さず
     /// 集計だけ作り直せるようにするためである (CSV の `outcome` 列は人が読むための
     /// 写しであって，判断の元ではない)．
+    ///
+    /// $\mathrm{min\_confidence}$ は掃引時に 0 で回してあるので，**閾値は後からいくらでも
+    /// 掃ける** ([`Self::outcome_at`])．こちらはその 0 の場合である．
     pub fn outcome(&self) -> Outcome {
+        self.outcome_at(0.0)
+    }
+
+    /// 信頼度の下限を後から当てはめた結末．
+    ///
+    /// 掃引を `min_confidence = 0` で回し，信頼度を行に残してあるので，**下限は再推定
+    /// なしで掃引できる**．$\varepsilon$ ・$\delta$ ・$\tau$ と同時に決めるために要る —
+    /// 実データで測ると，正例の誤棄却は閾値で落ちる件と信頼度で落ちる件に割れており，
+    /// 片方だけ動かすと打ち消し合う．
+    pub fn outcome_at(&self, min_confidence: f32) -> Outcome {
+        // 下限に届かない答えは「棄却した」ことになる
+        if self.confidence.is_some_and(|c| c < min_confidence) {
+            return if self.has_integer_grid {
+                Outcome::Rejected
+            } else {
+                Outcome::CorrectRejection
+            };
+        }
+        self.raw_outcome()
+    }
+
+    fn raw_outcome(&self) -> Outcome {
         match (self.scale_hat, self.phase_hat) {
             // 何も返さなかった — 整数の格子が無い件ではこれが正解
             (None, _) | (_, None) => {
@@ -206,7 +241,7 @@ impl Row {
 
     pub fn parse(line: &str) -> Result<Self> {
         let f: Vec<&str> = line.split(',').collect();
-        anyhow::ensure!(f.len() == 21, "列数が 21 でない: {line}");
+        anyhow::ensure!(f.len() == 22, "列数が 22 でない: {line}");
         let num = |i: usize| -> Result<f32> {
             f[i].parse()
                 .with_context(|| format!("{} 列目が数値でない: {}", i + 1, f[i]))
@@ -223,31 +258,32 @@ impl Row {
         };
         // 列そのものは持ち回らない (結末は毎回求め直す) が，読めない値が混じって
         // いたら形式違いとして弾く
-        Outcome::parse(f[20]).with_context(|| format!("結末を解釈できない: {}", f[20]))?;
+        Outcome::parse(f[21]).with_context(|| format!("結末を解釈できない: {}", f[21]))?;
 
         Ok(Self {
             param_id: int(0)? as usize,
-            epsilon: num(1)?,
-            delta: num(2)?,
-            tau: num(3)?,
-            item_id: int(4)?,
-            split: if f[5] == "validation" {
+            normalized: f[1] == "true",
+            epsilon: num(2)?,
+            delta: num(3)?,
+            tau: num(4)?,
+            item_id: int(5)?,
+            split: if f[6] == "validation" {
                 Split::Validation
             } else {
                 Split::Test
             },
-            has_integer_grid: f[6] == "true",
-            truth_scale: int(7)?,
-            truth_phase: pair(8, 9),
-            effective_scale: num(10)?,
-            filter: f[11].to_string(),
-            resize: f[12].to_string(),
-            compression: f[13].to_string(),
-            error: (!f[14].is_empty()).then(|| f[14].to_string()),
-            scale_hat: f[15].parse().ok(),
-            phase_hat: pair(16, 17),
-            confidence: f[18].parse().ok(),
-            mean_variance: f[19].parse().ok(),
+            has_integer_grid: f[7] == "true",
+            truth_scale: int(8)?,
+            truth_phase: pair(9, 10),
+            effective_scale: num(11)?,
+            filter: f[12].to_string(),
+            resize: f[13].to_string(),
+            compression: f[14].to_string(),
+            error: (!f[15].is_empty()).then(|| f[15].to_string()),
+            scale_hat: f[16].parse().ok(),
+            phase_hat: pair(17, 18),
+            confidence: f[19].parse().ok(),
+            mean_variance: f[20].parse().ok(),
         })
     }
 }
@@ -282,6 +318,7 @@ fn run_item(dir: &Path, item: &Item, combos: &[GridParams]) -> Result<Vec<Row>> 
                 };
             Row {
                 param_id,
+                normalized: params.normalize_epsilon,
                 epsilon: params.epsilon,
                 delta: params.delta,
                 tau: params.tau,
@@ -364,6 +401,7 @@ mod tests {
     fn sample_row() -> Row {
         Row {
             param_id: 3,
+            normalized: false,
             epsilon: 5.0e-3,
             delta: 0.02,
             tau: 0.05,
@@ -438,8 +476,44 @@ mod tests {
             .split(',')
             .map(str::to_string)
             .collect();
-        line[20] = "???".to_string();
+        *line.last_mut().expect("列がある") = "???".to_string();
         assert!(Row::parse(&line.join(",")).is_err());
+    }
+
+    #[test]
+    fn the_confidence_floor_can_be_applied_afterwards() {
+        // 掃引は下限 0 で回すので，下限は行から当てはめ直せる — 再推定はいらない
+        let answered = Row {
+            confidence: Some(0.02),
+            scale_hat: Some(6),
+            phase_hat: Some((0, 0)),
+            truth_scale: 6,
+            truth_phase: Some((0, 0)),
+            has_integer_grid: true,
+            ..sample_row()
+        };
+        assert_eq!(answered.outcome_at(0.0), Outcome::Exact);
+        assert_eq!(answered.outcome_at(0.01), Outcome::Exact);
+        // 下限に届かなければ「棄却した」ことになる
+        assert_eq!(answered.outcome_at(0.03), Outcome::Rejected);
+
+        // 格子が無い件で下限に届かなければ，正しく棄却したことになる
+        let noise = Row {
+            has_integer_grid: false,
+            ..answered.clone()
+        };
+        assert_eq!(noise.outcome_at(0.01), Outcome::Wrong);
+        assert_eq!(noise.outcome_at(0.03), Outcome::CorrectRejection);
+
+        // 信頼度を持たない件 (別の検査で落ちた) は下限に影響されない
+        let rejected = Row {
+            confidence: None,
+            scale_hat: None,
+            phase_hat: None,
+            ..answered.clone()
+        };
+        assert_eq!(rejected.outcome_at(0.0), Outcome::Rejected);
+        assert_eq!(rejected.outcome_at(0.20), Outcome::Rejected);
     }
 
     #[test]
@@ -510,7 +584,7 @@ mod tests {
 
     #[test]
     fn the_dataset_and_the_scoring_agree_on_which_items_have_a_grid() {
-        for item in dataset::build(0, 40).items {
+        for item in dataset::build(0, 40, &[]).items {
             assert_eq!(item.has_integer_grid(), item.truth_phase.is_some());
         }
     }

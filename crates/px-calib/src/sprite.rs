@@ -13,9 +13,89 @@
 //! | 不透明 | JPEG がアルファを持てない．合成の段階で背景を敷いておく |
 //! | 平坦すぎない | 完全に平坦な画像は信頼度 0 の退化ケース (設計書 6.1) |
 
+use anyhow::{Context, Result};
 use px_core::{Rgba8, RgbaCanvas};
 
 use crate::rng::Rng;
+
+/// 種にする実物のドット絵 1 枚．
+#[derive(Clone, Debug)]
+pub struct Seed {
+    /// ファイル名 (目録に残して再現できるようにする)．
+    pub name: String,
+    /// **不透明化する前**の絵．背景は使う側が敷く．
+    pub art: RgbaCanvas,
+}
+
+/// 種を敷く背景色．
+///
+/// 透明を黒で潰すと輪郭の外側が真っ黒な平面になり，実物より易しくなる (セル境界が
+/// くっきり出る) ．**中間的な明るさを何通りか用意して散らす**．
+const BACKGROUNDS: [Rgba8; 4] = [
+    Rgba8::rgb(38, 42, 52),
+    Rgba8::rgb(96, 92, 84),
+    Rgba8::rgb(150, 148, 140),
+    Rgba8::rgb(64, 78, 62),
+];
+
+/// 種を読む．**名前順で固定する** — 並びが変わると同じ目録から別の絵が出る．
+///
+/// 整数倍で拡大された絵は種にしない．そのまま $s$ 倍すると $s$ と $ks$ の格子が
+/// 両方成立し，**正解が一意に決まらない** (`ingest --native` と同じ理由)．
+pub fn load_seeds(dir: &std::path::Path) -> Result<Vec<Seed>> {
+    let mut paths: Vec<std::path::PathBuf> = std::fs::read_dir(dir)
+        .with_context(|| format!("{} を読めない", dir.display()))?
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("png")))
+        .collect();
+    paths.sort();
+
+    let mut out = Vec::new();
+    for path in paths {
+        let art = px_io::png::read_rgba(&path)
+            .with_context(|| format!("{} を読めない", path.display()))?;
+        if let Some(k) = crate::ingest::integer_block_size(&art) {
+            anyhow::bail!(
+                "{} は {k} 倍に拡大された絵である．種は元絵の解像度でなければならない",
+                path.display()
+            );
+        }
+        out.push(Seed {
+            name: path
+                .file_name()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+            art,
+        });
+    }
+    anyhow::ensure!(!out.is_empty(), "{} に PNG が無い", dir.display());
+    Ok(out)
+}
+
+/// 背景を敷いて不透明にする．**JPEG がアルファを持てない**ので劣化の前に要る．
+pub fn flatten(art: &RgbaCanvas, background: Rgba8) -> RgbaCanvas {
+    let mut out = RgbaCanvas::filled(art.width(), art.height(), background);
+    for y in 0..art.height() as i32 {
+        for x in 0..art.width() as i32 {
+            if let Some(c) = art.get(x, y)
+                && c.a > 0
+            {
+                // 半透明は劣化前に潰す — 中間色を作らないという性質を保つため，
+                // アルファは 2 値として扱う (作業層の不変条件 D4 と揃える)
+                out.set(x, y, Rgba8::new(c.r, c.g, c.b, 255));
+            }
+        }
+    }
+    out
+}
+
+/// 種から元絵を 1 枚取り出す (背景を敷いて不透明にしたもの)．
+pub fn from_seed(seeds: &[Seed], seed: u64) -> (String, RgbaCanvas) {
+    let mut rng = Rng::new(seed);
+    let pick = &seeds[rng.below(seeds.len() as u32) as usize];
+    let bg = BACKGROUNDS[rng.below(BACKGROUNDS.len() as u32) as usize];
+    (pick.name.clone(), flatten(&pick.art, bg))
+}
 
 /// 元絵の一辺の候補．L0 の助言上限 48 に合わせてある (設計書 4.1)．
 pub const SIZES: [u32; 5] = [16, 24, 32, 40, 48];

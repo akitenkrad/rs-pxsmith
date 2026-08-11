@@ -18,8 +18,9 @@ debug/
 # 巻き込む
 /grid-eval/
 
-# 実データ枠の検証結果 (px-calib real で作り直せる)
+# 実データ枠の検証結果 (px-calib real / diagnose で作り直せる)
 testdata/grid-eval/real/results.csv
+testdata/grid-eval/real/diagnose.csv
 
 # 再配布できない実データ (game-materials.com 等)．入手元は SOURCES.md に記録する
 testdata/grid-eval/real/local/

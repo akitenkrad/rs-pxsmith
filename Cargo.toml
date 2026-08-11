@@ -20,6 +20,7 @@ version = "0.1.0"
 anyhow = "1.0.100"
 aseprite-io = "0.2.0"
 clap = { version = "4.5", features = ["derive"] }
+flate2 = "1.1"
 image = "0.25.10"
 palette = "0.7.7"
 px-core = { path = "crates/px-core" }

@@ -30,6 +30,10 @@ pub const ECE_BINS: usize = 10;
 #[derive(Clone, Debug, PartialEq)]
 pub struct Summary {
     pub param_id: usize,
+    /// $\varepsilon$ が画像分散に対する割合か．
+    pub normalized: bool,
+    /// 当てはめた信頼度の下限．
+    pub min_confidence: f32,
     pub epsilon: f32,
     pub delta: f32,
     pub tau: f32,
@@ -68,15 +72,17 @@ impl Summary {
     }
 }
 
-pub const SUMMARY_HEADER: &str = "param_id,epsilon,delta,tau,n,macro_rate,correct_rate,ece,grid_n,\
+pub const SUMMARY_HEADER: &str = "param_id,normalized,min_confidence,epsilon,delta,tau,n,macro_rate,correct_rate,ece,grid_n,\
 grid_exact_rate,grid_scale_rate,grid_false_reject_rate,resized_n,resized_reject_rate,\
 resized_effective_rate";
 
 impl Summary {
     pub fn to_csv(&self) -> String {
         format!(
-            "{},{},{},{},{},{:.4},{:.4},{:.4},{},{:.4},{:.4},{:.4},{},{:.4},{:.4}",
+            "{},{},{},{},{},{},{},{:.4},{:.4},{:.4},{},{:.4},{:.4},{:.4},{},{:.4},{:.4}",
             self.param_id,
+            self.normalized,
+            self.min_confidence,
             self.epsilon,
             self.delta,
             self.tau,
@@ -107,8 +113,16 @@ fn count(rows: &[&Row], f: impl Fn(&Row) -> bool) -> usize {
     rows.iter().filter(|r| f(r)).count()
 }
 
-/// パラメータ組ごとにまとめる．並びは `param_id` の昇順．
+/// パラメータ組ごとにまとめる (信頼度の下限 0)．
 pub fn summarize(rows: &[Row]) -> Vec<Summary> {
+    summarize_at(rows, 0.0)
+}
+
+/// 信頼度の下限を当てはめてまとめる．並びは `param_id` の昇順．
+///
+/// **掃引をやり直さずに下限を変えられる** — 掃引は下限 0 で回し信頼度を行に残して
+/// あるので，ここで当てはめ直せばよい ([`Row::outcome_at`])．
+pub fn summarize_at(rows: &[Row], min_confidence: f32) -> Vec<Summary> {
     let mut by_param: BTreeMap<usize, Vec<&Row>> = BTreeMap::new();
     for row in rows {
         by_param.entry(row.param_id).or_default().push(row);
@@ -121,35 +135,39 @@ pub fn summarize(rows: &[Row]) -> Vec<Summary> {
                 rows.iter().copied().partition(|r| r.has_integer_grid);
 
             let first = rows[0];
+            let outcome = |r: &Row| r.outcome_at(min_confidence);
             Summary {
                 param_id,
+                normalized: first.normalized,
+                min_confidence,
                 epsilon: first.epsilon,
                 delta: first.delta,
                 tau: first.tau,
                 n: rows.len(),
-                correct_rate: rate(count(&rows, |r| r.outcome().is_correct()), rows.len()),
+                correct_rate: rate(count(&rows, |r| outcome(r).is_correct()), rows.len()),
                 ece: ece(&rows),
                 grid_n: grid.len(),
-                grid_exact_rate: rate(count(&grid, |r| r.outcome() == Outcome::Exact), grid.len()),
+                grid_exact_rate: rate(count(&grid, |r| outcome(r) == Outcome::Exact), grid.len()),
                 grid_scale_rate: rate(
                     count(&grid, |r| {
-                        matches!(r.outcome(), Outcome::Exact | Outcome::ScaleOnly)
+                        matches!(outcome(r), Outcome::Exact | Outcome::ScaleOnly)
                     }),
                     grid.len(),
                 ),
                 grid_false_reject_rate: rate(
-                    count(&grid, |r| r.outcome() == Outcome::Rejected),
+                    count(&grid, |r| outcome(r) == Outcome::Rejected),
                     grid.len(),
                 ),
                 resized_n: resized.len(),
                 resized_reject_rate: rate(
-                    count(&resized, |r| r.outcome() == Outcome::CorrectRejection),
+                    count(&resized, |r| outcome(r) == Outcome::CorrectRejection),
                     resized.len(),
                 ),
                 resized_effective_rate: rate(
                     count(&resized, |r| {
-                        r.scale_hat
-                            .is_some_and(|s| s == r.effective_scale.round() as u32)
+                        outcome(r) == Outcome::Wrong
+                            && r.scale_hat
+                                .is_some_and(|s| s == r.effective_scale.round() as u32)
                     }),
                     resized.len(),
                 ),
@@ -167,6 +185,8 @@ pub fn summarize(rows: &[Row]) -> Vec<Summary> {
 pub fn ece(rows: &[&Row]) -> f32 {
     let scored: Vec<(f32, bool)> = rows
         .iter()
+        // **下限を当てはめる前の正誤で測る．** 下限で棄却した件を「正解」に数えると，
+        // 「信頼度が低い答えは当たっていた」という校正の情報が消える
         .filter_map(|r| r.confidence.map(|c| (c, r.outcome().is_correct())))
         .collect();
     if scored.is_empty() {
@@ -256,6 +276,7 @@ mod tests {
     fn grid_row(param_id: usize, confidence: Option<f32>) -> Row {
         Row {
             param_id,
+            normalized: false,
             epsilon: 1.0e-3,
             delta: 0.02,
             tau: 0.02,

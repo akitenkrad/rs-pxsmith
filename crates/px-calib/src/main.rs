@@ -24,11 +24,14 @@ mod bands;
 mod confidence;
 mod dataset;
 mod degrade;
+mod diagnose;
 mod ingest;
 mod metrics;
 mod real;
+mod recon;
 mod render;
 mod rng;
+mod scene;
 mod sprite;
 mod sweep;
 
@@ -62,6 +65,9 @@ enum Command {
         seed: u64,
         #[arg(long, default_value_t = dataset::TOTAL)]
         count: u32,
+        /// 元絵にする**実物のドット絵**の置き場所．省略すると合成の元絵を使う
+        #[arg(long, default_value = "testdata/grid-eval/seeds")]
+        seeds: Option<PathBuf>,
     },
     /// 閾値を掃引して 1 行 1 件の CSV を書く
     Sweep {
@@ -93,6 +99,10 @@ enum Command {
         /// 位相ずれ検査に要る帯あたりのセル数
         #[arg(long, default_value_t = 2)]
         phase_min_cells: usize,
+        /// $\varepsilon$ を**画像分散に対する割合**として扱う (絶対値ではなく)．
+        /// 省略すると既定値に従う — **旗の有無で既定を潰さない**
+        #[arg(long, num_args = 0..=1, default_missing_value = "true")]
+        normalize_epsilon: Option<bool>,
     },
     /// 再構成誤差を帯ごとに測る (掃引の行き止まりを抜けられるかの実測)
     Bands {
@@ -149,6 +159,37 @@ enum Command {
         /// 縮小後に許す一辺の上限．背景画は 160x90 などになるので広げる
         #[arg(long, default_value_t = ingest::NATIVE_MAX)]
         native_max: u32,
+        /// 見かけの周期を測らずにこの値で縮小する．**格子が無い画像からも正例を作れる**
+        /// (正解は拡大倍率の方なので循環しない)
+        #[arg(long)]
+        force_period: Option<usize>,
+        /// 非整数倍で拡大されて配られている素材から**元絵を厳密に復元**してから拡大する．
+        /// 中身が本物のドット絵である正例を作れる
+        #[arg(long, conflicts_with = "force_period")]
+        recover_native: bool,
+        /// **入力がすでに元絵である** (CC0 素材の 16x16 ・32x32 タイル等)．縮小しない
+        #[arg(long, conflicts_with_all = ["force_period", "recover_native"])]
+        native: bool,
+        /// 拡大時に合成データと同じ劣化 (補間 ・JPEG) を通す．非整数倍リサイズは掛けない
+        #[arg(long)]
+        degrade: bool,
+        /// 「周期が読めない」で拒否したものを**負例**として取り込む (棄却が正解)
+        #[arg(long)]
+        keep_refused: bool,
+        /// 負例として保存するときの一辺 (中央を切り出す．再標本化はしない)
+        #[arg(long, default_value_t = ingest::NEGATIVE_SIDE)]
+        negative_side: u32,
+    },
+    /// Tiled の地図 (.tmx) を元絵の解像度で描き出す (画面を組んだ正例の素材)
+    Scene {
+        /// 入力する .tmx
+        maps: Vec<PathBuf>,
+        /// 出力先ディレクトリ
+        #[arg(long, default_value = "scenes")]
+        out: PathBuf,
+        /// 描くタイル数の上限 `W,H`．**推定の費用は面積で効く**ので大きい地図は切る
+        #[arg(long, default_value = "30,20")]
+        max_tiles: String,
     },
     /// 実データ枠の素材を自作レンダで作る (区分 `render`)
     Render {
@@ -162,6 +203,34 @@ enum Command {
     /// 実データ (合成でない入力) を推定して 1 件ずつ並べる
     Real {
         /// 素材と目録の置き場所
+        #[arg(long, default_value = "testdata/grid-eval/real")]
+        dir: PathBuf,
+        #[arg(long)]
+        out: Option<PathBuf>,
+        /// 閾値．**省略すると既定値**で回す (合成データで校正した組)
+        #[arg(long)]
+        epsilon: Option<f32>,
+        #[arg(long)]
+        delta: Option<f32>,
+        #[arg(long)]
+        tau: Option<f32>,
+        #[arg(long)]
+        min_confidence: Option<f32>,
+        /// $\varepsilon$ を画像分散に対する割合として扱う．省略すると既定値に従う
+        #[arg(long, num_args = 0..=1, default_missing_value = "true")]
+        normalize_epsilon: Option<bool>,
+    },
+    /// 再構成検査の統計を測り直す (内側と境界を分けたら真の s を見分けられるか)
+    Recon {
+        #[arg(long, default_value = DEFAULT_DIR)]
+        dir: PathBuf,
+        #[arg(long)]
+        out: Option<PathBuf>,
+        #[arg(long, default_value = "validation")]
+        split: String,
+    },
+    /// 実データの誤棄却を 1 件ずつ解剖する (どの関門が真のスケールを落としたか)
+    Diagnose {
         #[arg(long, default_value = "testdata/grid-eval/real")]
         dir: PathBuf,
         #[arg(long)]
@@ -185,9 +254,29 @@ enum Command {
 
 fn main() -> Result<()> {
     match Cli::parse().command {
-        Command::Gen { dir, seed, count } => {
-            let manifest = dataset::build(seed, count);
-            dataset::generate(&dir, &manifest)?;
+        Command::Gen {
+            dir,
+            seed,
+            count,
+            seeds,
+        } => {
+            let seeds = match seeds.filter(|p| p.exists()) {
+                Some(p) => {
+                    let s = sprite::load_seeds(&p)?;
+                    println!(
+                        "元絵に実物のドット絵 {} 件を使う ({})",
+                        s.len(),
+                        p.display()
+                    );
+                    s
+                }
+                None => {
+                    println!("元絵を合成する (実物の種が無い)");
+                    Vec::new()
+                }
+            };
+            let manifest = dataset::build(seed, count, &seeds);
+            dataset::generate(&dir, &manifest, &seeds)?;
             let with_grid = manifest
                 .items
                 .iter()
@@ -219,6 +308,7 @@ fn main() -> Result<()> {
             phase_bands,
             phase_tolerance,
             phase_min_cells,
+            normalize_epsilon,
         } => {
             let manifest = dataset::read(&dir)?;
             let only = parse_split(&split)?;
@@ -229,6 +319,8 @@ fn main() -> Result<()> {
                 phase_bands,
                 phase_tolerance,
                 phase_min_cells,
+                normalize_epsilon: normalize_epsilon
+                    .unwrap_or(px_core::grid::GridParams::default().normalize_epsilon),
                 epsilons: or_default(epsilon, &default.epsilons),
                 deltas: or_default(delta, &default.deltas),
                 taus: or_default(tau, &default.taus),
@@ -293,16 +385,69 @@ fn main() -> Result<()> {
             category,
             license,
             native_max,
+            force_period,
+            recover_native,
+            native,
+            degrade,
+            keep_refused,
+            negative_side,
         } => {
             ingest_images(
                 &dir,
                 &images,
-                scale,
-                crop.as_deref(),
-                &category,
-                &license,
-                native_max,
+                &IngestOptions {
+                    scale,
+                    crop: crop.as_deref(),
+                    category: &category,
+                    license: &license,
+                    native_max,
+                    force_period,
+                    recover_native,
+                    already_native: native,
+                    degrade,
+                    negative_side: keep_refused.then_some(negative_side),
+                },
             )?;
+        }
+
+        Command::Scene {
+            maps,
+            out,
+            max_tiles,
+        } => {
+            anyhow::ensure!(!maps.is_empty(), ".tmx を 1 つ以上指定すること");
+            let (w, h) = max_tiles
+                .split_once(',')
+                .context("--max-tiles は W,H の形で書くこと")?;
+            let max = (w.trim().parse()?, h.trim().parse()?);
+            std::fs::create_dir_all(&out)?;
+            for path in &maps {
+                let scene = scene::render(path, max)?;
+                // 出力名は「パック名_地図名」— どの見本地図か分かるようにする
+                let stem = path.file_stem().unwrap_or_default().to_string_lossy();
+                let pack = path
+                    .ancestors()
+                    .nth(2)
+                    .and_then(|p| p.file_name())
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                let name = format!("{pack}_{stem}.png");
+                px_io::png::write_rgba(out.join(&name), &scene.canvas)?;
+                println!(
+                    "  {name:<46} {}x{} 画素 ({}x{} タイル{} / {} 層)",
+                    scene.canvas.width(),
+                    scene.canvas.height(),
+                    scene.tiles.0,
+                    scene.tiles.1,
+                    if scene.tiles == scene.full {
+                        String::new()
+                    } else {
+                        format!("．{}x{} から切った", scene.full.0, scene.full.1)
+                    },
+                    scene.layers,
+                );
+            }
+            println!("\n{} 件を {} へ書いた", maps.len(), out.display());
         }
 
         Command::Render { dir, count, seed } => {
@@ -310,9 +455,38 @@ fn main() -> Result<()> {
             println!("{} 件を {} へ書いた", items, dir.display());
         }
 
-        Command::Real { dir, out } => {
+        Command::Real {
+            dir,
+            out,
+            epsilon,
+            delta,
+            tau,
+            min_confidence,
+            normalize_epsilon,
+        } => {
+            let d = px_core::grid::GridParams::default();
+            let params = px_core::grid::GridParams {
+                epsilon: epsilon.unwrap_or(d.epsilon),
+                delta: delta.unwrap_or(d.delta),
+                tau: tau.unwrap_or(d.tau),
+                min_confidence: min_confidence.unwrap_or(d.min_confidence),
+                normalize_epsilon: normalize_epsilon.unwrap_or(d.normalize_epsilon),
+                ..d
+            };
+            println!(
+                "ε = {}{} / δ = {} / τ = {} / min_confidence = {}\n",
+                params.epsilon,
+                if params.normalize_epsilon {
+                    " (画像分散に対する割合)"
+                } else {
+                    ""
+                },
+                params.delta,
+                params.tau,
+                params.min_confidence,
+            );
             let manifest = real::read(&dir)?;
-            let outcomes = real::run(&dir, &manifest, &px_core::grid::GridParams::default())?;
+            let outcomes = real::run(&dir, &manifest, &params)?;
             let path = out.unwrap_or_else(|| dir.join("results.csv"));
             let mut text = String::from(real::HEADER);
             text.push('\n');
@@ -340,14 +514,57 @@ fn main() -> Result<()> {
                     o.verdict.as_str(),
                 );
             }
-            let unknown = outcomes
-                .iter()
-                .filter(|o| o.verdict == real::Verdict::Unknown)
-                .count();
+            let count = |v: real::Verdict| outcomes.iter().filter(|o| o.verdict == v).count();
+            use real::Verdict::*;
             println!(
-                "\n  正解が分かっている {} 件 / 人が見る {unknown} 件．\n  **率で語らないこと** — 20〜30 件では 1 件が 3〜5% 動く",
-                outcomes.len() - unknown
+                "\n  正例 (格子あり): 完全一致 {} / s のみ一致 {} / 誤答 {} / 誤棄却 {}",
+                count(Exact),
+                count(ScaleOnly),
+                count(Wrong),
+                count(Rejected),
             );
+            println!(
+                "  負例 (格子なし): 正しい棄却 {} / 答えを返した {}",
+                count(CorrectReject),
+                count(FalseAccept),
+            );
+            println!(
+                "  人が見る (正解が分からない): {}\n\n  **率で語らないこと** — 20〜30 件では 1 件が 3〜5% 動く",
+                count(Unknown),
+            );
+        }
+
+        Command::Recon { dir, out, split } => {
+            let manifest = dataset::read(&dir)?;
+            let only = parse_split(&split)?;
+            let params = px_core::grid::GridParams::default();
+            let records = recon::run(&dir, &manifest, only, &params)?;
+            let path = out.unwrap_or_else(|| dir.join("recon.csv"));
+            let mut text = String::from(recon::HEADER);
+            text.push('\n');
+            for r in &records {
+                text.push_str(&r.to_csv());
+                text.push('\n');
+            }
+            px_io::atomic::write(&path, text.as_bytes())?;
+            report_recon(&records);
+            println!("\n{} 行を {} へ書いた", records.len(), path.display());
+        }
+
+        Command::Diagnose { dir, out } => {
+            let manifest = real::read(&dir)?;
+            let params = px_core::grid::GridParams::default();
+            let records = diagnose::run(&dir, &manifest, &params)?;
+            let path = out.unwrap_or_else(|| dir.join("diagnose.csv"));
+            let mut text = String::from(diagnose::HEADER);
+            text.push('\n');
+            for r in &records {
+                text.push_str(&r.to_csv());
+                text.push('\n');
+            }
+            px_io::atomic::write(&path, text.as_bytes())?;
+            report_diagnose(&records);
+            println!("\n{} 件を {} へ書いた", records.len(), path.display());
         }
 
         Command::Report {
@@ -418,11 +635,13 @@ fn render_real_items(dir: &std::path::Path, count: u32, seed: u64) -> Result<usi
                 degradation.resize.as_str(),
                 degradation.compression.as_str(),
             ),
-            // 非整数倍リサイズを挟んだ件に整数の格子は無い．正解を書かない
+            // 非整数倍リサイズを挟んだ件に整数の格子は無い．正解を書かず，**負例**にする
+            // — 「分からない」のではなく「無いと作り方から分かっている」件である
             truth: degradation.truth_phase().map(|p| real::Truth {
                 scale: degradation.scale,
                 phase: Some(p),
             }),
+            no_grid: degradation.truth_phase().is_none(),
             note: degradation
                 .truth_phase()
                 .is_none()
@@ -436,19 +655,52 @@ fn render_real_items(dir: &std::path::Path, count: u32, seed: u64) -> Result<usi
     Ok(n)
 }
 
+/// `ingest` の引数一式．
+struct IngestOptions<'a> {
+    /// 拡大倍率．`None` なら 2〜12 を巡回する
+    scale: Option<u32>,
+    /// 切り落とし量 `DX,DY`．`None` なら倍率から散らす
+    crop: Option<&'a str>,
+    category: &'a str,
+    license: &'a str,
+    native_max: u32,
+    /// 周期を測らずにこの値で縮小する
+    force_period: Option<usize>,
+    /// 元絵の解像度を復元してから拡大する
+    recover_native: bool,
+    /// 入力がすでに元絵である (縮小しない)
+    already_native: bool,
+    /// 拡大時に劣化を通すか
+    degrade: bool,
+    /// 負例として保存するときの一辺．**`None` なら負例を取らない**
+    negative_side: Option<u32>,
+}
+
 /// ドット絵風の画像を正例へ仕立てて目録へ足す．
 ///
-/// **拒否したものは黙って捨てない** — 理由を出す．負例の候補になる．
-fn ingest_images(
-    dir: &std::path::Path,
-    images: &[PathBuf],
-    scale: Option<u32>,
-    crop: Option<&str>,
-    category: &str,
-    license: &str,
-    native_max: u32,
-) -> Result<()> {
+/// **拒否したものは黙って捨てない** — 理由を出す．`negative_side` を与えると
+/// 「周期が読めない」で拒否したものを負例 (棄却が正解) として目録へ入れる．
+///
+/// 負例にするのは `NoPeriod` **だけ**である．`OutOfRange` は格子があっても大きさが
+/// 枠外なだけ，`NonUniform` は縦横で読みが食い違っただけで，どちらも「格子が無い」
+/// 根拠にならない．
+fn ingest_images(dir: &std::path::Path, images: &[PathBuf], opts: &IngestOptions) -> Result<()> {
+    let &IngestOptions {
+        scale,
+        crop,
+        category,
+        license,
+        native_max,
+        force_period,
+        recover_native,
+        already_native,
+        degrade: with_degradation,
+        negative_side,
+    } = opts;
     anyhow::ensure!(!images.is_empty(), "入力画像を 1 つ以上指定すること");
+    if let Some(p) = force_period {
+        anyhow::ensure!(p >= 2, "--force-period は 2 以上にすること (指定 {p})");
+    }
     let category = match category {
         "ai-output" => real::Category::AiOutput,
         "render" => real::Category::Render,
@@ -466,7 +718,10 @@ fn ingest_images(
 
     // 既にある目録は残す．同じ出力名だけ差し替える
     let mut manifest = real::read(dir).unwrap_or(real::Manifest { items: Vec::new() });
-    let mut accepted = 0usize;
+    // **連番は既にある分の続きから振る．** 毎回 0 から振ると，同じ区分へ 2 回取り込んだ
+    // ときに 1 回目を黙って上書きしてしまう (実際に踏んだ — 24 件が消えた)
+    let mut accepted = next_index(&manifest, sub, "");
+    let mut negatives = next_index(&manifest, sub, "neg-");
     let mut refused = Vec::new();
 
     for (i, path) in images.iter().enumerate() {
@@ -482,9 +737,58 @@ fn ingest_images(
             None => ((i as u32) % s, (i as u32 * 2) % s),
         };
 
-        match ingest::ingest_one(path, s, c, native_max)? {
+        // 劣化の水準も散らす — 補間法と圧縮が同じ周期で回らないよう別々に進める
+        let levels = with_degradation.then(|| {
+            (
+                degrade::FILTERS[i % degrade::FILTERS.len()],
+                degrade::COMPRESSIONS[(i / degrade::FILTERS.len()) % degrade::COMPRESSIONS.len()],
+            )
+        });
+        let recipe = ingest::Recipe {
+            force_period,
+            recover_native,
+            already_native,
+            scale: s,
+            crop: c,
+            native_max,
+            degrade: levels,
+        };
+
+        match ingest::ingest_one(path, &recipe)? {
             Err(reason) => {
                 println!("  拒否 {:<40} {reason}", file_name(path));
+                // 「周期が読めない」だけが負例になる — 格子が無いことの根拠がここにしかない
+                if let (Some(side), ingest::Refusal::NoPeriod) = (negative_side, &reason) {
+                    let (img, original) = ingest::negative_from(path, side)?;
+                    let name = format!("{sub}/neg-{negatives:03}.png");
+                    px_io::png::write_rgba(dir.join(&name), &img)?;
+                    // **切り出したかどうかを目録に残す** — 面積は誤受理の出方を変える
+                    let how = if (img.width(), img.height()) == original {
+                        "原寸のまま".to_string()
+                    } else {
+                        format!("{}x{} の中央を切り出し", original.0, original.1)
+                    };
+                    println!(
+                        "       → 負例 {name} ({}x{}．{how}．再標本化はしていない)",
+                        img.width(),
+                        img.height()
+                    );
+                    manifest.items.retain(|it| it.file != name);
+                    manifest.items.push(real::Item {
+                        file: name,
+                        category,
+                        license: license.to_string(),
+                        source: format!("{} ({how})", file_name(path)),
+                        truth: None,
+                        no_grid: true,
+                        note: Some(
+                            "ingest が周期を読めなかった (縁が境界へ集中していない)．\
+                             棄却が正しい"
+                                .to_string(),
+                        ),
+                    });
+                    negatives += 1;
+                }
                 refused.push((path.clone(), reason));
             }
             Ok((img, info)) => {
@@ -494,10 +798,29 @@ fn ingest_images(
                 // **正解には実際に使った方を書く**
                 let s = info.scale;
                 let phase = ingest::truth_phase(s, c);
+                // 劣化を掛けたなら，どの水準かを記録する (成績を条件で切り分けられる)
+                let how = match info.degrade {
+                    None => "最近傍".to_string(),
+                    Some((f, comp)) => format!("{} / {}", f.as_str(), comp.as_str()),
+                };
+                // 元絵をどうやって取り出したか (目録に書く根拠)
+                let reduced = match info.reduction {
+                    ingest::Reduction::Period(p) => format!("測った周期 {p} で平均縮小"),
+                    ingest::Reduction::ForcedPeriod(p) => {
+                        format!("指定した周期 {p} で平均縮小")
+                    }
+                    ingest::Reduction::Recovered => format!(
+                        "{}x{} から元絵を復元 ({:.3} 倍で拡大されていた)",
+                        info.original.0,
+                        info.original.1,
+                        f64::from(info.original.0) / f64::from(info.native.0),
+                    ),
+                    ingest::Reduction::AsIs => "入力をそのまま元絵として使用".to_string(),
+                };
                 println!(
-                    "  取込 {:<40} 周期 {:>2} → 元絵 {}x{} → {} 倍 ({}x{}) 位相 ({},{})",
+                    "  取込 {:<40} {:<14} 元絵 {}x{} → {} 倍 {how} ({}x{}) 位相 ({},{})",
                     file_name(path),
-                    info.period,
+                    info.reduction.as_str(),
                     info.native.0,
                     info.native.1,
                     s,
@@ -512,16 +835,35 @@ fn ingest_images(
                     category,
                     license: license.to_string(),
                     source: format!(
-                        "{} を周期 {} で縮小し {} 倍へ拡大 (px-calib ingest)",
+                        "{} を{reduced}し，{} 倍へ拡大 ({how}．px-calib ingest)",
                         file_name(path),
-                        info.period,
-                        s
+                        s,
                     ),
                     truth: Some(real::Truth {
                         scale: s,
                         phase: Some(phase),
                     }),
-                    note: None,
+                    no_grid: false,
+                    // **正解の出どころを明記する** — 格子がこちらの拡大で作られたことが
+                    // 読み手に分からないと誤解を招く
+                    note: match info.reduction {
+                        ingest::Reduction::Period(_) => None,
+                        ingest::Reduction::ForcedPeriod(_) => Some(
+                            "元絵に格子は無い．縮小の粗さを指定し，こちらが決めた倍率で\
+                             拡大して格子を作った (正解は拡大倍率)"
+                                .to_string(),
+                        ),
+                        ingest::Reduction::Recovered => Some(
+                            "非整数倍で拡大されて配られていた絵から元絵を厳密に復元し，\
+                             こちらが決めた倍率で拡大し直した．**中身は本物のドット絵**"
+                                .to_string(),
+                        ),
+                        ingest::Reduction::AsIs => Some(
+                            "配布されている元絵 (縮小していない) を，こちらが決めた\
+                             倍率で拡大した．**中身は本物のドット絵**"
+                                .to_string(),
+                        ),
+                    },
                 });
                 accepted += 1;
             }
@@ -531,20 +873,135 @@ fn ingest_images(
     let json = serde_json::to_string_pretty(&manifest)?;
     px_io::atomic::write(dir.join("manifest.json"), json.as_bytes())?;
     println!(
-        "\n  取り込み {accepted} 件 / 拒否 {} 件．目録は {} 件になった",
+        "\n  正例 {accepted} 件 / 負例 {negatives} 件 / 拒否 {} 件．目録は {} 件になった",
         refused.len(),
         manifest.items.len()
     );
-    if !refused.is_empty() {
-        println!("  拒否したものは**負例の候補**である．捨てずに取っておくこと");
+    let no_period = refused
+        .iter()
+        .filter(|(_, r)| *r == ingest::Refusal::NoPeriod)
+        .count();
+    if negative_side.is_none() && no_period > 0 {
+        println!(
+            "  「周期が読めない」{no_period} 件は**負例になる**．\
+             `--keep-refused` で目録へ入れられる"
+        );
+    }
+    if refused.len() > no_period {
+        println!(
+            "  残り {} 件は格子が無い根拠にならない (大きさが枠外 / 縦横の食い違い)．\
+             負例にしない",
+            refused.len() - no_period
+        );
     }
     Ok(())
+}
+
+/// `<sub>/<prefix>NNN.png` の次に使える連番．
+fn next_index(manifest: &real::Manifest, sub: &str, prefix: &str) -> usize {
+    let head = format!("{sub}/{prefix}");
+    manifest
+        .items
+        .iter()
+        .filter_map(|it| {
+            let rest = it.file.strip_prefix(&head)?.strip_suffix(".png")?;
+            // 負例の "neg-000" を正例の連番として数えないよう，数字だけの名前に限る
+            rest.parse::<usize>().ok()
+        })
+        .max()
+        .map_or(0, |n| n + 1)
 }
 
 fn file_name(p: &std::path::Path) -> String {
     p.file_name()
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_default()
+}
+
+/// 誤棄却がどの関門で落ちたかを数える．
+fn report_diagnose(records: &[diagnose::Record]) {
+    use diagnose::Fallout;
+    let rejected: Vec<&diagnose::Record> = records
+        .iter()
+        .filter(|r| r.fallout != Fallout::NotRejected)
+        .collect();
+    println!(
+        "\n== 正解が分かっている {} 件のうち，棄却された {} 件の落ち方 ==",
+        records.len(),
+        rejected.len()
+    );
+    for f in [
+        Fallout::Epsilon,
+        Fallout::Recon,
+        Fallout::PhaseDrift,
+        Fallout::LostToLarger,
+        Fallout::LowConfidence,
+        Fallout::NoCandidate,
+    ] {
+        let hit: Vec<&&diagnose::Record> = rejected.iter().filter(|r| r.fallout == f).collect();
+        if hit.is_empty() {
+            continue;
+        }
+        // ε で落ちた件は「どれだけ超えたか」が直し方に直結する
+        let ratios: Vec<f32> = hit.iter().map(|r| r.epsilon_ratio).collect();
+        let (q1, q2, q3) = bands::quartiles(&ratios);
+        println!(
+            "  {:<16} {:>3} 件   真の s の分散 / 閾値 = {q1:.2} / {q2:.2} / {q3:.2} (Q1/中央/Q3)",
+            f.as_str(),
+            hit.len(),
+        );
+    }
+}
+
+/// どの統計が「真の $s$」を見分けられるかを並べる．
+fn report_recon(records: &[recon::Record]) {
+    let truth = records.iter().filter(|r| r.is_truth).count();
+    println!(
+        "\n== 再構成統計の分離能 ==\n  候補 {} 件 (うち真の s は {truth} 件)",
+        records.len(),
+    );
+    println!("  統計                     閾値      均衡正解率");
+    for (name, key) in [
+        (
+            "全画素の不一致率 (現行)",
+            &(|r: &recon::Record| r.stats.overall) as &dyn Fn(&recon::Record) -> f32,
+        ),
+        ("セル内側の不一致率", &|r: &recon::Record| {
+            r.stats.interior
+        }),
+        ("セル境界の不一致率", &|r: &recon::Record| {
+            r.stats.border
+        }),
+        ("色差の中央値", &|r: &recon::Record| {
+            r.stats.median_delta_e
+        }),
+        ("内側の色差の中央値", &|r: &recon::Record| {
+            r.stats.interior_median_delta_e
+        }),
+        ("内側 / 境界の比", &|r: &recon::Record| {
+            r.stats.interior / r.stats.border.max(1.0e-6)
+        }),
+        ("V(s) / V(s/2)", &|r: &recon::Record| {
+            r.v / r.v_half.max(1.0e-9)
+        }),
+        ("V(s) - V(s/2)", &|r: &recon::Record| r.v - r.v_half),
+    ] {
+        let (t, acc) = recon::separation(records, key);
+        println!("  {name:<24} {t:<9.4} {:.1}%", acc * 100.0);
+    }
+
+    // 補間ごとに見る — 落ちるのは補間が掛かった件だけだった
+    println!("\n  補間別 (現行 / V(s)/V(s/2))");
+    for f in ["nearest", "bilinear", "bicubic", "lanczos"] {
+        let subset: Vec<recon::Record> =
+            records.iter().filter(|r| r.filter == f).cloned().collect();
+        if subset.is_empty() {
+            continue;
+        }
+        let (_, a) = recon::separation(&subset, |r| r.stats.overall);
+        let (_, b) = recon::separation(&subset, |r| r.v / r.v_half.max(1.0e-9));
+        println!("    {f:<10} {:.1}% / {:.1}%", a * 100.0, b * 100.0);
+    }
 }
 
 fn write_bands(path: &std::path::Path, records: &[bands::Record]) -> Result<()> {
@@ -607,6 +1064,14 @@ fn report_bands(records: &[bands::Record]) {
 }
 
 /// 分割ごとに指標を出し，検証セットで運転点を選ぶ．
+/// 当てはめる信頼度の下限の水準．
+///
+/// **$\varepsilon$ ・$\delta$ ・$\tau$ と同時に選ぶ．** 実データで測ると正例の誤棄却は
+/// 「閾値で落ちる件」と「信頼度で落ちる件」に割れており，2 つは逆を向いている —
+/// 下限を下げれば正例が戻る代わりに負例の誤受理が増える．片方ずつ動かすと，
+/// 一方を直して他方を壊した分が打ち消し合って見えなくなる．
+const CONFIDENCE_LEVELS: [f32; 9] = [0.0, 0.005, 0.01, 0.02, 0.03, 0.05, 0.08, 0.12, 0.20];
+
 fn report(dir: &std::path::Path, rows: &[Row], target: f32, top: usize) -> Result<()> {
     let validation: Vec<Row> = rows
         .iter()
@@ -618,7 +1083,11 @@ fn report(dir: &std::path::Path, rows: &[Row], target: f32, top: usize) -> Resul
         "掃引 CSV に検証セットの行が無い．閾値は検証セットで決める"
     );
 
-    let summaries = metrics::summarize(&validation);
+    // 閾値の組 x 信頼度の下限を同時に見る．下限は再推定なしで当てはめられる
+    let summaries: Vec<Summary> = CONFIDENCE_LEVELS
+        .iter()
+        .flat_map(|&c| metrics::summarize_at(&validation, c))
+        .collect();
     write_summary(&dir.join("summary.csv"), &summaries)?;
 
     // マクロ平均が最大のものを採る (素の正解率で選ばない理由は Summary::macro_rate)．
@@ -632,21 +1101,30 @@ fn report(dir: &std::path::Path, rows: &[Row], target: f32, top: usize) -> Resul
                 .then(b.epsilon.total_cmp(&a.epsilon))
                 .then(b.delta.total_cmp(&a.delta))
                 .then(b.tau.total_cmp(&a.tau))
+                .then(b.min_confidence.total_cmp(&a.min_confidence))
         })
         .context("まとめが空である")?;
 
-    println!("\n== 検証セット 上位 {top} 件 (マクロ平均の順) ==");
     println!(
-        "  ε        δ     τ     マクロ  正解率  ECE    | 格子あり: 完全一致  s一致  誤棄却 | 格子なし: 正棄却 (惜しい誤答)"
+        "\n== 検証セット 上位 {top} 件 (マクロ平均の順．ε は{}) ==",
+        if summaries[0].normalized {
+            "画像分散に対する割合"
+        } else {
+            "分散の絶対値"
+        }
+    );
+    println!(
+        "  ε        δ     τ     信頼度 マクロ  正解率  ECE    | 格子あり: 完全一致  s一致  誤棄却 | 格子なし: 正棄却 (惜しい誤答)"
     );
     let mut ranked: Vec<&Summary> = summaries.iter().collect();
     ranked.sort_by(|a, b| b.macro_rate().total_cmp(&a.macro_rate()));
     for s in ranked.iter().take(top) {
         println!(
-            "  {:<8} {:<5} {:<5} {:>5.1}% {:>6.1}% {:>6.3} | {:>15.1}% {:>6.1}% {:>6.1}% | {:>13.1}% ({:.1}%)",
+            "  {:<8} {:<5} {:<5} {:<5} {:>5.1}% {:>6.1}% {:>6.3} | {:>15.1}% {:>6.1}% {:>6.1}% | {:>13.1}% ({:.1}%)",
             s.epsilon,
             s.delta,
             s.tau,
+            s.min_confidence,
             s.macro_rate() * 100.0,
             s.correct_rate * 100.0,
             s.ece,
@@ -667,10 +1145,12 @@ fn report(dir: &std::path::Path, rows: &[Row], target: f32, top: usize) -> Resul
     write_curve(&dir.join("risk-coverage.csv"), best.param_id, &curve)?;
 
     println!(
-        "\n== 選んだ閾値 (検証セット) ==\n  ε = {}, δ = {}, τ = {}\n  マクロ平均 {:.1}% / 正解率 {:.1}% ({} 件) / ECE {:.3}\n  格子あり {} 件: 完全一致 {:.1}% / s 一致 {:.1}% / 誤棄却 {:.1}%\n  格子なし {} 件: 正しい棄却 {:.1}%",
+        "\n== 選んだ閾値 (検証セット) ==\n  ε = {}{}, δ = {}, τ = {}, min_confidence = {}\n  マクロ平均 {:.1}% / 正解率 {:.1}% ({} 件) / ECE {:.3}\n  格子あり {} 件: 完全一致 {:.1}% / s 一致 {:.1}% / 誤棄却 {:.1}%\n  格子なし {} 件: 正しい棄却 {:.1}%",
         best.epsilon,
+        if best.normalized { " (割合)" } else { "" },
         best.delta,
         best.tau,
+        best.min_confidence,
         best.macro_rate() * 100.0,
         best.correct_rate * 100.0,
         best.n,
@@ -865,6 +1345,36 @@ fn report_confidence(records: &[confidence::Record]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_numbering_continues_after_what_is_already_there() {
+        // 同じ区分へ 2 回取り込んでも 1 回目を上書きしないこと
+        let item = |file: &str| real::Item {
+            file: file.to_string(),
+            category: real::Category::Other,
+            license: String::new(),
+            source: String::new(),
+            truth: None,
+            no_grid: false,
+            note: None,
+        };
+        let m = real::Manifest {
+            items: vec![
+                item("other/000.png"),
+                item("other/001.png"),
+                item("other/neg-000.png"),
+                item("ai-output/007.png"),
+            ],
+        };
+        assert_eq!(next_index(&m, "other", ""), 2);
+        assert_eq!(next_index(&m, "other", "neg-"), 1);
+        // 区分をまたいで数えない
+        assert_eq!(next_index(&m, "screenshot", ""), 0);
+        assert_eq!(
+            next_index(&real::Manifest { items: vec![] }, "other", ""),
+            0
+        );
+    }
 
     #[test]
     fn empty_arguments_fall_back_to_the_default_levels() {

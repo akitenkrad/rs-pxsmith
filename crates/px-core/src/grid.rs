@@ -91,15 +91,26 @@ pub struct GridParams {
     pub phase_min_cells: usize,
     /// この値未満の信頼度は棄却する．
     pub min_confidence: f32,
+    /// $\varepsilon$ を**画像全体の分散に対する割合**として解釈する．
+    ///
+    /// $\varepsilon$ は分散の絶対値に対する閾値なので，**低コントラストの入力では
+    /// すべての $s$ が楽に通り**，「閾値を満たす最大の $s$」が大きい方へ流れる．
+    /// 実測で画像分散は素材によって 2 倍以上ちがう (合成スプライト 0.089 ・自作レンダ
+    /// 0.050 ・生成 AI を縮小したもの 0.038) ．
+    ///
+    /// これを立てると判定が $\bar{V}(s) \le \varepsilon \bar{V}_{\mathrm{image}}$ に
+    /// なり，尺度に依らなくなる．**既定は `false`** — 掃引で確かめるまで既定は動かさない．
+    pub normalize_epsilon: bool,
 }
 
 impl Default for GridParams {
     fn default() -> Self {
         Self {
             max_scale: 16,
-            // 補間を挟むと必要な ε が 1 桁以上大きくなる (nearest なら 2e-4 で足りる)．
-            // 0.05 も同成績だが，緩めても得が無いので小さい方を採る
-            epsilon: 0.02,
+            // **画像分散に対する割合**である (normalize_epsilon = true)．
+            // 検証セットで 0.1 / 0.2 / 0.3 / 0.5 を掃引し 0.2 が最良 (マクロ 88.8%)．
+            // 絶対値のままだと 88.1% で，実データでは誤答が 4 件多い
+            epsilon: 0.2,
             delta: 0.1,
             tau: 0.1,
             phase_bands: 4,
@@ -109,6 +120,23 @@ impl Default for GridParams {
             // 運転点．0 だと非整数の周期に答えを返してしまう (正棄却 65.3%)．
             // 0.03 で 93.0% まで上がり，完全一致率の代償は 85.1% → 83.2% で済む
             min_confidence: 0.03,
+            // 検証セットで確かめてから立てた．**実データでは誤答が半分になり
+            // (8 → 4 件) ，代償は無かった** — 負例の成績はどちらも同じである
+            normalize_epsilon: true,
+        }
+    }
+}
+
+impl GridParams {
+    /// 実際に使う $\varepsilon$．正規化を立てると画像分散に対する割合になる．
+    ///
+    /// 完全に平坦な画像では 0 になり，どの候補も通らない — 尺度が無いので当然である
+    /// (信頼度も 0 になるので，どちらにせよ棄却される)．
+    fn epsilon_for(&self, image_var: f32) -> f32 {
+        if self.normalize_epsilon {
+            self.epsilon * image_var
+        } else {
+            self.epsilon
         }
     }
 }
@@ -427,6 +455,91 @@ fn recon_ok(img: &RgbaCanvas, it: &Integral, s: usize, d: IVec2, delta: f32, tau
     (mismatched as f32 / total as f32) <= tau
 }
 
+/// 再構成誤差の内訳 (診断用)．
+///
+/// 現行の判定は画像全体で「色差が $\delta$ を超えた画素の割合」を 1 つ見るだけである．
+/// 実データで測ると**誤棄却の主犯がこの検査**で，落ちるのは補間が掛かった入力に限られる．
+///
+/// 補間の滲みは**セルの境界に集中する**はずで，中まで滲むわけではない．本物の格子なら
+/// 内側は平坦なまま残り，偽物なら内側も一様に汚れる — そこが分かれるかを見るための型
+/// である．推定そのものには使わない．
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct ReconStats {
+    /// 全画素の不一致率 (現行の判定が見ている量)．
+    pub overall: f32,
+    /// **セルの内側**だけの不一致率 ($s \ge 3$．$s = 2$ では内側が無いので `overall`)．
+    pub interior: f32,
+    /// セルの外周 1 画素だけの不一致率．
+    pub border: f32,
+    /// 色差の中央値 (閾値を通さない生の量)．
+    pub median_delta_e: f32,
+    /// 内側だけの色差の中央値．
+    pub interior_median_delta_e: f32,
+}
+
+/// 再構成誤差を内側と境界に分けて測る (診断用)．
+pub fn recon_stats(img: &RgbaCanvas, s: u32, phase: IVec2, delta: f32) -> ReconStats {
+    let it = Integral::new(img);
+    let (su, dx, dy) = (s as usize, phase.x.max(0) as usize, phase.y.max(0) as usize);
+    let (mut all, mut inner) = (Vec::new(), Vec::new());
+    let (mut all_bad, mut inner_bad, mut edge_bad, mut edge_n) = (0usize, 0usize, 0usize, 0usize);
+
+    for (x, y) in cells(it.w, it.h, su, dx, dy) {
+        let mean = oklab_of(it.mean(x, y, x + su, y + su));
+        for j in 0..su {
+            for i in 0..su {
+                let Some(c) = img.get((x + i) as i32, (y + j) as i32) else {
+                    continue;
+                };
+                let de = delta_e(oklab_of(c), mean);
+                let bad = de > delta;
+                all.push(de);
+                all_bad += usize::from(bad);
+                // 外周 1 画素かどうか．s <= 2 では内側が存在しない
+                let is_edge = su <= 2 || i == 0 || j == 0 || i + 1 == su || j + 1 == su;
+                if is_edge {
+                    edge_n += 1;
+                    edge_bad += usize::from(bad);
+                } else {
+                    inner.push(de);
+                    inner_bad += usize::from(bad);
+                }
+            }
+        }
+    }
+
+    let rate = |n: usize, total: usize| {
+        if total == 0 {
+            0.0
+        } else {
+            n as f32 / total as f32
+        }
+    };
+    let median = |v: &mut Vec<f32>| {
+        if v.is_empty() {
+            return 0.0;
+        }
+        v.sort_by(f32::total_cmp);
+        v[v.len() / 2]
+    };
+    let overall = rate(all_bad, all.len());
+    ReconStats {
+        overall,
+        interior: if inner.is_empty() {
+            overall
+        } else {
+            rate(inner_bad, inner.len())
+        },
+        border: rate(edge_bad, edge_n),
+        median_delta_e: median(&mut all),
+        interior_median_delta_e: if inner.is_empty() {
+            median(&mut all)
+        } else {
+            median(&mut inner)
+        },
+    }
+}
+
 fn divisors_and_multiples(s: u32, max: u32) -> impl Fn(u32) -> bool {
     move |t: u32| t != 0 && (s.is_multiple_of(t) || (t.is_multiple_of(s) && t <= max))
 }
@@ -488,9 +601,10 @@ fn evaluate(
         });
     }
 
+    let epsilon = params.epsilon_for(image_variance(it));
     let accepted: Vec<&Candidate> = all
         .iter()
-        .filter(|c| c.mean_variance <= params.epsilon)
+        .filter(|c| c.mean_variance <= epsilon)
         .filter(|c| recon_ok(img, it, c.scale as usize, c.phase, params.delta, params.tau))
         // 非整数の周期を落とす．再構成検査と違い，絵の中身に左右されない
         .filter(|c| {
@@ -553,7 +667,7 @@ pub fn scale_candidates(img: &RgbaCanvas, params: &GridParams) -> (Vec<ScaleCand
                 scale: s,
                 mean_variance: v,
                 phase,
-                passes_epsilon: v <= params.epsilon,
+                passes_epsilon: v <= params.epsilon_for(image_var),
                 passes_recon: recon_ok(img, &it, s as usize, phase, params.delta, params.tau),
                 passes_phase: phase_drift_ok(
                     &it,

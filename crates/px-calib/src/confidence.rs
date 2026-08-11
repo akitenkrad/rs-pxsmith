@@ -190,7 +190,7 @@ mod tests {
     }
 
     fn item() -> Item {
-        dataset::build(0, 4).items.remove(0)
+        dataset::build(0, 4, &[]).items.remove(0)
     }
 
     #[test]

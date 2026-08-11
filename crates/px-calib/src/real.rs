@@ -46,6 +46,20 @@ pub struct Item {
     /// 分かっていれば正解．**分からないなら省く** — 推測を正解として置かない．
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub truth: Option<Truth>,
+    /// **負例** — 整数の格子が無いと分かっている件．棄却が正解である．
+    ///
+    /// `truth` とは排他である ([`read`] が両立する目録を拒む) ．`truth` を省いただけの
+    /// 件は正解が**分からない**という意味で，こちらは**無いと分かっている**という意味で
+    /// あり，混ぜると採点が壊れる．
+    ///
+    /// 根拠は 2 通りある．どちらなのかは `note` に書く．
+    ///
+    /// | 根拠 | 例 |
+    /// | --- | --- |
+    /// | 作り方から分かる | 非整数倍リサイズを掛けた (`px-calib render`) |
+    /// | 測って分かった | `ingest` が周期を読めなかった (縁が境界へ集中していない) |
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub no_grid: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
 }
@@ -73,6 +87,10 @@ pub enum Verdict {
     ScaleOnly,
     Wrong,
     Rejected,
+    /// 負例を棄却した — **正解**．
+    CorrectReject,
+    /// 負例に答えを返した — **誤り**．格子が無いのに読めたと言っている．
+    FalseAccept,
     /// 正解が無いので機械では判定できない．
     Unknown,
 }
@@ -84,6 +102,8 @@ impl Verdict {
             Self::ScaleOnly => "scale_only",
             Self::Wrong => "wrong",
             Self::Rejected => "rejected",
+            Self::CorrectReject => "correct_reject",
+            Self::FalseAccept => "false_accept",
             Self::Unknown => "unknown",
         }
     }
@@ -125,7 +145,19 @@ impl Outcome {
     }
 }
 
-fn judge(truth: Option<Truth>, scale_hat: Option<u32>, phase_hat: Option<(u32, u32)>) -> Verdict {
+fn judge(
+    truth: Option<Truth>,
+    no_grid: bool,
+    scale_hat: Option<u32>,
+    phase_hat: Option<(u32, u32)>,
+) -> Verdict {
+    // 負例は棄却が正解．**答えを返したら誤り**であって「惜しい」ではない
+    if no_grid {
+        return match scale_hat {
+            None => Verdict::CorrectReject,
+            Some(_) => Verdict::FalseAccept,
+        };
+    }
     match (truth, scale_hat) {
         (None, _) => Verdict::Unknown,
         (Some(_), None) => Verdict::Rejected,
@@ -139,6 +171,24 @@ fn judge(truth: Option<Truth>, scale_hat: Option<u32>, phase_hat: Option<(u32, u
     }
 }
 
+/// 判定を外から呼ぶための口 (診断用)．
+///
+/// [`run`] と同じ規則で採点する — **採点の規則を 2 か所に書かない**．
+pub fn judge_public(
+    truth: Option<Truth>,
+    no_grid: bool,
+    estimate: &std::result::Result<px_core::grid::GridEstimate, px_core::grid::GridError>,
+) -> Verdict {
+    let (scale_hat, phase_hat) = match estimate {
+        Ok(e) => (
+            Some(e.scale),
+            Some((e.phase.x.max(0) as u32, e.phase.y.max(0) as u32)),
+        ),
+        Err(_) => (None, None),
+    };
+    judge(truth, no_grid, scale_hat, phase_hat)
+}
+
 /// 目録を読む．
 pub fn read(dir: &Path) -> Result<Manifest> {
     let path = dir.join("manifest.json");
@@ -148,7 +198,20 @@ pub fn read(dir: &Path) -> Result<Manifest> {
             path.display()
         )
     })?;
-    Ok(serde_json::from_str(&text)?)
+    let manifest: Manifest = serde_json::from_str(&text)?;
+    // 「正解が分からない」と「格子が無いと分かっている」を取り違えた目録は，黙って
+    // 採点すると誤りが正解に化ける．読んだ時点で落とす
+    if let Some(bad) = manifest
+        .items
+        .iter()
+        .find(|i| i.no_grid && i.truth.is_some())
+    {
+        anyhow::bail!(
+            "{}: truth と no_grid の両方が書いてある．格子が無い件に正解は無い",
+            bad.file
+        );
+    }
+    Ok(manifest)
 }
 
 /// 全件を推定する．
@@ -177,7 +240,7 @@ pub fn run(dir: &Path, manifest: &Manifest, params: &GridParams) -> Result<Vec<O
                 phase_hat,
                 confidence,
                 error,
-                verdict: judge(item.truth, scale_hat, phase_hat),
+                verdict: judge(item.truth, item.no_grid, scale_hat, phase_hat),
             })
         })
         .collect()
@@ -190,8 +253,8 @@ mod tests {
     #[test]
     fn a_missing_truth_is_not_guessed() {
         // 正解が無い件を「たぶん合っている」と数えない
-        assert_eq!(judge(None, Some(4), Some((0, 0))), Verdict::Unknown);
-        assert_eq!(judge(None, None, None), Verdict::Unknown);
+        assert_eq!(judge(None, false, Some(4), Some((0, 0))), Verdict::Unknown);
+        assert_eq!(judge(None, false, None, None), Verdict::Unknown);
     }
 
     #[test]
@@ -200,9 +263,12 @@ mod tests {
             scale: 4,
             phase: None,
         };
-        assert_eq!(judge(Some(t), Some(4), Some((1, 2))), Verdict::ScaleOnly);
-        assert_eq!(judge(Some(t), Some(5), Some((1, 2))), Verdict::Wrong);
-        assert_eq!(judge(Some(t), None, None), Verdict::Rejected);
+        assert_eq!(
+            judge(Some(t), false, Some(4), Some((1, 2))),
+            Verdict::ScaleOnly
+        );
+        assert_eq!(judge(Some(t), false, Some(5), Some((1, 2))), Verdict::Wrong);
+        assert_eq!(judge(Some(t), false, None, None), Verdict::Rejected);
     }
 
     #[test]
@@ -211,8 +277,31 @@ mod tests {
             scale: 4,
             phase: Some((1, 2)),
         };
-        assert_eq!(judge(Some(t), Some(4), Some((1, 2))), Verdict::Exact);
-        assert_eq!(judge(Some(t), Some(4), Some((0, 0))), Verdict::ScaleOnly);
+        assert_eq!(judge(Some(t), false, Some(4), Some((1, 2))), Verdict::Exact);
+        assert_eq!(
+            judge(Some(t), false, Some(4), Some((0, 0))),
+            Verdict::ScaleOnly
+        );
+    }
+
+    #[test]
+    fn a_negative_is_scored_the_other_way_round() {
+        // 負例は棄却が正解．答えを返したら誤り
+        assert_eq!(judge(None, true, None, None), Verdict::CorrectReject);
+        assert_eq!(
+            judge(None, true, Some(2), Some((0, 0))),
+            Verdict::FalseAccept
+        );
+    }
+
+    #[test]
+    fn a_negative_is_not_the_same_as_an_unknown() {
+        // 正解が分からない件は unknown のまま — 負例に格上げしない
+        assert_eq!(judge(None, false, None, None), Verdict::Unknown);
+        assert_ne!(
+            judge(None, false, None, None),
+            judge(None, true, None, None)
+        );
     }
 
     #[test]
@@ -227,15 +316,41 @@ mod tests {
                     scale: 6,
                     phase: Some((0, 0)),
                 }),
+                no_grid: false,
                 note: None,
             }],
         };
         let json = serde_json::to_string(&m).unwrap();
         assert_eq!(serde_json::from_str::<Manifest>(&json).unwrap(), m);
-        // 正解を省いた形も読めること
+        // 正解を省いた形も読めること．負例の印は既定で降りている
         let bare = r#"{"items":[{"file":"a.png","category":"ai-output","license":"CC0","source":"自作"}]}"#;
         let parsed: Manifest = serde_json::from_str(bare).unwrap();
         assert_eq!(parsed.items[0].truth, None);
+        assert!(!parsed.items[0].no_grid);
+        // 負例は truth を持たない — 書き出しに truth が出ないこと
+        let neg = Item {
+            no_grid: true,
+            truth: None,
+            ..m.items[0].clone()
+        };
+        let json = serde_json::to_string(&neg).unwrap();
+        assert!(!json.contains("truth"), "{json}");
+        assert!(json.contains("\"no_grid\":true"), "{json}");
+    }
+
+    #[test]
+    fn a_manifest_that_claims_both_is_refused() {
+        // truth と no_grid が両立する目録は，読んだ時点で落とす
+        let dir = std::env::temp_dir().join("pxforge-real-both");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("manifest.json"),
+            r#"{"items":[{"file":"a.png","category":"other","license":"CC0",
+                "source":"自作","no_grid":true,"truth":{"scale":4}}]}"#,
+        )
+        .unwrap();
+        let err = read(&dir).unwrap_err().to_string();
+        assert!(err.contains("no_grid"), "{err}");
     }
 
     #[test]

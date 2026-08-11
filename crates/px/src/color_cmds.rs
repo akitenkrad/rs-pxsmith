@@ -103,6 +103,8 @@ impl From<&GridArgs> for GridParams {
     fn from(a: &GridArgs) -> Self {
         Self {
             max_scale: a.max_scale,
+            // CLI からは切り替えない (校正で決まるまでは既定のまま)
+            normalize_epsilon: GridParams::default().normalize_epsilon,
             epsilon: a.epsilon,
             delta: a.delta,
             tau: a.tau,
