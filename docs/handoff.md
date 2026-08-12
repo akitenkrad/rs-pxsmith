@@ -12,7 +12,7 @@
 | 項目 | 値 |
 | --- | --- |
 | フェーズ | M0 ・M1 ・M1a 完了．**M2 は マクロ平均 80.7%**．D66 の D (黙って誤答しない率) は**満たした** |
-| テスト | 441 件すべて通過 |
+| テスト | 445 件すべて通過 |
 | 品質 | `cargo fmt --all --check` と `cargo clippy --workspace --all-targets -- -D warnings` がクリーン |
 | クレート | `px-core` / `px-io` / `px-view` / `px-macro` / `px-lint` / `px` / `px-calib` |
 | ブランチ | `main` |
@@ -170,10 +170,25 @@ A の 1 件は `px-calib diagnose` で個別に見れば分かる．**B が主�
 関門の案を測るときは，まず CSV 上で選択規則を回して完全一致数を数えること — 2 秒で
 1400 通り比べられる．**分離能で採否を決めない**という作法を守ったまま総当たりできる．
 
-### 3. lint 閾値 (素材待ち)
+### 3. lint 閾値 — **素材待ちは解けた (D70)**
 
-`testdata/lint-cases/positive/` (CC0 の良質なドット絵．**`grid-eval/seeds/` がそのまま
-使える見込み**) と `negative/` (自作の失敗例) が要る．**コードだけでは完結しない．**
+- 正例は `testdata/grid-eval/seeds/` (CC0 の実物 64 枚) をそのまま使う
+- 負例は **`px-calib lint-gen` が作る** (良い絵に欠陥を 1 つだけ入れる．7 種 x 8 枚)
+- 測り方: `px-calib lint --dir <PNG の置き場所>`．詳細は
+  `docs/investigations/lint-calibration.md`
+
+**良い絵に掛けたら blocking が鳴らない絵が 0 / 64 枚だった** — ルール 2 は原寸の
+ドット絵を «格子崩れ» と呼び，ルール 3 は質感を «孤立ピクセル» と呼んでいた．
+適用範囲と定義を直して **53 / 64** になった．
+
+残っている論点は 1 つだけである．
+
+> [!warning] ルール 2 を blocking のままにするか
+> きれいな拡大でも 26.7% で鳴る．**閾値では下がらない** — 推定器自身がそれだけ
+> 棄却するためで，このルールは `conform` の再現率を超えられない．**製品の判断**である．
+
+未実装のルール (4 ・6 ・7 ・8 ・12 ・13 ・14 ・19 …) は M3 以降．実装するときに
+`lint-gen` へ欠陥を足す．
 
 ### 4. M3 (整形と検証) へ
 
@@ -191,6 +206,12 @@ cargo run -p px-calib --release -- confidence          # 信頼度の各項
 cargo run -p px-calib --release -- recon               # 再構成統計の分離能
 cargo run -p px-calib --release -- recon --include-resized   # 格子が無い件も混ぜる
 cargo run -p px-calib --release -- diagnose            # 実データの誤棄却を 1 件ずつ解剖
+
+# lint (良い絵 → 誤爆 ・負例 → 捕捉)
+cargo run -p px-calib --release -- lint                     # CC0 の実物 64 枚
+cargo run -p px-calib --release -- lint-gen                 # 負例を作る
+cargo run -p px-calib --release -- lint --dir testdata/lint-cases/negative
+cargo run -p px-calib --release -- lint --dir grid-eval --dataset --grid-like-ratio 0.05
 
 # 実データ枠 (関門を切り替えて «どの変更が効いたか» を分けて見られる)
 cargo run -p px-calib --release -- real
@@ -236,7 +257,8 @@ $\mathrm{min\_confidence} = 0.10$ (**$\hat{s}$ で割って使う**)
 | 合成データの種 | 64 件 (CC0．Kenney 16x16 が 32 ・Dungeon Crawl 32x32 が 32) ．**実データ枠とは重ならない** |
 | 実データ 同梱 | 148 件 (正例 94 / 負例 54) |
 | 実データ `local/` | 92 件 (正例 23 / 負例 69) ．再配布不可なので追跡しない |
-| lint 正例 / 負例 | **未** |
+| lint 正例 | `grid-eval/seeds/` をそのまま使う (CC0 の実物 64 枚) |
+| lint 負例 | **`px-calib lint-gen` で生成** (7 種 x 8 枚．追跡している) |
 
 ## 落とし穴
 
@@ -272,6 +294,8 @@ $\mathrm{min\_confidence} = 0.10$ (**$\hat{s}$ で割って使う**)
 | ダウンロード素材をそのまま読ませる | `com.apple.quarantine` が付いていると EPERM で落ちる．**`xattr -cr` してから渡す** |
 | **同じ «向き» の関門ばかり足す** | $\varepsilon$ ・再構成 ・帯ずれ ・曲線はすべて «セルの中が揃っているか» を見ており，滑らかな絵では全部が真になる．**格子が «在る» ことを確かめる関門が要る** (D69) |
 | **捨てた量を «用途が違っても» 捨てたままにする** | 半セルずらしは «$s_*$ と $2 s_*$ を分ける» 用途で捨てたが，«滑らかな絵を落とす» 用途では効いた．**分けたい 2 群が変わったら測り直す** |
+| **lint の閾値を負例から先に決める** | 良い絵に掛ければ**負例を 1 枚も作らずに**誤りが出ることがある (blocking が 64 枚中 64 枚で鳴っていた) ．**正例が先** |
+| **負例が鳴らないのを «ルールが緩い» と読む** | ルール 10 の 3 件は**すべて生成の穴**だった (欠陥が検出窓に届いていない) ．閾値を動かす前に «見逃しか作り方か» を分ける |
 | 帯の曲線を判定と診断で別々に作る | 数字を並べて比べられなくなる．**`band_curves` 1 か所にまとめる** (作り直すと推定の費用も倍になる) |
 
 ## 決まっている作法

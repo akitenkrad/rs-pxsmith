@@ -126,6 +126,7 @@ G4 (局所格子推定) は格子推定器そのものなので M2 で `conform`
 | `px clean --denoise-dither` | 済 | ランダムディザの検出と Bayer への正規化 |
 | CLI への配線 | 済 | `px quantize` / `palette apply\|extract\|merge\|ramp` / `clean` / `conform` / `lint` |
 | `px lint` (色・格子・ディザ系 11 ルール) | 済 | `px-lint`．1 ・2 ・3 ・5 ・9 ・10 ・11 ・15 ・16 ・17 ・18 |
+| **lint の適用範囲と閾値 (D70)** | 済 | 正例 (CC0 64 枚) と負例 (`px-calib lint-gen`．7 種 x 8 枚) の両方で決めた．**blocking が鳴らない良い絵 0 → 53 / 64** |
 | 校正ツール `px-calib` | 済 | `crates/px-calib`．`gen` / `sweep` / `report` |
 | 評価データセット (合成 500 件) | 済 | `px-calib gen`．正解つき．**元絵は CC0 の実物 64 件** (`testdata/grid-eval/seeds/`) |
 | 位相の検査 (D62 ・D65 ・D68) | 済 | `grid.rs` の `phase_check_ok`．帯 4 (**足りなければ 3 ・2 と減らす**) ・許容 $s \cdot 0.35$ ・下限 0 画素 ・**曲線の食い違い 0.16** ・**測れない候補は棄却**．副画素の位相は `phase_subpixel` で試せる (既定 `false`) |
@@ -286,7 +287,9 @@ $\varepsilon$ を補間法ごとに変えるのか，1 つの値と再構成検�
    $\theta = 0.38$ の尾根 (+0.4 ポイント) は量子化の境目でしかなく実データでは 1 件も
    違わない．**$\theta \ge 0.5$ は検査を外すのと同じ** (帯ずれは $s/2$ が上限) なので
    この方向は尽きている．残る手は曲線の**正規化のしかた** (3 通りしか試していない)
-3. `testdata/lint-cases/` の正例・負例を揃えて lint の閾値を決める
+3. ~~`testdata/lint-cases/` の正例・負例を揃えて lint の閾値を決める~~ → **済 (D70)**．
+   良い絵 64 枚に掛けたら blocking が鳴らない絵が 0 枚だったので，ルール 2 ・3 の
+   適用範囲と定義を直した (0 → 53 / 64) ．負例は `px-calib lint-gen` で生成できる
 4. **テストセット 200 件で 1 度だけ確認する** (完了条件 A ・B ・D を満たしてから)
 
 ## 並行して進める調達
