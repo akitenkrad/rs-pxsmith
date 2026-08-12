@@ -22,5 +22,8 @@ debug/
 testdata/grid-eval/real/results.csv
 testdata/grid-eval/real/diagnose.csv
 
+# lint の測定結果 (px-calib lint で作り直せる)
+testdata/grid-eval/seeds/lint.csv
+
 # 再配布できない実データ (game-materials.com 等)．入手元は SOURCES.md に記録する
 testdata/grid-eval/real/local/
