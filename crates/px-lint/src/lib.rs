@@ -72,10 +72,14 @@ pub const RULES: &[Rule] = &[
         severity: Severity::Blocking,
         scope: Scope::Static,
     },
+    // **advisory である (D70)．** «格子が見つからない» と «格子が壊れている» を
+    // 区別できるのは推定器までで，きれいな拡大でも 26.7% で鳴る．これは推定器自身の
+    // 棄却率がそのまま出ているもので**閾値では下がらない** — `conform` の再現率を
+    // 超えられない検査で出力を止めるべきではない
     Rule {
         id: 2,
         name: "格子崩れ",
-        severity: Severity::Blocking,
+        severity: Severity::Advisory,
         scope: Scope::Static,
     },
     Rule {
