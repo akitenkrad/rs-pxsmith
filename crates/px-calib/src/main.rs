@@ -248,6 +248,9 @@ enum Command {
         /// 半セルずらしたときの崩れ方の下限．1.0 以下でこの検査を外す
         #[arg(long)]
         phase_contrast_min: Option<f32>,
+        /// 帯ずれの許容の下限 (画素)．割合の許容が小さい $s$ で 1 画素を割るのを防ぐ
+        #[arg(long)]
+        phase_tolerance_floor: Option<f32>,
         /// 測れない候補も素通しする (既定は棄却)
         #[arg(long, num_args = 0..=1, default_missing_value = "true")]
         allow_unmeasurable: Option<bool>,
@@ -528,6 +531,7 @@ fn main() -> Result<()> {
             phase_tolerance,
             phase_agreement,
             phase_contrast_min,
+            phase_tolerance_floor,
             allow_unmeasurable,
         } => {
             let d = px_core::grid::GridParams::default();
@@ -540,6 +544,7 @@ fn main() -> Result<()> {
                 phase_tolerance: phase_tolerance.unwrap_or(d.phase_tolerance),
                 phase_agreement: phase_agreement.unwrap_or(d.phase_agreement),
                 phase_contrast_min: phase_contrast_min.unwrap_or(d.phase_contrast_min),
+                phase_tolerance_floor: phase_tolerance_floor.unwrap_or(d.phase_tolerance_floor),
                 phase_require_measurable: !allow_unmeasurable.unwrap_or(false),
                 ..d
             };
