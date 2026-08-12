@@ -302,6 +302,9 @@ enum Command {
         /// ルール 2 の «格子を名乗っているか» の閾値 (複数指定可．掃引する)
         #[arg(long, num_args = 1..)]
         grid_like_ratio: Vec<f32>,
+        /// ルール 11 の明度差の下限 (複数指定可．掃引する)
+        #[arg(long, num_args = 1..)]
+        min_lightness_delta: Vec<f32>,
     },
     /// lint の負例を作る (良い絵に欠陥を 1 つだけ入れる)
     LintGen {
@@ -738,6 +741,27 @@ fn main() -> Result<()> {
                     "  格子らしさ {ratio:<7} ルール 2: きれいな拡大 {fc:>3}/{nc} ({:>5.1}%) ・崩れた格子 {fb:>3}/{nb} ({:>5.1}%)",
                     fc as f32 / nc.max(1) as f32 * 100.0,
                     fb as f32 / nb.max(1) as f32 * 100.0
+                );
+            }
+        }
+
+        Command::Lint {
+            dir,
+            min_lightness_delta,
+            ..
+        } if !min_lightness_delta.is_empty() => {
+            for delta in min_lightness_delta {
+                let cfg = px_lint::LintConfig {
+                    min_lightness_delta: delta,
+                    ..px_lint::LintConfig::default()
+                };
+                let (records, _) = lintcal::run(&dir, &cfg)?;
+                let fired = records.iter().filter(|r| r.hits.contains_key(&11)).count();
+                let total: usize = records.iter().filter_map(|r| r.hits.get(&11)).sum();
+                println!(
+                    "  明度差の下限 {delta:<7} ルール 11: {fired:>3}/{} 枚 ({:>5.1}%) ・違反 {total}",
+                    records.len(),
+                    fired as f32 / records.len().max(1) as f32 * 100.0
                 );
             }
         }

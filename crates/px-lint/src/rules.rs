@@ -197,8 +197,20 @@ fn rule_2_broken_grid(img: &RgbaCanvas, cfg: &LintConfig, report: &mut Report) {
 
 /// ルール 3 — **その色が絵の中で他に使われていない**小さい領域だけを孤立とする．
 ///
-/// 周囲との色差でさらに絞る案も測ったが (**近い色だけ迷子とみなす**) ，違反は
-/// 66 → 45 件にしか減らないうえ，«派手な色の迷子» を見逃す．採らない．
+/// さらに **«単色に囲まれている»** ことを求める．狙って置いた点 (目のハイライトなど) は
+/// 面の境目や模様の中に置かれるので，隣に複数の色が来る．迷子は平らな面にぽつんと
+/// 落ちるので隣が 1 色になる．
+///
+/// | | 良い絵 64 枚 | 負例 (迷子を撒いた) 8 枚 |
+/// | --- | --- | --- |
+/// | 一意の色の 1 画素がある | 16 枚 | 8 枚 |
+/// | **うち単色に囲まれている** | **2 枚** | **6 枚** |
+///
+/// blocking なので誤爆を重く見て，捕捉 8 / 8 → 6 / 8 と引き換えに誤爆を
+/// 14 枚 → 2 枚へ落とす．
+///
+/// 周囲との色差で絞る案も測ったが (**近い色だけ迷子とみなす**) ，違反は 66 → 45 件に
+/// しか減らないうえ «派手な色の迷子» を見逃す．採らない．
 ///
 /// 面積だけで判定すると**ドット絵の質感を «孤立» と呼ぶ**．CC0 の実物のタイルで
 /// 測ると，石畳で 655 / 1024 画素 ・血糊で 428 / 1024 画素が «孤立» になった —
@@ -225,11 +237,15 @@ fn rule_3_isolated(
         if used.get(&region.index).copied().unwrap_or(0) > region.area {
             continue;
         }
+        // 隣に複数の色が来るなら，模様や面の境目に置かれた点である
+        if neighbour_indices(regions, canvas, region).len() != 1 {
+            continue;
+        }
         report.push(
             Violation::new(
                 r,
                 format!(
-                    "{} 画素の孤立した領域 (添字 {}．この色は他で使われていない)",
+                    "{} 画素の孤立した領域 (添字 {}．この色は他に無く，単色に囲まれている)",
                     region.area, region.index
                 ),
             )
@@ -237,6 +253,31 @@ fn rule_3_isolated(
             .area(region.bbox),
         );
     }
+}
+
+/// 領域に接している添字を集める (孤立判定の «周囲») ．
+fn neighbour_indices(
+    regions: &RegionMap,
+    canvas: &IndexedCanvas,
+    region: &px_core::geom::regions::Region,
+) -> Vec<u8> {
+    let mut out = Vec::new();
+    let transparent = canvas.transparent();
+    for p in region.bbox.iter() {
+        if regions.at(p).map(|r| r.id) != Some(region.id) {
+            continue;
+        }
+        for d in [ivec2(1, 0), ivec2(-1, 0), ivec2(0, 1), ivec2(0, -1)] {
+            if let Some(n) = regions.at(p + d)
+                && n.id != region.id
+                && Some(n.index) != transparent
+                && !out.contains(&n.index)
+            {
+                out.push(n.index);
+            }
+        }
+    }
+    out
 }
 
 // --- ルール 5: 彩度カーブ異常 ---

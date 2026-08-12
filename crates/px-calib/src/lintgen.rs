@@ -59,6 +59,14 @@ impl Defect {
         }
     }
 
+    /// **敷ける面が要る欠陥か．** ディザ系は透明の穴があると検出に届かない．
+    pub fn needs_solid_area(self) -> bool {
+        matches!(
+            self,
+            Self::DitherClump | Self::DitherFlood | Self::HarshDither
+        )
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::StrayPixels => "stray",
@@ -130,18 +138,28 @@ pub fn apply(src: &RgbaCanvas, defect: Defect, seed: u64) -> RgbaCanvas {
                 img.set(x, y, c);
             }
         }
-        // 市松のディザを敷き，その中で片方の色を横に長く続ける
+        // 市松のディザを敷き，その中で片方の色を横に長く続ける．
+        //
+        // **欠陥は検出窓より十分大きくする．** ディザの検出は 8 画素角の窓で
+        // «2 色が 92% 以上» を求めるので，16x16 の絵に中央 8x8 だけ敷くと窓が
+        // 領域の外へはみ出して 1 枚も見つからない — 実際 16x16 の 3 枚が
+        // «ルールの見逃し» ではなく **生成の弱さ**で鳴っていなかった
         Defect::DitherClump => {
             let other = shifted(base, 0.18);
             let (w, h) = (img.width() as i32, img.height() as i32);
-            let (x0, y0) = (w / 4, h / 4);
-            for y in y0..(y0 + h / 2).min(h) {
-                for x in x0..(x0 + w / 2).min(w) {
+            // **窓の格子に揃える．** 検出は 8 画素角の窓を 8 画素刻みで置くので，
+            // 領域が格子からずれていると窓が領域の外へはみ出し，16x16 では
+            // 1 つも収まらない — «ルールの見逃し» に見えていた 2 枚はこれだった
+            let margin = |n: i32| if n >= 32 { 8 } else { 0 };
+            let (x0, y0) = (margin(w), margin(h));
+            let (x1, y1) = (w - margin(w), h - margin(h));
+            for y in y0..y1 {
+                for x in x0..x1 {
                     if img.get(x, y).is_some_and(|c| c.a == 0) {
                         continue;
                     }
                     // 塊: 一定の行では片方の色だけを並べる
-                    let clumped = (y - y0) % 5 == 0 && (x - x0) < w / 2;
+                    let clumped = (y - y0) % 5 == 0;
                     let use_other = if clumped { true } else { (x + y) % 2 == 0 };
                     img.set(x, y, if use_other { other } else { base });
                 }
@@ -201,10 +219,28 @@ pub fn apply(src: &RgbaCanvas, defect: Defect, seed: u64) -> RgbaCanvas {
 }
 
 /// 明度を少しずらした色 (ディザの相方に使う)．
+///
+/// **明るい方へ寄せられないときは暗い方へ寄せる．** 明度を上げるだけだと，元が
+/// すでに明るい絵で丸めた後に**同じ色**になり，ディザではなく塗り潰しになる —
+/// 実際にそれで 2 枚がルール 10 に鳴っていなかった (鳴っていたのは «大面積の
+/// 高彩度色» の方) ．
 fn shifted(base: Rgba8, dl: f32) -> Rgba8 {
-    let mut lab = oklab_of(base);
-    lab.l = (lab.l + dl).clamp(0.0, 1.0);
-    let mut c = px_core::quantize::oklab_to_rgba(lab);
+    let lab = oklab_of(base);
+    for delta in [dl, -dl, dl * 2.0, -dl * 2.0] {
+        let mut moved = lab;
+        moved.l = (lab.l + delta).clamp(0.0, 1.0);
+        let mut c = px_core::quantize::oklab_to_rgba(moved);
+        c.a = base.a;
+        if (c.r, c.g, c.b) != (base.r, base.g, base.b) {
+            return c;
+        }
+    }
+    // どうしても動かない (完全な白か黒) ときは反対側の端へ振る
+    let mut c = if lab.l > 0.5 {
+        Rgba8::rgb(0x20, 0x20, 0x28)
+    } else {
+        Rgba8::rgb(0xe0, 0xe0, 0xd8)
+    };
     c.a = base.a;
     c
 }
@@ -220,14 +256,33 @@ pub fn generate(seeds: &Path, out: &Path, per_defect: usize, seed: u64) -> Resul
     anyhow::ensure!(!paths.is_empty(), "{} に PNG が無い", seeds.display());
     std::fs::create_dir_all(out)?;
 
+    // 透けている割合を先に測る．**ディザ系の欠陥は «敷ける面» が要る** — 検出は
+    // 8 画素角の窓で «2 色が 92% 以上» を求めるので，透明で穴が空くと見つからない．
+    // 16x16 の絵で 2 枚が «ルールの見逃し» ではなくこれで鳴っていなかった
+    let mut art: Vec<(std::path::PathBuf, RgbaCanvas, f32)> = Vec::new();
+    for path in &paths {
+        let img = px_io::png::read_rgba(path)
+            .with_context(|| format!("{} を読めない", path.display()))?;
+        let opaque = img.pixels().iter().filter(|c| c.a != 0).count() as f32;
+        let ratio = opaque / (img.width() * img.height()).max(1) as f32;
+        art.push((path.clone(), img, ratio));
+    }
+    let solid: Vec<usize> = (0..art.len()).filter(|&i| art[i].2 >= 0.98).collect();
+    anyhow::ensure!(!solid.is_empty(), "ディザを敷ける絵が 1 枚も無い");
+
     let mut written = 0;
     for defect in Defect::ALL {
         for i in 0..per_defect {
             // 種ごとに違う絵を使う．**添字で選ぶので毎回同じ絵になる**
-            let path = &paths[(defect.rule() as usize * 13 + i * 7) % paths.len()];
-            let src = px_io::png::read_rgba(path)
-                .with_context(|| format!("{} を読めない", path.display()))?;
-            let img = apply(&src, defect, seed ^ (defect.rule() as u64) << 8 ^ i as u64);
+            let pick = defect.rule() as usize * 13 + i * 7;
+            let index = if defect.needs_solid_area() {
+                solid[pick % solid.len()]
+            } else {
+                pick % art.len()
+            };
+            let (path, src, _) = &art[index];
+            let _ = path;
+            let img = apply(src, defect, seed ^ (defect.rule() as u64) << 8 ^ i as u64);
             let name = format!("{}-{i:02}.png", defect.as_str());
             px_io::png::write_rgba(out.join(&name), &img)
                 .with_context(|| format!("{name} を書けない"))?;
