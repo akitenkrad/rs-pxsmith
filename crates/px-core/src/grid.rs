@@ -82,7 +82,33 @@ pub struct GridParams {
     /// 位相ずれ検査で画像を切る帯の数 (縦横それぞれ)．0 で検査を飛ばす．
     pub phase_bands: usize,
     /// 帯どうしの位相のずれの許容．**$s$ に対する割合**で持つ．
+    ///
+    /// 曲線の食い違い ([`Self::phase_agreement`]) を入れる前は 0.25 だった．**単独で
+    /// 緩めると正棄却が崩れる** (0.35 にすると 182 → 151 / 199) が，曲線が棄却を
+    /// 引き受けるので緩められる．検証セットで $\theta \in [0.34, 0.38]$ ・許容
+    /// $\in [0.15, 0.17]$ が同じ成績の平らな面になっており，その内側を採った．
     pub phase_tolerance: f32,
+    /// 帯ごとの位相**曲線**の食い違いの許容．
+    ///
+    /// $$ \frac{1}{2} \sum_{\text{軸}} \frac{J - M}{A - M}, \quad
+    ///    J = \min_p \sum_b C_b(p), \; M = \sum_b \min_p C_b(p), \;
+    ///    A = \mathrm{mean}_p \sum_b C_b(p) $$
+    ///
+    /// 「**全帯に共通の位相を 1 つ選ぶと，帯ごとに best を選ぶのに比べてどれだけ損を
+    /// するか**」を谷の深さで割ったものである．帯ずれ (argmin の食い違い) が
+    /// $\lfloor s/2 \rfloor$ に張り付いて飽和するのに対し，こちらは谷が浅い帯が分子にも
+    /// 分母にも小さくしか効かないので飽和しない — 実測でも通したい件の 90% 点 0.165 ・
+    /// 落としたい件の中央 0.481 と重なりが薄い．
+    ///
+    /// **1.0 以上にすると事実上この検査は働かない** (割合は 1 を超えない)．
+    pub phase_agreement: f32,
+    /// 位相の検査が**測れない候補を棄却する**か．
+    ///
+    /// 帯が薄くて測れない候補は，これまで素通ししていた (「少ないセルから求めた位相は
+    /// 落とす根拠にならない」) ．**測ると逆で**，検査を通せない候補を通すと $\hat{s}$ が
+    /// そこへ流れる — 棄却すると完全一致 58 → 60 / 101 で，正棄却は 182 / 199 のまま
+    /// 変わらなかった．D65 (帯を減らしてでも測る) と同じ向きの直しである．
+    pub phase_require_measurable: bool,
     /// 帯ごとの位相を**副画素**で求める．
     ///
     /// 位相は整数に量子化されているが，分けたい量はその刻みと同じ大きさである
@@ -157,14 +183,23 @@ impl Default for GridParams {
             // **画像分散に対する割合**である (normalize_epsilon = true)．
             // 検証セットで 0.1 / 0.2 / 0.3 / 0.5 を掃引し 0.2 が最良 (マクロ 88.8%)．
             // 絶対値のままだと 88.1% で，実データでは誤答が 4 件多い
-            epsilon: 0.2,
-            delta: 0.1,
-            tau: 0.1,
+            // 位相の検査を作り直した (D68) あとに 486 通りを掃引し直した値．
+            // 関門を変えれば «通ってくる相手» が変わるので，閾値は**組で選び直す**．
+            // ε ・δ ・τ ・θ ・曲線の許容 ・信頼度の下限を同時に見て，
+            // (0.15, 0.15, 0.05, 0.35, 0.16, 0.10) がマクロ 79.2% で最良だった
+            // (旧関門 ・旧閾値は 74.9%) ．実データ枠も同じ向きに動いている
+            epsilon: 0.15,
+            delta: 0.15,
+            tau: 0.05,
             phase_bands: 4,
             // **実物の元絵へ差し替えた検証セットで測り直した値である．**
             // 1/8 で 67.5% ・1/6 で 69.2% ・1/5 で 69.0% ・**1/4 で 70.5%** ・1/3 で 69.0%
             // (マクロ平均．ε = 0.2 ・δ = 0.1 ・τ = 0.1 ・信頼度 0.03)
-            phase_tolerance: 0.25,
+            phase_tolerance: 0.35,
+            // 検証セットで θ ・許容を同時に掃いて選んだ (平らな面の内側)．
+            // 1.0 以上にすると曲線の検査は働かない
+            phase_agreement: 0.16,
+            phase_require_measurable: true,
             // 副画素は最良同士で +0.5 ポイントにとどまる (70.7% → 71.2%)．
             // **既定にはしない** — 詳細は docs/investigations/grid-calibration.md
             phase_subpixel: false,
@@ -503,13 +538,41 @@ fn cyclic_spread(phases: &[usize], s: usize) -> usize {
 /// 位相は**絵の中身に左右されない**ところが違う．格子が本物なら，何が描いてあろうと
 /// どの帯でも同じ位相が最も合う．偽物なら帯が進むほどずれる．
 ///
-/// 帯あたりのセル数が足りない場合は検査を行わない (`true` を返す) ．少ないセルから
-/// 求めた位相は当てにならず，落とす根拠にならない．
-fn phase_drift_ok(it: &Integral, s: usize, d: IVec2, check: DriftCheck) -> bool {
-    match adaptive_drift_spread(it, s, d, check.bands, check.min_cells, check.subpixel) {
-        // 測れないときは検査を行わない (少ないセルから求めた位相は落とす根拠にならない)
-        None => true,
-        Some(spread) => spread <= (s as f32 * check.tolerance).max(check.floor),
+/// 帯の数は閾値ではなく**検査の適用範囲**を決めている (D65) ．固定 4 本では大きい $s$
+/// ほど帯が薄くなって検査が飛び，$2 s_*$ の候補の 212 / 268 が未検査だった — 過大推定は
+/// ここから漏れていた．**飛ばさずに帯を 3 本 ・2 本と減らして測る．**
+///
+/// 帯ずれだけでは足りない理由は [`BandAgreement`] にある — argmin の食い違いは
+/// 落としたい候補で $\lfloor s/2 \rfloor$ に張り付いており (巡回距離の上限) ，
+/// **どこで切っても分かれない**．曲線どうしの比較は飽和しないので，帯ずれの許容を
+/// 緩めた分の棄却をこちらが引き受ける．
+///
+/// | 検証セット 300 件 | 完全一致 | 正棄却 | マクロ |
+/// | --- | --- | --- | --- |
+/// | 帯ずれのみ $\theta = 0.25$ (D65) | 58 / 101 | 182 / 199 | 74.4% |
+/// | + 測れなければ棄却 | 60 / 101 | 182 / 199 | 75.4% |
+/// | + 曲線 ($\theta = 0.35$ ・許容 0.16) | **62 / 101** | **183 / 199** | **76.7%** |
+/// | 曲線なしで $\theta = 0.35$ にしただけ | 62 / 101 | 151 / 199 | 68.6% |
+///
+/// 最下行が「曲線が棄却を引き受けている」ことの実測である (正棄却 151 → 183) ．
+fn phase_check_ok(it: &Integral, s: usize, d: IVec2, check: DriftCheck) -> bool {
+    // 帯 0 ・1 は «検査を切る» 指定である．**測れなかった候補とは区別する**
+    if check.bands < 2 {
+        return true;
+    }
+    let Some((_, curves)) = adaptive_curves(it, s, d, check.bands, check.min_cells) else {
+        // 測れない候補は**棄却する**．検査を通せない答えを返すほうが危ない
+        // (実測で完全一致 58 → 60 ・正棄却は 182 のまま) ．
+        return !check.require_measurable;
+    };
+    let spread = drift_of(&curves, s, check.subpixel);
+    if spread > (s as f32 * check.tolerance).max(check.floor) {
+        return false;
+    }
+    match agreement_of(&curves) {
+        // 谷が無い = 位相を選ぶ根拠が無い．測れない候補と同じ扱いにする
+        None => !check.require_measurable,
+        Some(penalty) => penalty <= check.agreement,
     }
 }
 
@@ -521,6 +584,8 @@ struct DriftCheck {
     floor: f32,
     min_cells: usize,
     subpixel: bool,
+    agreement: f32,
+    require_measurable: bool,
 }
 
 impl From<&GridParams> for DriftCheck {
@@ -531,36 +596,10 @@ impl From<&GridParams> for DriftCheck {
             floor: p.phase_tolerance_floor,
             min_cells: p.phase_min_cells,
             subpixel: p.phase_subpixel,
+            agreement: p.phase_agreement,
+            require_measurable: p.phase_require_measurable,
         }
     }
-}
-
-/// 帯を減らしてでも検査する．**飛ばすより 2 本で測るほうがよい．**
-///
-/// 帯の数は閾値ではなく**検査の適用範囲**を決めている．固定 4 本では大きい $s$ ほど
-/// 帯が薄くなって検査が飛び，実測では $2 s_*$ の候補の 212 / 268 が未検査だった —
-/// 過大推定はここから漏れている．帯を減らせば同じ検査で止められる．
-///
-/// **飛んでいた候補を検査に掛けるだけ**なので，これまで検査を通っていた候補の判定は
-/// 変わらない (帯が足りている候補は今までどおり `bands` 本で測る) ．
-fn adaptive_drift_spread(
-    it: &Integral,
-    s: usize,
-    d: IVec2,
-    bands: usize,
-    min_cells: usize,
-    subpixel: bool,
-) -> Option<f32> {
-    (2..=bands).rev().find_map(|b| {
-        let (by_x, by_y) = measure_bands(it, s, d, b, min_cells)?;
-        Some(if subpixel {
-            let f = |v: &[(usize, f32)]| v.iter().map(|p| p.1).collect::<Vec<_>>();
-            cyclic_spread_f(&f(&by_x), s as f32).max(cyclic_spread_f(&f(&by_y), s as f32))
-        } else {
-            let i = |v: &[(usize, f32)]| v.iter().map(|p| p.0).collect::<Vec<_>>();
-            cyclic_spread(&i(&by_x), s).max(cyclic_spread(&i(&by_y), s)) as f32
-        })
-    })
 }
 
 /// 帯ごとの位相の食い違い (画素)．検査を行わない場合は `None`．
@@ -593,6 +632,26 @@ fn measure_bands(
     bands: usize,
     min_cells: usize,
 ) -> Option<(Vec<(usize, f32)>, Vec<(usize, f32)>)> {
+    let curves = band_curves(it, s, d, bands, min_cells)?;
+    let phases = |cs: &[Vec<f32>]| -> Option<Vec<(usize, f32)>> {
+        cs.iter()
+            .map(|c| argmin_phase(c).map(|p| (p, refine_phase(c, p))))
+            .collect()
+    };
+    Some((phases(&curves[0])?, phases(&curves[1])?))
+}
+
+/// 帯ごとの位相曲線．`[x 方向の帯, y 方向の帯]`．
+///
+/// **帯の切り方はここ 1 か所にまとめる．** 帯ずれと曲線の食い違いは同じ帯 ・同じ
+/// 曲線から出さないと，数字を並べて比べられない (どちらも同じ 1 回の走査で済む) ．
+fn band_curves(
+    it: &Integral,
+    s: usize,
+    d: IVec2,
+    bands: usize,
+    min_cells: usize,
+) -> Option<[Vec<Vec<f32>>; 2]> {
     if bands < 2 {
         return None;
     }
@@ -606,17 +665,88 @@ fn measure_bands(
     let mut by_x = Vec::with_capacity(bands);
     let mut by_y = Vec::with_capacity(bands);
     for b in 0..bands {
-        let x0 = it.w * b / bands;
-        let x1 = it.w * (b + 1) / bands;
-        let y0 = it.h * b / bands;
-        let y1 = it.h * (b + 1) / bands;
-        let cx = phase_curve(it, s, (x0, 0, x1, it.h), dy, true);
-        let cy = phase_curve(it, s, (0, y0, it.w, y1), dx, false);
-        let (px, py) = (argmin_phase(&cx)?, argmin_phase(&cy)?);
-        by_x.push((px, refine_phase(&cx, px)));
-        by_y.push((py, refine_phase(&cy, py)));
+        let (x0, x1) = (it.w * b / bands, it.w * (b + 1) / bands);
+        let (y0, y1) = (it.h * b / bands, it.h * (b + 1) / bands);
+        by_x.push(phase_curve(it, s, (x0, 0, x1, it.h), dy, true));
+        by_y.push(phase_curve(it, s, (0, y0, it.w, y1), dx, false));
     }
-    Some((by_x, by_y))
+    Some([by_x, by_y])
+}
+
+/// 適応帯 — 4 ・3 ・2 の順に，測れる本数で曲線を得る (D65)．
+fn adaptive_curves(
+    it: &Integral,
+    s: usize,
+    d: IVec2,
+    bands: usize,
+    min_cells: usize,
+) -> Option<(usize, [Vec<Vec<f32>>; 2])> {
+    (2..=bands).rev().find_map(|b| {
+        let curves = band_curves(it, s, d, b, min_cells)?;
+        // 位相が求まらない帯が 1 本でもあれば，その本数では測れないものとして扱う
+        // (従来の `measure_bands` と同じ切り方にしておく)．**曲線は 1 度しか作らない**
+        // — 判定は候補ごとに走るので，作り直すと推定の費用がそのまま倍になる
+        curves
+            .iter()
+            .all(|cs| cs.iter().all(|c| argmin_phase(c).is_some()))
+            .then_some((b, curves))
+    })
+}
+
+/// 曲線から帯ずれ (帯ごとの argmin の食い違い) を出す．
+fn drift_of(curves: &[Vec<Vec<f32>>; 2], s: usize, subpixel: bool) -> f32 {
+    let axis = |cs: &Vec<Vec<f32>>| -> f32 {
+        let ps: Vec<(usize, f32)> = cs
+            .iter()
+            .filter_map(|c| argmin_phase(c).map(|p| (p, refine_phase(c, p))))
+            .collect();
+        if subpixel {
+            cyclic_spread_f(&ps.iter().map(|p| p.1).collect::<Vec<_>>(), s as f32)
+        } else {
+            cyclic_spread(&ps.iter().map(|p| p.0).collect::<Vec<_>>(), s) as f32
+        }
+    };
+    // **軸は max のまま．** 平均にすると検証セットでは 2 件得をするが，片方の軸だけが
+    // 非整数倍という入力を構造的に見逃す — 評価データセットのリサイズは等方なので
+    // その失敗が測れない (D65 の «データセットが見ていない場面» と同じ形)
+    axis(&curves[0]).max(axis(&curves[1]))
+}
+
+/// 曲線の食い違い — **共通の位相を 1 つ選ぶと，帯ごとに best を選ぶのに比べて
+/// どれだけ損をするか**を谷の深さで正規化したもの．軸の平均を返す．
+///
+/// **谷が無い軸は棄権する** — 平らな曲線は「位相が合っていない」ことの証拠ではない．
+/// 縦縞だけの絵では横方向の位相がどれも同点になるが，それは格子が偽物だからではない．
+/// 両方の軸が平らなときだけ `None` (位相を選ぶ根拠がまったく無い) を返す．
+fn agreement_of(curves: &[Vec<Vec<f32>>; 2]) -> Option<f32> {
+    let mut acc = 0.0;
+    let mut voted = 0;
+    for cs in curves {
+        let usable: Vec<&Vec<f32>> = cs
+            .iter()
+            .filter(|c| c.iter().all(|v| v.is_finite()))
+            .collect();
+        if usable.len() < 2 {
+            continue;
+        }
+        let s = usable[0].len();
+        let sum: Vec<f32> = (0..s)
+            .map(|p| usable.iter().map(|c| c[p]).sum::<f32>())
+            .collect();
+        let joint = sum.iter().copied().fold(f32::INFINITY, f32::min);
+        let separate: f32 = usable
+            .iter()
+            .map(|c| c.iter().copied().fold(f32::INFINITY, f32::min))
+            .sum();
+        let level = sum.iter().sum::<f32>() / s as f32;
+        let depth = level - separate;
+        if depth <= f32::EPSILON {
+            continue;
+        }
+        acc += (joint - separate) / depth;
+        voted += 1;
+    }
+    (voted > 0).then(|| acc / voted as f32)
 }
 
 /// 帯ごとの位相の食い違いを画素で返す (診断用)．検査を飛ばす場合は `None`．
@@ -669,6 +799,71 @@ pub fn band_phases_subpixel(
         by_x.iter().map(|p| p.1).collect(),
         by_y.iter().map(|p| p.1).collect(),
     ))
+}
+
+/// 帯ごとの位相曲線を**そのまま突き合わせた**ときの食い違い (診断用)．
+///
+/// **帯ごとの argmin は，谷が浅いと当てずっぽうになる．** 実測すると，落としたい候補の
+/// 帯ずれは $s$ ごとにほぼ $\lfloor s/2 \rfloor$ — つまり**巡回距離の上限に張り付いて
+/// いる**．argmin が無相関になれば必ずこの値が出るので，補間で滲んだ本物の格子も
+/// 同じ値を取ってしまう．統計が飽和しているところに閾値を引いている以上，
+/// **どこで切っても分かれない** (件ごとの閾値を許した上限で測っても
+/// マクロ 74.4% → 75.7%) ．
+///
+/// そこで argmin を取らずに曲線どうしを比べる．「**全帯に共通の位相を 1 つ選ぶと，
+/// 帯ごとに best を選ぶのに比べてどれだけ損をするか**」であれば，谷が浅い帯は
+/// 分子にも分母にも小さくしか効かないので飽和しない．
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct BandAgreement {
+    /// 実際に使った帯の数．
+    pub bands: usize,
+    /// 共通の位相を選んだときの損 $J = \min_p \sum_b C_b(p)$ (`[x, y]`)．
+    pub joint: [f32; 2],
+    /// 帯ごとに best を選んだときの損 $M = \sum_b \min_p C_b(p)$ (`[x, y]`)．
+    pub separate: [f32; 2],
+    /// 位相を選ばなかったときの損 $A = \mathrm{mean}_p \sum_b C_b(p)$ (`[x, y]`)．
+    /// **谷の深さの物差し**であり，正規化の分母に使う．
+    pub level: [f32; 2],
+}
+
+/// 帯ごとの位相曲線の食い違いを測る (診断用)．帯が足りなければ `None`．
+pub fn band_agreement(
+    img: &RgbaCanvas,
+    s: u32,
+    phase: IVec2,
+    bands: usize,
+    min_cells: usize,
+) -> Option<BandAgreement> {
+    let it = Integral::new(img);
+    let (b, curves) = adaptive_curves(&it, (s as usize).max(1), phase, bands, min_cells)?;
+
+    let mut out = BandAgreement {
+        bands: b,
+        joint: [0.0; 2],
+        separate: [0.0; 2],
+        level: [0.0; 2],
+    };
+    for (axis, cs) in curves.iter().enumerate() {
+        // 測れない位相がある帯は使わない (無限大を足すと全部が無限大になる)
+        let usable: Vec<&Vec<f32>> = cs
+            .iter()
+            .filter(|c| c.iter().all(|v| v.is_finite()))
+            .collect();
+        if usable.len() < 2 {
+            return None;
+        }
+        let n = usable[0].len();
+        let sum: Vec<f32> = (0..n)
+            .map(|p| usable.iter().map(|c| c[p]).sum::<f32>())
+            .collect();
+        out.joint[axis] = sum.iter().copied().fold(f32::INFINITY, f32::min);
+        out.separate[axis] = usable
+            .iter()
+            .map(|c| c.iter().copied().fold(f32::INFINITY, f32::min))
+            .sum();
+        out.level[axis] = sum.iter().sum::<f32>() / n as f32;
+    }
+    Some(out)
 }
 
 /// 帯ごとの位相の食い違いを**副画素**で返す (診断用)．
@@ -1190,7 +1385,7 @@ fn evaluate(
         .filter(|c| c.mean_variance <= epsilon)
         .filter(|c| recon_ok(img, it, c.scale as usize, c.phase, params.delta, params.tau))
         // 非整数の周期を落とす．再構成検査と違い，絵の中身に左右されない
-        .filter(|c| phase_drift_ok(it, c.scale as usize, c.phase, params.into()))
+        .filter(|c| phase_check_ok(it, c.scale as usize, c.phase, params.into()))
         .collect();
 
     // 閾値を満たす最大の s．集合の最大値なので同点は起きない
@@ -1243,7 +1438,7 @@ pub fn scale_candidates(img: &RgbaCanvas, params: &GridParams) -> (Vec<ScaleCand
                 phase,
                 passes_epsilon: v <= params.epsilon_for(image_var),
                 passes_recon: recon_ok(img, &it, s as usize, phase, params.delta, params.tau),
-                passes_phase: phase_drift_ok(&it, s as usize, phase, params.into()),
+                passes_phase: phase_check_ok(&it, s as usize, phase, params.into()),
             })
         })
         .collect();
@@ -1508,6 +1703,8 @@ mod tests {
             floor: 0.0,
             min_cells: 2,
             subpixel: false,
+            agreement: GridParams::default().phase_agreement,
+            require_measurable: true,
         }
     }
 
@@ -1559,6 +1756,60 @@ mod tests {
         out
     }
 
+    /// 帯ごとの位相曲線から，正規化した食い違いを出す (試験用)．
+    fn penalty(img: &RgbaCanvas, s: usize, d: IVec2) -> Option<f32> {
+        let it = Integral::new(img);
+        let (_, curves) = adaptive_curves(&it, s, d, 4, 2)?;
+        agreement_of(&curves)
+    }
+
+    /// 本物の格子は**帯をまたいで 1 つの位相で説明できる**．
+    #[test]
+    fn a_true_grid_is_explained_by_one_shared_phase() {
+        for scale in [4u32, 6, 8] {
+            let img = upscaled(&WIDE, &palette(), scale, (0, 0));
+            let p = penalty(&img, scale as usize, ivec2(0, 0)).expect("測れる");
+            assert!(p < 0.05, "{scale} 倍で共通の位相が損をしている ({p})");
+        }
+    }
+
+    /// 非整数の周期は，どの位相を共通に選んでも損をする．
+    #[test]
+    fn a_non_integer_period_has_no_shared_phase() {
+        let img = resampled(&WIDE, &palette(), 7.8);
+        let it = Integral::new(&img);
+        let d = best_phase(&it, 8).expect("位相はある").1;
+        let p = penalty(&img, 8, d).expect("測れる");
+        assert!(
+            p > GridParams::default().phase_agreement,
+            "非整数の周期なのに共通の位相で説明できている ({p})"
+        );
+    }
+
+    /// **曲線の検査が棄却を引き受けている．**
+    ///
+    /// 帯ずれの許容を $\theta = 0.35$ まで緩めると，この非整数の周期は帯ずれだけでは
+    /// 止まらない．止めているのは曲線の食い違いである — 検証セットでも，曲線を外して
+    /// $\theta$ だけ緩めると正棄却が 183 → 151 / 199 に崩れる．
+    #[test]
+    fn the_curve_check_is_what_rejects_when_the_drift_tolerance_is_loose() {
+        let img = resampled(&WIDE, &palette(), 7.8);
+        let it = Integral::new(&img);
+        let d = best_phase(&it, 8).expect("位相はある").1;
+        let loose = DriftCheck {
+            agreement: 1.01, // 曲線の検査を外す
+            ..check(4, 0.35)
+        };
+        assert!(
+            phase_check_ok(&it, 8, d, loose),
+            "帯ずれだけでは止まらない前提が崩れている (この試験の意味が無くなる)"
+        );
+        assert!(
+            !phase_check_ok(&it, 8, d, check(4, 0.35)),
+            "曲線の検査が棄却を引き受けていない"
+        );
+    }
+
     #[test]
     fn a_true_grid_fits_the_same_phase_in_every_band() {
         for scale in [4u32, 6, 8] {
@@ -1570,7 +1821,7 @@ mod tests {
                     ((scale - phase.1) % scale) as i32,
                 );
                 assert!(
-                    phase_drift_ok(&it, scale as usize, d, check(4, 0.0)),
+                    phase_check_ok(&it, scale as usize, d, check(4, 0.0)),
                     "{scale} 倍 ・位相 {phase:?} で帯ごとに位相が違う"
                 );
             }
@@ -1584,7 +1835,7 @@ mod tests {
         let it = Integral::new(&img);
         let d = best_phase(&it, 8).expect("位相はある").1;
         assert!(
-            !phase_drift_ok(
+            !phase_check_ok(
                 &it,
                 8,
                 d,
@@ -1608,26 +1859,36 @@ mod tests {
             None,
             "8 本では測れないはずである"
         );
-        assert_eq!(
-            adaptive_drift_spread(&it, 4, ivec2(0, 0), 8, 2, false),
-            Some(0.0),
-            "帯を減らせば測れるのに飛ばしている"
-        );
+        let (bands, curves) =
+            adaptive_curves(&it, 4, ivec2(0, 0), 8, 2).expect("帯を減らせば測れるのに飛ばしている");
+        assert_eq!(bands, 3, "測れる範囲でいちばん多い本数を使う");
+        assert_eq!(drift_of(&curves, 4, false), 0.0);
         // 本物の格子なので，測った結果は当然通る
-        assert!(phase_drift_ok(&it, 4, ivec2(0, 0), check(8, 0.0)));
+        assert!(phase_check_ok(&it, 4, ivec2(0, 0), check(8, 0.0)));
     }
 
-    /// セルが 2 本ぶんに足りなければ，やはり測らない (落とす根拠が無い)．
+    /// セルが 2 本ぶんに足りない候補は**棄却する**．
+    ///
+    /// 以前は素通ししていた (「少ないセルから求めた位相は落とす根拠にならない」) が，
+    /// 測ると逆で，検査を通せない候補を通すと $\hat{s}$ がそこへ流れる —
+    /// 棄却で完全一致 58 → 60 / 101，正棄却は 182 / 199 のまま動かなかった．
     #[test]
-    fn the_phase_check_is_skipped_when_even_two_bands_are_too_thin() {
+    fn a_candidate_too_thin_to_measure_is_rejected() {
         // 12 x 12 に s = 4 なら 3 セル．2 本 x 2 セル = 4 セルに届かない
         let img = upscaled(&["012", "120", "201"], &palette(), 4, (0, 0));
         let it = Integral::new(&img);
-        assert_eq!(
-            adaptive_drift_spread(&it, 4, ivec2(0, 0), 4, 2, false),
-            None
-        );
-        assert!(phase_drift_ok(&it, 4, ivec2(0, 0), check(4, 0.0)));
+        assert!(adaptive_curves(&it, 4, ivec2(0, 0), 4, 2).is_none());
+        assert!(!phase_check_ok(&it, 4, ivec2(0, 0), check(4, 0.0)));
+        // 検査を切っている (帯 < 2) 場合と混同しない
+        assert!(phase_check_ok(
+            &it,
+            4,
+            ivec2(0, 0),
+            DriftCheck {
+                require_measurable: false,
+                ..check(4, 0.0)
+            }
+        ));
     }
 
     #[test]
@@ -1636,11 +1897,11 @@ mod tests {
         let it = Integral::new(&img);
         let d = best_phase(&it, 8).expect("位相はある").1;
         assert!(
-            phase_drift_ok(&it, 8, d, check(0, 0.0)),
+            phase_check_ok(&it, 8, d, check(0, 0.0)),
             "帯 0 で検査が働いている"
         );
         assert!(
-            phase_drift_ok(&it, 8, d, check(1, 0.0)),
+            phase_check_ok(&it, 8, d, check(1, 0.0)),
             "帯 1 では比べようがない"
         );
     }

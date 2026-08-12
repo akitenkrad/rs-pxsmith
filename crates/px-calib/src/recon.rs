@@ -27,9 +27,9 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use px_core::grid::{
-    GridParams, PhaseContrast, ProfileStats, ReconStats, band_phases, band_phases_subpixel,
-    phase_contrast, phase_drift_spread, profile_stats, recon_stats, scale_candidates, split_gain,
-    split_recon_gain,
+    BandAgreement, GridParams, PhaseContrast, ProfileStats, ReconStats, band_agreement,
+    band_phases, band_phases_subpixel, phase_contrast, phase_drift_spread, profile_stats,
+    recon_stats, scale_candidates, split_gain, split_recon_gain,
 };
 use rayon::prelude::*;
 
@@ -77,6 +77,24 @@ pub struct Record {
     pub split_gain: f32,
     /// 同じものを**不一致率**で測ったもの ($\delta$ の閾値を残したまま相対化する)．
     pub split_recon_gain: f32,
+    /// 画像全体の分散 $\bar{V}_{\mathrm{image}}$．**信頼度の分母**である．
+    ///
+    /// これがあると CSV だけで **`estimate_grid` の答えを再現できる** — 関門を
+    /// 掛け替えたときの完全一致数を，掃引を回さずに数えられる (`crate::replay`) ．
+    pub image_var: f32,
+    /// 画像の大きさと位相．**帯あたりのセル数**を出すのに要る．
+    ///
+    /// 非整数の周期のずれは «画像を横切る距離» に比例して溜まるので，同じずれでも
+    /// セル数が違えば意味が違う．「どこで切るか」を疑うにはこの量が要る．
+    pub width: u32,
+    pub height: u32,
+    pub phase: (i32, i32),
+    /// 帯ごとの位相**曲線**を突き合わせた食い違い．
+    ///
+    /// 帯ずれ (argmin の食い違い) は落としたい候補で $\lfloor s/2 \rfloor$ に張り付く
+    /// — **統計が飽和している**．正規化のしかたを CSV 側で試せるよう，生の 3 つ
+    /// ($J$ ・$M$ ・$A$) をそのまま残す．
+    pub agreement: Option<BandAgreement>,
 }
 
 pub const HEADER: &str = "item_id,scale,truth_scale,has_integer_grid,is_truth,filter,\
@@ -85,7 +103,8 @@ edge_share_x,edge_share_y,echo1_x,echo1_y,echo2_x,echo2_y,\
 relief1_x,relief1_y,relief2_x,relief2_y,\
 vmargin_x,vmargin_y,vratio_x,vratio_y,rratio_x,rratio_y,\
 passes_epsilon,passes_phase,drift,bx2,by2,bx3,by3,bx4,by4,\
-sx2,sy2,sx3,sy3,sx4,sy4,split_gain,split_recon_gain";
+sx2,sy2,sx3,sy3,sx4,sy4,split_gain,split_recon_gain,image_var,width,height,dx,dy,\
+agree_bands,jx,jy,mx,my,ax,ay";
 
 /// 帯ごとの位相を `|` でつなぐ (CSV の 1 欄に収めるため)．
 fn join(v: Option<&Vec<usize>>) -> String {
@@ -112,7 +131,8 @@ impl Record {
             "{},{},{},{},{},{},{:.5},{:.5},{:.5},{:.5},{:.5},{:.6},{:.6},\
 {:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},\
 {:.5},{:.5},{:.4},{:.4},{:.4},{:.4},{},{},{},{},{},{},{},{},{},\
-{},{},{},{},{},{},{:.5},{:.5}",
+{},{},{},{},{},{},{:.5},{:.5},{:.6},{},{},{},{},\
+{},{:.7},{:.7},{:.7},{:.7},{:.7},{:.7}",
             self.item_id,
             self.scale,
             self.truth_scale,
@@ -159,6 +179,18 @@ impl Record {
             join_f(self.subpixel_by_count[2].as_ref().map(|b| &b.1)),
             self.split_gain,
             self.split_recon_gain,
+            self.image_var,
+            self.width,
+            self.height,
+            self.phase.0,
+            self.phase.1,
+            self.agreement.map_or(0, |a| a.bands),
+            self.agreement.map_or(-1.0, |a| a.joint[0]),
+            self.agreement.map_or(-1.0, |a| a.joint[1]),
+            self.agreement.map_or(-1.0, |a| a.separate[0]),
+            self.agreement.map_or(-1.0, |a| a.separate[1]),
+            self.agreement.map_or(-1.0, |a| a.level[0]),
+            self.agreement.map_or(-1.0, |a| a.level[1]),
         )
     }
 
@@ -201,7 +233,7 @@ pub fn run(
         .map(|item| -> Result<Vec<Record>> {
             let img = px_io::png::read_rgba(dir.join(&item.file))
                 .with_context(|| format!("{} を読めない", item.file))?;
-            let (candidates, _) = scale_candidates(&img, params);
+            let (candidates, image_var) = scale_candidates(&img, params);
             let v_of = |s: u32| {
                 candidates
                     .iter()
@@ -229,6 +261,17 @@ pub fn run(
                     subpixel_by_count: [2, 3, 4].map(|b| {
                         band_phases_subpixel(&img, c.scale, c.phase, b, params.phase_min_cells)
                     }),
+                    image_var,
+                    width: img.width(),
+                    height: img.height(),
+                    phase: (c.phase.x, c.phase.y),
+                    agreement: band_agreement(
+                        &img,
+                        c.scale,
+                        c.phase,
+                        params.phase_bands,
+                        params.phase_min_cells,
+                    ),
                     split_gain: split_gain(&img, c.scale, c.phase),
                     split_recon_gain: split_recon_gain(&img, c.scale, c.phase, params.delta),
                     drift: phase_drift_spread(
@@ -303,6 +346,11 @@ mod tests {
             subpixel_by_count: [None, None, None],
             split_gain: overall,
             split_recon_gain: overall,
+            image_var: overall,
+            width: 64,
+            height: 64,
+            phase: (0, 0),
+            agreement: None,
             stats: ReconStats {
                 overall,
                 interior: overall,

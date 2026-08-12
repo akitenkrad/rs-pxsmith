@@ -292,6 +292,7 @@ mod tests {
             tau: 0.02,
             phase_floor: 1.0,
             phase_tolerance: 1.0 / 6.0,
+            phase_agreement: 1.0,
             phase_subpixel: false,
             confidence_per_scale: false,
             item_id: 0,

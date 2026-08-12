@@ -100,6 +100,12 @@ enum Command {
         /// 帯のずれの許容の下限 (画素．複数指定可)
         #[arg(long, num_args = 1..)]
         phase_tolerance_floor: Vec<f32>,
+        /// 帯ごとの位相**曲線**の食い違いの許容 (複数指定可)．1.0 以上で検査を外す
+        #[arg(long, num_args = 1..)]
+        phase_agreement: Vec<f32>,
+        /// 測れない候補も素通しする (既定は棄却)．掃引 1 回につき 1 通り
+        #[arg(long)]
+        allow_unmeasurable: bool,
         /// 帯ごとの位相を**副画素**で求める．掃引 1 回につき 1 通り
         #[arg(long)]
         phase_subpixel: bool,
@@ -229,6 +235,16 @@ enum Command {
         /// $\varepsilon$ を画像分散に対する割合として扱う．省略すると既定値に従う
         #[arg(long, num_args = 0..=1, default_missing_value = "true")]
         normalize_epsilon: Option<bool>,
+        /// 帯どうしの位相のずれの許容 ($s$ に対する割合)．**実データ枠で閾値を
+        /// 選ぶためではなく，どの変更がどう効いたかを分けて見るための口である**
+        #[arg(long)]
+        phase_tolerance: Option<f32>,
+        /// 帯ごとの位相曲線の食い違いの許容．1.0 以上でこの検査を外す
+        #[arg(long)]
+        phase_agreement: Option<f32>,
+        /// 測れない候補も素通しする (既定は棄却)
+        #[arg(long, num_args = 0..=1, default_missing_value = "true")]
+        allow_unmeasurable: Option<bool>,
     },
     /// 再構成検査の統計を測り直す (内側と境界を分けたら真の s を見分けられるか)
     Recon {
@@ -333,6 +349,8 @@ fn main() -> Result<()> {
             phase_bands,
             phase_tolerance,
             phase_tolerance_floor,
+            phase_agreement,
+            allow_unmeasurable,
             phase_subpixel,
             uniform_confidence,
             phase_min_cells,
@@ -352,6 +370,8 @@ fn main() -> Result<()> {
                     phase_tolerance_floor,
                     &default.phase_tolerance_floors,
                 ),
+                phase_agreements: or_default(phase_agreement, &default.phase_agreements),
+                phase_require_measurable: !allow_unmeasurable,
                 phase_min_cells,
                 normalize_epsilon: normalize_epsilon
                     .unwrap_or(px_core::grid::GridParams::default().normalize_epsilon),
@@ -497,6 +517,9 @@ fn main() -> Result<()> {
             tau,
             min_confidence,
             normalize_epsilon,
+            phase_tolerance,
+            phase_agreement,
+            allow_unmeasurable,
         } => {
             let d = px_core::grid::GridParams::default();
             let params = px_core::grid::GridParams {
@@ -505,10 +528,13 @@ fn main() -> Result<()> {
                 tau: tau.unwrap_or(d.tau),
                 min_confidence: min_confidence.unwrap_or(d.min_confidence),
                 normalize_epsilon: normalize_epsilon.unwrap_or(d.normalize_epsilon),
+                phase_tolerance: phase_tolerance.unwrap_or(d.phase_tolerance),
+                phase_agreement: phase_agreement.unwrap_or(d.phase_agreement),
+                phase_require_measurable: !allow_unmeasurable.unwrap_or(false),
                 ..d
             };
             println!(
-                "ε = {}{} / δ = {} / τ = {} / min_confidence = {}\n",
+                "ε = {}{} / δ = {} / τ = {} / min_confidence = {} / θ = {} / 曲線 {} / 測れない候補を{}\n",
                 params.epsilon,
                 if params.normalize_epsilon {
                     " (画像分散に対する割合)"
@@ -518,6 +544,13 @@ fn main() -> Result<()> {
                 params.delta,
                 params.tau,
                 params.min_confidence,
+                params.phase_tolerance,
+                params.phase_agreement,
+                if params.phase_require_measurable {
+                    "棄却"
+                } else {
+                    "素通し"
+                },
             );
             let manifest = real::read(&dir)?;
             let outcomes = real::run(&dir, &manifest, &params)?;
@@ -1286,7 +1319,7 @@ fn report_bands(records: &[bands::Record]) {
 /// 「閾値で落ちる件」と「信頼度で落ちる件」に割れており，2 つは逆を向いている —
 /// 下限を下げれば正例が戻る代わりに負例の誤受理が増える．片方ずつ動かすと，
 /// 一方を直して他方を壊した分が打ち消し合って見えなくなる．
-const CONFIDENCE_LEVELS: [f32; 9] = [0.0, 0.005, 0.01, 0.02, 0.03, 0.05, 0.08, 0.12, 0.20];
+const CONFIDENCE_LEVELS: [f32; 10] = [0.0, 0.005, 0.01, 0.02, 0.03, 0.05, 0.08, 0.10, 0.12, 0.20];
 
 fn report(dir: &std::path::Path, rows: &[Row], target: f32, top: usize) -> Result<()> {
     let validation: Vec<Row> = rows

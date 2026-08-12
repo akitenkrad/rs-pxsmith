@@ -22,6 +22,10 @@ pub struct ParamGrid {
     pub phase_bands: usize,
     /// 帯どうしの位相のずれの許容 (複数指定可)．
     pub phase_tolerances: Vec<f32>,
+    /// 帯ごとの位相**曲線**の食い違いの許容 (複数指定可)．1.0 以上で検査を外せる
+    pub phase_agreements: Vec<f32>,
+    /// 測れない候補を棄却するか．**掃引 1 回につき 1 通り**
+    pub phase_require_measurable: bool,
     /// 帯ごとの位相を副画素で求めるか．**掃引 1 回につき 1 通り**
     pub phase_subpixel: bool,
     /// 信頼度の下限を $\hat{s}$ で割るか．**掃引 1 回につき 1 通り**
@@ -43,7 +47,9 @@ impl Default for ParamGrid {
         Self {
             max_scale: 16,
             phase_bands: 4,
-            phase_tolerances: vec![0.25],
+            phase_tolerances: vec![0.35],
+            phase_agreements: vec![0.16],
+            phase_require_measurable: true,
             phase_subpixel: false,
             confidence_per_scale: true,
             phase_tolerance_floors: vec![0.0],
@@ -68,22 +74,26 @@ impl ParamGrid {
                 for &tau in &self.taus {
                     for &floor in &self.phase_tolerance_floors {
                         for &tolerance in &self.phase_tolerances {
-                            out.push(GridParams {
-                                max_scale: self.max_scale,
-                                epsilon,
-                                delta,
-                                tau,
-                                phase_bands: self.phase_bands,
-                                phase_tolerance: tolerance,
-                                phase_subpixel: self.phase_subpixel,
-                                phase_tolerance_floor: floor,
-                                phase_min_cells: self.phase_min_cells,
-                                // **0 で回す．** 信頼度を行に残しておけば，下限は集計側で
-                                // いくらでも掃ける (Row::outcome_at)
-                                min_confidence: 0.0,
-                                confidence_per_scale: self.confidence_per_scale,
-                                normalize_epsilon: self.normalize_epsilon,
-                            });
+                            for &agreement in &self.phase_agreements {
+                                out.push(GridParams {
+                                    max_scale: self.max_scale,
+                                    epsilon,
+                                    delta,
+                                    tau,
+                                    phase_bands: self.phase_bands,
+                                    phase_tolerance: tolerance,
+                                    phase_agreement: agreement,
+                                    phase_require_measurable: self.phase_require_measurable,
+                                    phase_subpixel: self.phase_subpixel,
+                                    phase_tolerance_floor: floor,
+                                    phase_min_cells: self.phase_min_cells,
+                                    // **0 で回す．** 信頼度を行に残しておけば，下限は集計側で
+                                    // いくらでも掃ける (Row::outcome_at)
+                                    min_confidence: 0.0,
+                                    confidence_per_scale: self.confidence_per_scale,
+                                    normalize_epsilon: self.normalize_epsilon,
+                                });
+                            }
                         }
                     }
                 }
@@ -155,6 +165,9 @@ pub struct Row {
     pub phase_floor: f32,
     /// 帯どうしの位相のずれの許容 ($s$ に対する割合)．
     pub phase_tolerance: f32,
+    /// 帯ごとの位相**曲線**の食い違いの許容．**列は末尾に足す** — 途中に挿すと
+    /// 既存の添字がすべてずれる
+    pub phase_agreement: f32,
     /// 帯ごとの位相を副画素で求めたか．
     pub phase_subpixel: bool,
     /// 信頼度の下限を $\hat{s}$ で割るか．**掃引 1 回につき 1 通り** — 下限の意味が
@@ -179,7 +192,7 @@ pub struct Row {
 
 pub const HEADER: &str = "param_id,normalized,epsilon,delta,tau,phase_floor,phase_tolerance,phase_subpixel,confidence_per_scale,item_id,split,has_integer_grid,truth_scale,\
 truth_phase_x,truth_phase_y,effective_scale,filter,resize,compression,error,scale_hat,phase_hat_x,\
-phase_hat_y,confidence,mean_variance,outcome";
+phase_hat_y,confidence,mean_variance,outcome,phase_agreement";
 
 fn opt<T: std::fmt::Display>(v: Option<T>) -> String {
     v.map(|x| x.to_string()).unwrap_or_default()
@@ -188,7 +201,7 @@ fn opt<T: std::fmt::Display>(v: Option<T>) -> String {
 impl Row {
     pub fn to_csv(&self) -> String {
         format!(
-            "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+            "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
             self.param_id,
             self.normalized,
             self.epsilon,
@@ -215,6 +228,7 @@ impl Row {
             opt(self.confidence),
             opt(self.mean_variance),
             self.outcome().as_str(),
+            self.phase_agreement,
         )
     }
 
@@ -279,7 +293,7 @@ impl Row {
 
     pub fn parse(line: &str) -> Result<Self> {
         let f: Vec<&str> = line.split(',').collect();
-        anyhow::ensure!(f.len() == 26, "列数が 26 でない: {line}");
+        anyhow::ensure!(f.len() == 27, "列数が 27 でない: {line}");
         let num = |i: usize| -> Result<f32> {
             f[i].parse()
                 .with_context(|| format!("{} 列目が数値でない: {}", i + 1, f[i]))
@@ -326,6 +340,7 @@ impl Row {
             phase_hat: pair(21, 22),
             confidence: f[23].parse().ok(),
             mean_variance: f[24].parse().ok(),
+            phase_agreement: num(26)?,
         })
     }
 }
@@ -365,6 +380,7 @@ fn run_item(dir: &Path, item: &Item, combos: &[GridParams]) -> Result<Vec<Row>> 
                 delta: params.delta,
                 phase_floor: params.phase_tolerance_floor,
                 phase_tolerance: params.phase_tolerance,
+                phase_agreement: params.phase_agreement,
                 phase_subpixel: params.phase_subpixel,
                 confidence_per_scale: params.confidence_per_scale,
                 tau: params.tau,
@@ -453,6 +469,7 @@ mod tests {
             tau: 0.05,
             phase_floor: 1.0,
             phase_tolerance: 1.0 / 6.0,
+            phase_agreement: 1.0,
             phase_subpixel: false,
             confidence_per_scale: false,
             item_id: 17,
@@ -511,9 +528,13 @@ mod tests {
         // 掃引をやり直さずに採点の定義を変えられること
         let row = sample_row();
         let mut line: Vec<String> = row.to_csv().split(',').map(str::to_string).collect();
-        // **列番号を直書きしない** — 列を足すたびに別の欄を壊して落ちる
-        let last = line.len() - 1;
-        line[last] = "wrong".to_string();
+        // **列番号を直書きしない** — 列を足すたびに別の欄を壊して落ちる．
+        // 末尾でもない (末尾に列を足したら別の欄を壊す) ．見出しから引く
+        let at = HEADER
+            .split(',')
+            .position(|h| h == "outcome")
+            .expect("outcome 列がある");
+        line[at] = "wrong".to_string();
         assert_eq!(
             Row::parse(&line.join(",")).unwrap().outcome(),
             Outcome::Exact,

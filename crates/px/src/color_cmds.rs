@@ -72,37 +72,45 @@ impl From<PresetArg> for LightPreset {
 
 /// 格子推定の閾値．既定値は合成 500 件の検証セットで校正した (`GridParams` の説明) ．
 /// **目標 (95%) には届いていないので暫定である．**
+///
+/// > [!warning] 既定値を書き写さない
+/// > ここに数値を直書きすると校正した値と黙って食い違う — 実際 $\varepsilon$ が
+/// > 0.02 対 0.2 ・$\theta$ が 0.25 対 0.35 とずれており，**CLI だけ校正前の閾値で
+/// > 動いていた**．すべて [`GridParams::default`] から引く．
 #[derive(Args, Clone, Debug)]
 pub struct GridArgs {
     #[arg(long, default_value_t = 16)]
     pub max_scale: u32,
     /// セル内平均分散の許容 $\varepsilon$．
-    #[arg(long, default_value_t = 0.02)]
+    #[arg(long, default_value_t = GridParams::default().epsilon)]
     pub epsilon: f32,
     /// 再構成の画素色差の許容 $\delta$．
-    #[arg(long, default_value_t = 0.1)]
+    #[arg(long, default_value_t = GridParams::default().delta)]
     pub delta: f32,
     /// 再構成の不一致画素率の許容 $\tau$．
-    #[arg(long, default_value_t = 0.1)]
+    #[arg(long, default_value_t = GridParams::default().tau)]
     pub tau: f32,
     /// 位相ずれ検査で画像を切る帯の数．0 で検査を飛ばす
-    #[arg(long, default_value_t = 4)]
+    #[arg(long, default_value_t = GridParams::default().phase_bands)]
     pub phase_bands: usize,
     /// 帯どうしの位相のずれの許容 ($s$ に対する割合)
-    #[arg(long, default_value_t = 0.25)]
+    #[arg(long, default_value_t = GridParams::default().phase_tolerance)]
     pub phase_tolerance: f32,
     /// 帯のずれの許容の下限 (画素)．**既定の 0 は「下限なし」** — 上げると非整数の
     /// 周期を受け入れてしまう (校正記録)
-    #[arg(long, default_value_t = 0.0)]
+    #[arg(long, default_value_t = GridParams::default().phase_tolerance_floor)]
     pub phase_tolerance_floor: f32,
     /// 帯ごとの位相を副画素で求める
     #[arg(long)]
     pub phase_subpixel: bool,
+    /// 帯ごとの位相**曲線**の食い違いの許容．1.0 以上でこの検査を外す
+    #[arg(long, default_value_t = GridParams::default().phase_agreement)]
+    pub phase_agreement: f32,
     /// 位相ずれ検査に要る帯あたりのセル数
-    #[arg(long, default_value_t = 2)]
+    #[arg(long, default_value_t = GridParams::default().phase_min_cells)]
     pub phase_min_cells: usize,
     /// これ未満の信頼度は棄却する．**$\hat{s}$ で割って使う** (既定)
-    #[arg(long, default_value_t = 0.10)]
+    #[arg(long, default_value_t = GridParams::default().min_confidence)]
     pub min_confidence: f32,
 }
 
@@ -122,6 +130,9 @@ impl From<&GridArgs> for GridParams {
             phase_min_cells: a.phase_min_cells,
             min_confidence: a.min_confidence,
             confidence_per_scale: GridParams::default().confidence_per_scale,
+            phase_agreement: a.phase_agreement,
+            // 校正で決めた形をそのまま使う (CLI からは切り替えない)
+            phase_require_measurable: GridParams::default().phase_require_measurable,
         }
     }
 }

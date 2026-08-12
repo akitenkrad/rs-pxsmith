@@ -443,6 +443,9 @@ pub fn run(
         // 「検査が通した答えを選り分けられるか」という元の問いのまま測る
         phase_bands: 0,
         phase_tolerance: 1.0,
+        // 検査を切って測るので，曲線の食い違いも効かせない
+        phase_agreement: 1.0,
+        phase_require_measurable: false,
         phase_subpixel: false,
         phase_tolerance_floor: 0.0,
         phase_min_cells: 2,
