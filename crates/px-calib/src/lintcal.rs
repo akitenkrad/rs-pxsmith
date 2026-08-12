@@ -78,10 +78,29 @@ pub fn index_exactly(img: &RgbaCanvas) -> Result<(IndexedCanvas, Palette)> {
     Ok((canvas, palette))
 }
 
+/// **格子系のルール (2 ・9) は RGBA だけで判定できる．** 添字にできない絵 (補間や
+/// JPEG で色数が爆発したもの) でも測れるので，色 ・パレット系と分けて扱う — まとめて
+/// 落とすと，格子のルールを «色数の少ない絵» でしか測っていないことになる．
 fn lint_one(path: &Path, cfg: &LintConfig) -> Result<Record> {
     let img =
         px_io::png::read_rgba(path).with_context(|| format!("{} を読めない", path.display()))?;
-    let (canvas, palette) = index_exactly(&img)?;
+    let (canvas, palette) = match index_exactly(&img) {
+        Ok(v) => v,
+        Err(_) => {
+            let mut hits: BTreeMap<u8, usize> = BTreeMap::new();
+            for v in &rules::lint_grid(&img, cfg).violations {
+                *hits.entry(v.rule).or_default() += 1;
+            }
+            return Ok(Record {
+                file: name_of(path),
+                width: img.width(),
+                height: img.height(),
+                // 添字にできなかった印 (色数が 256 を超える)
+                colors: 0,
+                hits,
+            });
+        }
+    };
     let colors = palette.len();
     let frame = Frame {
         size: uvec2(img.width(), img.height()),
@@ -106,15 +125,18 @@ fn lint_one(path: &Path, cfg: &LintConfig) -> Result<Record> {
         *hits.entry(v.rule).or_default() += 1;
     }
     Ok(Record {
-        file: path
-            .file_name()
-            .map(|s| s.to_string_lossy().to_string())
-            .unwrap_or_default(),
+        file: name_of(path),
         width: img.width(),
         height: img.height(),
         colors,
         hits,
     })
+}
+
+fn name_of(path: &Path) -> String {
+    path.file_name()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_default()
 }
 
 /// 検査できなかった絵と，その理由．
@@ -147,6 +169,27 @@ pub fn run(dir: &Path, cfg: &LintConfig) -> Result<(Vec<Record>, Skipped)> {
         }
     }
     Ok((records, skipped))
+}
+
+/// 正解つきの評価データセットに掛ける．**ルール 2 は «格子が崩れている件» でこそ
+/// 鳴らなければならない**ので，格子の有無で分けて数える．
+pub fn run_dataset(
+    dir: &Path,
+    manifest: &crate::dataset::Manifest,
+    cfg: &LintConfig,
+    only: Option<crate::dataset::Split>,
+) -> Vec<(bool, Result<Record>)> {
+    manifest
+        .items
+        .par_iter()
+        .filter(|i| only.is_none_or(|s| i.split == s))
+        .map(|item| {
+            (
+                item.has_integer_grid(),
+                lint_one(&dir.join(&item.file), cfg),
+            )
+        })
+        .collect()
 }
 
 /// ルールごとに «何枚で鳴ったか» を数える．

@@ -294,6 +294,13 @@ enum Command {
         dir: PathBuf,
         #[arg(long)]
         out: Option<PathBuf>,
+        /// 正解つきの評価データセットとして扱い，**格子の有無で分けて**数える．
+        /// ルール 2 は «崩れている件» で鳴らなければ意味が無い
+        #[arg(long)]
+        dataset: bool,
+        /// ルール 2 の «格子を名乗っているか» の閾値 (複数指定可．掃引する)
+        #[arg(long, num_args = 1..)]
+        grid_like_ratio: Vec<f32>,
     },
     /// 掃引の結果から指標を出す
     Report {
@@ -688,7 +695,92 @@ fn main() -> Result<()> {
             println!("\n{} 件を {} へ書いた", records.len(), path.display());
         }
 
-        Command::Lint { dir, out } => {
+        Command::Lint {
+            dir,
+            dataset,
+            grid_like_ratio,
+            ..
+        } if dataset && !grid_like_ratio.is_empty() => {
+            let manifest = dataset::read(&dir)?;
+            let ratios = grid_like_ratio;
+            for ratio in ratios {
+                let cfg = px_lint::LintConfig {
+                    grid_like_ratio: ratio,
+                    ..px_lint::LintConfig::default()
+                };
+                let out = lintcal::run_dataset(&dir, &manifest, &cfg, Some(Split::Validation));
+                let count = |grid: bool| -> (usize, usize) {
+                    let recs: Vec<_> = out
+                        .iter()
+                        .filter(|(g, _)| *g == grid)
+                        .filter_map(|(_, r)| r.as_ref().ok())
+                        .collect();
+                    let fired = recs.iter().filter(|r| r.hits.contains_key(&2)).count();
+                    (fired, recs.len())
+                };
+                let (fc, nc) = count(true);
+                let (fb, nb) = count(false);
+                println!(
+                    "  格子らしさ {ratio:<7} ルール 2: きれいな拡大 {fc:>3}/{nc} ({:>5.1}%) ・崩れた格子 {fb:>3}/{nb} ({:>5.1}%)",
+                    fc as f32 / nc.max(1) as f32 * 100.0,
+                    fb as f32 / nb.max(1) as f32 * 100.0
+                );
+            }
+        }
+
+        Command::Lint {
+            dir,
+            grid_like_ratio,
+            ..
+        } if !grid_like_ratio.is_empty() => {
+            // 原寸のドット絵は «格子を名乗っていない» はずである — 閾値ごとに確かめる
+            for ratio in grid_like_ratio {
+                let cfg = px_lint::LintConfig {
+                    grid_like_ratio: ratio,
+                    ..px_lint::LintConfig::default()
+                };
+                let (records, _) = lintcal::run(&dir, &cfg)?;
+                let fired = records.iter().filter(|r| r.hits.contains_key(&2)).count();
+                println!(
+                    "  格子らしさ {ratio:<7} ルール 2: 原寸のドット絵 {fired:>3}/{} ({:>5.1}%)",
+                    records.len(),
+                    fired as f32 / records.len().max(1) as f32 * 100.0
+                );
+            }
+        }
+
+        Command::Lint { dir, dataset, .. } if dataset => {
+            let manifest = dataset::read(&dir)?;
+            let cfg = px_lint::LintConfig::default();
+            let out = lintcal::run_dataset(&dir, &manifest, &cfg, Some(Split::Validation));
+            for (grid, label) in [
+                (true, "整数の格子がある (鳴ってはいけない)"),
+                (false, "格子が無い (鳴るべき)"),
+            ] {
+                let recs: Vec<_> = out
+                    .iter()
+                    .filter(|(g, r)| *g == grid && r.is_ok())
+                    .filter_map(|(_, r)| r.as_ref().ok().cloned())
+                    .collect();
+                let skipped = out.iter().filter(|(g, r)| *g == grid && r.is_err()).count();
+                println!(
+                    "\n== {label}: {} 枚 (添字にできなかった {skipped} 枚) ==",
+                    recs.len()
+                );
+                for (id, name, blocking, files, total) in lintcal::by_rule(&recs) {
+                    if files == 0 {
+                        continue;
+                    }
+                    let sev = if blocking { "blocking" } else { "advisory" };
+                    let rate = files as f32 / recs.len().max(1) as f32 * 100.0;
+                    println!(
+                        "  {id:>2} {name:<22} {sev:<10} {files:>4} 枚 ({rate:>5.1}%) {total:>8}"
+                    );
+                }
+            }
+        }
+
+        Command::Lint { dir, out, .. } => {
             let cfg = px_lint::LintConfig::default();
             let (records, skipped) = lintcal::run(&dir, &cfg)?;
             println!(

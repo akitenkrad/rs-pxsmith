@@ -23,6 +23,27 @@ use crate::{Report, Violation, rule};
 pub struct LintConfig {
     /// ルール 3 — この画素数未満の連結成分を孤立とみなす．
     pub isolated_max_area: u32,
+    /// ルール 2 — «この絵は格子を名乗っているか» の判定．セル内平均分散が画像分散の
+    /// この割合以下なら格子らしいとみなす．
+    ///
+    /// $\varepsilon$ (0.15) をそのまま使うと**原寸のドット絵まで «格子らしい» に
+    /// なる** — 平坦な面が多い 16x16 のタイルは $2 \times 2$ でも分散が小さい．
+    /// 本物の拡大なら分散はほぼ 0 なので，**桁で切る**．
+    ///
+    /// 3 つの集合で掃いて決めた (原寸の CC0 64 枚 ・きれいな拡大 101 枚 ・崩れた格子
+    /// 199 枚) ．
+    ///
+    /// | 値 | 原寸で誤爆 | きれいな拡大で誤爆 | 崩れた格子を捕捉 |
+    /// | --- | --- | --- | --- |
+    /// | 0.01 | 4.7% | 12.9% | 31.2% |
+    /// | **0.05** | **9.4%** | 26.7% | **67.3%** |
+    /// | 0.15 | 25.0% | 30.7% | 89.9% |
+    /// | 0.30 | 73.4% | 30.7% | 96.0% |
+    ///
+    /// **きれいな拡大での誤爆は 30.7% で飽和する** — 推定器自身がそれだけ棄却する
+    /// ためで，このルールは `conform` の再現率を超えられない．blocking なので
+    /// 誤爆を重く見て 0.05 を採った．
+    pub grid_like_ratio: f32,
     /// ルール 2 ・9 — 格子推定の閾値．
     pub grid: GridParams,
     /// ルール 9 — 局所推定の一致率がこれを下回ったらミクセル．
@@ -53,6 +74,7 @@ impl Default for LintConfig {
     fn default() -> Self {
         Self {
             isolated_max_area: 2,
+            grid_like_ratio: 0.05,
             grid: GridParams::default(),
             uniformity: 0.8,
             grid_window: 32,
@@ -144,14 +166,28 @@ fn rule_1_palette_escape(canvas: &IndexedCanvas, palette: &Palette, report: &mut
 
 // --- ルール 2: 格子崩れ ---
 
+/// ルール 2 — **格子«らしさ»があるのに格子として通らない**ときだけ鳴らす．
+///
+/// 以前は `estimate_grid` が失敗しただけで違反にしていたが，**原寸のドット絵には
+/// $s \ge 2$ の格子が «無いのが正しい»** (1 画素 = 1 セル) ．CC0 の実物のドット絵
+/// 61 枚のうち **58 枚がこれで blocking になっていた** — 良い絵を丸ごと落としていた
+/// ことになる．
+///
+/// そこで «$\varepsilon$ を満たす候補が 1 つでもあるか» を先に見る．原寸の絵は
+/// $s \ge 2$ のどの候補もセル内分散が大きいので，そもそも格子を名乗っていない．
+/// 候補があるのに推定が通らない絵だけが «格子崩れ» である．
 fn rule_2_broken_grid(img: &RgbaCanvas, cfg: &LintConfig, report: &mut Report) {
     let r = rule(2).expect("ルール 2 は定義済み");
-    if px_core::grid::estimate_grid(img, &cfg.grid).is_err() {
+    let (candidates, image_var) = px_core::grid::scale_candidates(img, &cfg.grid);
+    let grid_like = candidates
+        .iter()
+        .any(|c| c.scale >= 2 && c.mean_variance <= cfg.grid_like_ratio * image_var);
+    if grid_like && px_core::grid::estimate_grid(img, &cfg.grid).is_err() {
         report.push(Violation::new(
             r,
             format!(
-                "セル内の平均分散が ε = {:.1e} を満たす格子が見つからない",
-                cfg.grid.epsilon
+                "格子らしい候補 (セル内分散が画像分散の {:.0}% 以下) はあるが，格子として通らない",
+                cfg.grid_like_ratio * 100.0
             ),
         ));
     }
@@ -159,6 +195,17 @@ fn rule_2_broken_grid(img: &RgbaCanvas, cfg: &LintConfig, report: &mut Report) {
 
 // --- ルール 3: 孤立ピクセル ---
 
+/// ルール 3 — **その色が絵の中で他に使われていない**小さい領域だけを孤立とする．
+///
+/// 周囲との色差でさらに絞る案も測ったが (**近い色だけ迷子とみなす**) ，違反は
+/// 66 → 45 件にしか減らないうえ，«派手な色の迷子» を見逃す．採らない．
+///
+/// 面積だけで判定すると**ドット絵の質感を «孤立» と呼ぶ**．CC0 の実物のタイルで
+/// 測ると，石畳で 655 / 1024 画素 ・血糊で 428 / 1024 画素が «孤立» になった —
+/// 模様そのものである (61 枚中 55 枚が blocking，違反 5689 件) ．
+///
+/// 質感は**同じ色が他の場所にも現れる**ところが «迷子の 1 画素» と違う．そこで
+/// «その添字がこの領域にしか無い» ことを条件に足す．
 fn rule_3_isolated(
     regions: &RegionMap,
     canvas: &IndexedCanvas,
@@ -166,14 +213,25 @@ fn rule_3_isolated(
     report: &mut Report,
 ) {
     let r = rule(3).expect("ルール 3 は定義済み");
+    let mut used: BTreeMap<u8, u32> = BTreeMap::new();
+    for &i in canvas.pixels() {
+        *used.entry(i).or_default() += 1;
+    }
     for region in regions.regions() {
         if region.area >= cfg.isolated_max_area || canvas.transparent() == Some(region.index) {
+            continue;
+        }
+        // 同じ色が他にもあるなら，それは質感であって迷子ではない
+        if used.get(&region.index).copied().unwrap_or(0) > region.area {
             continue;
         }
         report.push(
             Violation::new(
                 r,
-                format!("{} 画素の孤立した領域 (添字 {})", region.area, region.index),
+                format!(
+                    "{} 画素の孤立した領域 (添字 {}．この色は他で使われていない)",
+                    region.area, region.index
+                ),
             )
             .at(ivec2(region.bbox.x, region.bbox.y))
             .area(region.bbox),
@@ -635,20 +693,53 @@ mod tests {
     }
 
     #[test]
-    fn rule_2_flags_an_image_without_a_grid() {
-        let mut img = RgbaCanvas::filled(32, 32, Rgba8::TRANSPARENT);
-        let mut state = 12345u32;
-        for y in 0..32 {
-            for x in 0..32 {
-                state ^= state << 13;
-                state ^= state >> 17;
-                state ^= state << 5;
-                let v = state as u8;
-                img.set(x, y, Rgba8::rgb(v, v.wrapping_mul(3), v.wrapping_mul(7)));
+    fn a_locally_shifted_grid_is_caught_as_mixels() {
+        // 8 倍に拡大したあと，右半分だけ 3 画素ずらす．**場所によって格子が違う**ので
+        // これはルール 9 (ミクセル) の相手である — ルール 2 は «全体として格子が
+        // 見つからない» 側を担当し，役割が分かれている
+        //
+        // ルール 2 が崩れた格子をどれだけ捕まえるかは合成データセットで測ってある
+        // (崩れた格子 199 枚のうち 67.3%) ．単体の合成例では両者を分けられない
+        let mut small = RgbaCanvas::filled(8, 8, Rgba8::TRANSPARENT);
+        for y in 0..8 {
+            for x in 0..8 {
+                let v = ((x * 31 + y * 17) % 4) as u8;
+                small.set(x, y, Rgba8::rgb(v * 60, 40 + v * 50, 200 - v * 40));
+            }
+        }
+        let s = 8i32;
+        let (w, h) = (8 * s, 8 * s);
+        let mut img = RgbaCanvas::filled(w as u32, h as u32, Rgba8::TRANSPARENT);
+        for y in 0..h {
+            for x in 0..w {
+                let shift = if x >= w / 2 { 3 } else { 0 };
+                let sx = ((x + shift) / s).min(7);
+                let sy = (y / s).min(7);
+                img.set(x, y, small.get(sx, sy).expect("元絵の範囲内"));
             }
         }
         let report = lint_grid(&img, &LintConfig::default());
-        assert!(has(&report, 2), "{report}");
+        assert!(has(&report, 9), "{report}");
+    }
+
+    /// **原寸のドット絵を «格子崩れ» と呼ばない．**
+    ///
+    /// 1 画素 = 1 セルなので $s \ge 2$ の格子は無いのが正しい．以前はこれを違反に
+    /// しており，CC0 の実物のドット絵 61 枚のうち 58 枚が blocking になっていた．
+    #[test]
+    fn rule_2_accepts_native_resolution_art() {
+        let mut img = RgbaCanvas::filled(16, 16, Rgba8::TRANSPARENT);
+        for y in 0..16 {
+            for x in 0..16 {
+                let v = ((x * 31 + y * 17) % 5) as u8;
+                img.set(x, y, Rgba8::rgb(v * 50, 30 + v * 40, 210 - v * 35));
+            }
+        }
+        let report = lint_grid(&img, &LintConfig::default());
+        assert!(
+            !has(&report, 2),
+            "原寸のドット絵を格子崩れと言っている: {report}"
+        );
     }
 
     #[test]
