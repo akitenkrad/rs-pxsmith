@@ -103,6 +103,9 @@ enum Command {
         /// 帯ごとの位相**曲線**の食い違いの許容 (複数指定可)．1.0 以上で検査を外す
         #[arg(long, num_args = 1..)]
         phase_agreement: Vec<f32>,
+        /// 半セルずらしたときの崩れ方の下限 (複数指定可)．1.0 以下で検査を外す
+        #[arg(long, num_args = 1..)]
+        phase_contrast_min: Vec<f32>,
         /// 測れない候補も素通しする (既定は棄却)．掃引 1 回につき 1 通り
         #[arg(long)]
         allow_unmeasurable: bool,
@@ -242,6 +245,9 @@ enum Command {
         /// 帯ごとの位相曲線の食い違いの許容．1.0 以上でこの検査を外す
         #[arg(long)]
         phase_agreement: Option<f32>,
+        /// 半セルずらしたときの崩れ方の下限．1.0 以下でこの検査を外す
+        #[arg(long)]
+        phase_contrast_min: Option<f32>,
         /// 測れない候補も素通しする (既定は棄却)
         #[arg(long, num_args = 0..=1, default_missing_value = "true")]
         allow_unmeasurable: Option<bool>,
@@ -350,6 +356,7 @@ fn main() -> Result<()> {
             phase_tolerance,
             phase_tolerance_floor,
             phase_agreement,
+            phase_contrast_min,
             allow_unmeasurable,
             phase_subpixel,
             uniform_confidence,
@@ -371,6 +378,7 @@ fn main() -> Result<()> {
                     &default.phase_tolerance_floors,
                 ),
                 phase_agreements: or_default(phase_agreement, &default.phase_agreements),
+                phase_contrast_mins: or_default(phase_contrast_min, &default.phase_contrast_mins),
                 phase_require_measurable: !allow_unmeasurable,
                 phase_min_cells,
                 normalize_epsilon: normalize_epsilon
@@ -519,6 +527,7 @@ fn main() -> Result<()> {
             normalize_epsilon,
             phase_tolerance,
             phase_agreement,
+            phase_contrast_min,
             allow_unmeasurable,
         } => {
             let d = px_core::grid::GridParams::default();
@@ -530,6 +539,7 @@ fn main() -> Result<()> {
                 normalize_epsilon: normalize_epsilon.unwrap_or(d.normalize_epsilon),
                 phase_tolerance: phase_tolerance.unwrap_or(d.phase_tolerance),
                 phase_agreement: phase_agreement.unwrap_or(d.phase_agreement),
+                phase_contrast_min: phase_contrast_min.unwrap_or(d.phase_contrast_min),
                 phase_require_measurable: !allow_unmeasurable.unwrap_or(false),
                 ..d
             };

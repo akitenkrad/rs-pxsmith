@@ -102,6 +102,16 @@ pub struct GridParams {
     ///
     /// **1.0 以上にすると事実上この検査は働かない** (割合は 1 を超えない)．
     pub phase_agreement: f32,
+    /// 半セルずらしたときにセル内分散が最低これだけ悪化することを求める．
+    ///
+    /// **«セルの中が揃っているか» を見る関門は，滑らかな絵を止められない．** 検証
+    /// セットの誤受理 14 件のうち 7 件は $\hat{s} = 2 \ldots 4$ で，帯ずれ 0 ・曲線の
+    /// 食い違い 0 ・不一致率 0 と**すべての関門を余裕ゼロで通っていた**．位相を半セル
+    /// ずらしても崩れないことがその証拠で，本物の格子なら必ず崩れる．
+    ///
+    /// 検証セットで比と信頼度の下限を同時に掃くと，1.20〜1.30 が平らな面である．
+    /// **1.0 以下でこの検査を外せる．**
+    pub phase_contrast_min: f32,
     /// 位相の検査が**測れない候補を棄却する**か．
     ///
     /// 帯が薄くて測れない候補は，これまで素通ししていた (「少ないセルから求めた位相は
@@ -199,6 +209,12 @@ impl Default for GridParams {
             // 検証セットで θ ・許容を同時に掃いて選んだ (平らな面の内側)．
             // 1.0 以上にすると曲線の検査は働かない
             phase_agreement: 0.16,
+            // 検証セットで信頼度の下限と同時に掃いて選び，**実データ枠で膝を確かめて**
+            // 決めた値．1.14 以上にすると検証セットの正棄却は 3 件増えるが，実データの
+            // AI 出力の正例が 23 → 19 / 28 件へ落ちる — 元絵が連続階調の «本物の格子» は
+            // 合成データセットに 1 件も入っていないので (種は実物のドット絵) ，
+            // **検証セットだけでは見えない失敗**である．1.0 以下でこの検査を外せる
+            phase_contrast_min: 1.12,
             phase_require_measurable: true,
             // 副画素は最良同士で +0.5 ポイントにとどまる (70.7% → 71.2%)．
             // **既定にはしない** — 詳細は docs/investigations/grid-calibration.md
@@ -826,6 +842,42 @@ pub struct BandAgreement {
     pub level: [f32; 2],
 }
 
+/// 半セルずらしたときにセル内分散がどれだけ崩れるか (`[x, y]` の平均)．
+///
+/// **格子がそこに «在る» ことを確かめる量である．** ほかの関門はすべて «セルの中が
+/// 揃っているか» を見るので，滑らかな絵では $s = 2$ のセルがどれも揃ってしまい，
+/// 帯ずれ 0 ・曲線の食い違い 0 ・不一致率 0 で**全部を余裕ゼロで通る** (検証セットの
+/// 誤受理 14 件のうち 7 件がこれ) ．位相を半セルずらすと，本物の格子はセル境界が
+/// セルの真ん中へ来て崩れる一方，**滑らかな絵は何も変わらない** — 比が 1 に留まる．
+///
+/// 軸は**平均**を採る．$\min$ にすると «片方の軸だけ平坦な絵» (縦縞など) で比が 1 に
+/// 張り付き，本物の格子を構造的に落とす — 曲線の検査で棄権させたのと同じ理由である．
+/// 検証セットでの成績は $\min$ と同じ (どちらも比 1.14〜1.15 で最良) なので，
+/// **数字で選べない以上は安全な側を採る**．
+fn phase_contrast_ok(it: &Integral, s: usize, d: IVec2, min_ratio: f32) -> bool {
+    if min_ratio <= 1.0 {
+        return true;
+    }
+    let half = (s / 2).max(1);
+    let (dx, dy) = (d.x.max(0) as usize % s, d.y.max(0) as usize % s);
+    let Some(base) = mean_cell_variance(it, s, dx, dy) else {
+        return true; // 測れない位相は落とす根拠にならない (ここは適用範囲の話である)
+    };
+    let mut acc = 0.0;
+    for (sx, sy) in [((dx + half) % s, dy), (dx, (dy + half) % s)] {
+        let Some(shifted) = mean_cell_variance(it, s, sx, sy) else {
+            return true;
+        };
+        // 分母 0 は «完全な格子» — 崩れ方は無限大だが有限値で代表させる
+        acc += if base <= f32::EPSILON {
+            if shifted <= f32::EPSILON { 1.0 } else { 1.0e6 }
+        } else {
+            shifted / base
+        };
+    }
+    acc / 2.0 >= min_ratio
+}
+
 /// 帯ごとの位相曲線の食い違いを測る (診断用)．帯が足りなければ `None`．
 pub fn band_agreement(
     img: &RgbaCanvas,
@@ -1386,6 +1438,8 @@ fn evaluate(
         .filter(|c| recon_ok(img, it, c.scale as usize, c.phase, params.delta, params.tau))
         // 非整数の周期を落とす．再構成検査と違い，絵の中身に左右されない
         .filter(|c| phase_check_ok(it, c.scale as usize, c.phase, params.into()))
+        // 格子がそこに «在る» ことを確かめる (滑らかな絵はここで落ちる)
+        .filter(|c| phase_contrast_ok(it, c.scale as usize, c.phase, params.phase_contrast_min))
         .collect();
 
     // 閾値を満たす最大の s．集合の最大値なので同点は起きない
@@ -1438,7 +1492,8 @@ pub fn scale_candidates(img: &RgbaCanvas, params: &GridParams) -> (Vec<ScaleCand
                 phase,
                 passes_epsilon: v <= params.epsilon_for(image_var),
                 passes_recon: recon_ok(img, &it, s as usize, phase, params.delta, params.tau),
-                passes_phase: phase_check_ok(&it, s as usize, phase, params.into()),
+                passes_phase: phase_check_ok(&it, s as usize, phase, params.into())
+                    && phase_contrast_ok(&it, s as usize, phase, params.phase_contrast_min),
             })
         })
         .collect();
@@ -1761,6 +1816,49 @@ mod tests {
         let it = Integral::new(img);
         let (_, curves) = adaptive_curves(&it, s, d, 4, 2)?;
         agreement_of(&curves)
+    }
+
+    /// 非整数の周期で刻まれた絵には，**崩れる格子が無い**．
+    ///
+    /// ほかの関門はすべて «セルの中が揃っているか» を見るので，こういう絵の小さい $s$ は
+    /// **余裕ゼロで全部を通る** — 走りの中に収まったセルはどれも 1 色だからである．
+    /// 検証セットの誤受理 14 件のうち 7 件がこの形で，帯ずれ 0 ・曲線の食い違い 0 ・
+    /// 不一致率 0 だった．位相を半セルずらしても崩れないことがその証拠になる．
+    ///
+    /// ここで作れる 93 画素角では他の関門が先に落とすので，**この試験が押さえるのは
+    /// 統計の振る舞いだけ**である (実測は $s = 2$ で比 1.10 ・$s = 3$ で 1.07) ．
+    /// «ほかの関門を全部通る» のは補間と圧縮が乗った実物での話で，評価データセット側で
+    /// 測ってある．
+    #[test]
+    fn a_run_of_flat_cells_has_no_grid_to_break() {
+        let img = resampled(&WIDE, &palette(), 7.8);
+        let it = Integral::new(&img);
+        let min_ratio = GridParams::default().phase_contrast_min;
+        for s in [2usize, 3] {
+            let d = best_phase(&it, s).expect("位相はある").1;
+            assert!(
+                !phase_contrast_ok(&it, s, d, min_ratio),
+                "崩れる格子が無いのに «格子がある» と認めている (s = {s})"
+            );
+        }
+    }
+
+    /// 本物の格子は半セルずらすと崩れる — セル境界がセルの真ん中へ来る．
+    #[test]
+    fn a_true_grid_breaks_when_the_phase_is_shifted_half_a_cell() {
+        for scale in [4u32, 6, 8] {
+            let img = upscaled(&WIDE, &palette(), scale, (0, 0));
+            let it = Integral::new(&img);
+            assert!(
+                phase_contrast_ok(
+                    &it,
+                    scale as usize,
+                    ivec2(0, 0),
+                    GridParams::default().phase_contrast_min
+                ),
+                "{scale} 倍の本物の格子を落としている"
+            );
+        }
     }
 
     /// 本物の格子は**帯をまたいで 1 つの位相で説明できる**．

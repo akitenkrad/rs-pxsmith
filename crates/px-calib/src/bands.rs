@@ -445,6 +445,7 @@ pub fn run(
         phase_tolerance: 1.0,
         // 検査を切って測るので，曲線の食い違いも効かせない
         phase_agreement: 1.0,
+        phase_contrast_min: 1.0,
         phase_require_measurable: false,
         phase_subpixel: false,
         phase_tolerance_floor: 0.0,

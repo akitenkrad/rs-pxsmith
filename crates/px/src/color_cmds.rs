@@ -106,6 +106,10 @@ pub struct GridArgs {
     /// 帯ごとの位相**曲線**の食い違いの許容．1.0 以上でこの検査を外す
     #[arg(long, default_value_t = GridParams::default().phase_agreement)]
     pub phase_agreement: f32,
+    /// 半セルずらしたときにセル内分散が最低これだけ悪化することを求める．
+    /// 1.0 以下でこの検査を外す
+    #[arg(long, default_value_t = GridParams::default().phase_contrast_min)]
+    pub phase_contrast_min: f32,
     /// 位相ずれ検査に要る帯あたりのセル数
     #[arg(long, default_value_t = GridParams::default().phase_min_cells)]
     pub phase_min_cells: usize,
@@ -131,6 +135,7 @@ impl From<&GridArgs> for GridParams {
             min_confidence: a.min_confidence,
             confidence_per_scale: GridParams::default().confidence_per_scale,
             phase_agreement: a.phase_agreement,
+            phase_contrast_min: a.phase_contrast_min,
             // 校正で決めた形をそのまま使う (CLI からは切り替えない)
             phase_require_measurable: GridParams::default().phase_require_measurable,
         }
