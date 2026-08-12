@@ -16,6 +16,7 @@ flate2 = { workspace = true }
 image = { workspace = true }
 px-core = { workspace = true }
 px-io = { workspace = true }
+px-lint = { workspace = true }
 rayon = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

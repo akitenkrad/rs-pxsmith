@@ -26,6 +26,7 @@ mod dataset;
 mod degrade;
 mod diagnose;
 mod ingest;
+mod lintcal;
 mod metrics;
 mod real;
 mod recon;
@@ -282,6 +283,14 @@ enum Command {
     /// 実データの誤棄却を 1 件ずつ解剖する (どの関門が真のスケールを落としたか)
     Diagnose {
         #[arg(long, default_value = "testdata/grid-eval/real")]
+        dir: PathBuf,
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
+    /// lint の閾値を測る (良い絵に現行の閾値を掛けて何が鳴るかを見る)
+    Lint {
+        /// 検査する PNG の置き場所
+        #[arg(long, default_value = "testdata/grid-eval/seeds")]
         dir: PathBuf,
         #[arg(long)]
         out: Option<PathBuf>,
@@ -677,6 +686,55 @@ fn main() -> Result<()> {
             px_io::atomic::write(&path, text.as_bytes())?;
             report_diagnose(&records);
             println!("\n{} 件を {} へ書いた", records.len(), path.display());
+        }
+
+        Command::Lint { dir, out } => {
+            let cfg = px_lint::LintConfig::default();
+            let (records, skipped) = lintcal::run(&dir, &cfg)?;
+            println!(
+                "== lint を掛けた {} 枚 ({}) ==",
+                records.len(),
+                dir.display()
+            );
+            if !skipped.is_empty() {
+                println!("  添字にできなかった {} 枚:", skipped.len());
+                for (f, why) in skipped.iter().take(5) {
+                    println!("    {f}: {why}");
+                }
+            }
+            println!("\n  ルール                     深刻度      鳴った枚数   違反の総数");
+            for (id, name, blocking, files, total) in lintcal::by_rule(&records) {
+                let sev = if blocking { "blocking" } else { "advisory" };
+                let rate = if records.is_empty() {
+                    0.0
+                } else {
+                    files as f32 / records.len() as f32 * 100.0
+                };
+                println!("  {id:>2} {name:<22} {sev:<10} {files:>4} 枚 ({rate:>5.1}%) {total:>8}");
+            }
+            let clean = records.iter().filter(|r| r.hits.is_empty()).count();
+            let no_blocking = records
+                .iter()
+                .filter(|r| {
+                    !r.hits.keys().any(|id| {
+                        px_lint::rule(*id)
+                            .is_some_and(|x| matches!(x.severity, px_lint::Severity::Blocking))
+                    })
+                })
+                .count();
+            println!(
+                "\n  1 件も鳴らない絵 {clean} 枚 / blocking が鳴らない絵 {no_blocking} 枚 (全 {} 枚)",
+                records.len()
+            );
+            let path = out.unwrap_or_else(|| dir.join("lint.csv"));
+            let mut text = String::from(lintcal::HEADER);
+            text.push('\n');
+            for r in &records {
+                text.push_str(&r.to_csv(&cfg));
+                text.push('\n');
+            }
+            px_io::atomic::write(&path, text.as_bytes())?;
+            println!("  {} 行を {} へ書いた", records.len(), path.display());
         }
 
         Command::Report {

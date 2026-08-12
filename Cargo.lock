@@ -1189,6 +1189,7 @@ dependencies = [
  "image",
  "px-core",
  "px-io",
+ "px-lint",
  "rayon",
  "serde",
  "serde_json",
