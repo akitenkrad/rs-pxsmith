@@ -27,6 +27,7 @@ mod degrade;
 mod diagnose;
 mod ingest;
 mod lintcal;
+mod lintgen;
 mod metrics;
 mod real;
 mod recon;
@@ -301,6 +302,19 @@ enum Command {
         /// ルール 2 の «格子を名乗っているか» の閾値 (複数指定可．掃引する)
         #[arg(long, num_args = 1..)]
         grid_like_ratio: Vec<f32>,
+    },
+    /// lint の負例を作る (良い絵に欠陥を 1 つだけ入れる)
+    LintGen {
+        /// 元にする良い絵
+        #[arg(long, default_value = "testdata/grid-eval/seeds")]
+        seeds: PathBuf,
+        #[arg(long, default_value = "testdata/lint-cases/negative")]
+        out: PathBuf,
+        /// 欠陥 1 種類あたり何枚作るか
+        #[arg(long, default_value_t = 8)]
+        count: usize,
+        #[arg(long, default_value_t = 0)]
+        seed: u64,
     },
     /// 掃引の結果から指標を出す
     Report {
@@ -827,6 +841,28 @@ fn main() -> Result<()> {
             }
             px_io::atomic::write(&path, text.as_bytes())?;
             println!("  {} 行を {} へ書いた", records.len(), path.display());
+        }
+
+        Command::LintGen {
+            seeds,
+            out,
+            count,
+            seed,
+        } => {
+            let n = lintgen::generate(&seeds, &out, count, seed)?;
+            println!(
+                "{n} 枚を {} へ書いた ({} 種類 x {count} 枚)",
+                out.display(),
+                lintgen::Defect::ALL.len()
+            );
+            println!(
+                "  狙い: {}",
+                lintgen::Defect::ALL
+                    .iter()
+                    .map(|d| format!("{} → ルール {}", d.as_str(), d.rule()))
+                    .collect::<Vec<_>>()
+                    .join(" ・")
+            );
         }
 
         Command::Report {
