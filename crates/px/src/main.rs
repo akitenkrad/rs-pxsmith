@@ -12,6 +12,7 @@ use px_io::l0::{L0Document, Violation};
 use px_io::{Document, FrameId};
 use px_view::render::RenderOptions;
 
+mod anim_cmds;
 mod color_cmds;
 mod compose_cmds;
 mod direction_cmds;
@@ -124,6 +125,11 @@ enum Command {
     Tileset {
         #[command(subcommand)]
         command: tileset_cmds::TilesetCommand,
+    },
+    /// アニメーション (設計書 6.9 ・6.11 ・6.12)
+    Anim {
+        #[command(subcommand)]
+        command: anim_cmds::AnimCommand,
     },
     /// スプライトシートへ梱包する (設計書 5 章 `sheet.pack`)
     Sheet {
@@ -285,6 +291,7 @@ fn main() -> Result<()> {
         Command::Compose { args } => compose_cmds::compose_cmd(&args),
         Command::Direction { args } => direction_cmds::direction_cmd(&args),
         Command::Tileset { command } => tileset_cmds::tileset(command),
+        Command::Anim { command } => anim_cmds::anim(command),
         Command::Sheet { command } => sheet_cmds::sheet(command),
         Command::Export { command } => export_cmds::export(command),
         Command::View { path, display } => view(&path, &display),

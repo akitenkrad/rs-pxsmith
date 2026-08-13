@@ -256,6 +256,69 @@ pub enum CoreError {
     /// 画素が指している添字がパレットに無い．**黙って透明にしない** (D93 と同じ)．
     #[error("{name} の添字 {index} がパレット ({len} 色) の外を指している")]
     SheetIndexOutOfPalette { name: String, index: u8, len: usize },
+
+    /// 画素が指している添字がパレットに無い．
+    #[error("画素が添字 {index} を指しているが，パレットは {len} 色しかない")]
+    PaletteIndexMissing { index: u8, len: usize },
+
+    /// FPS が正でない．
+    #[error("FPS は正の有限値でなければならない ({fps})")]
+    AnimBadFps { fps: f32 },
+
+    /// コマ打ちが 0．
+    #[error("コマ打ちは 1 以上でなければならない")]
+    AnimBadHold,
+
+    /// フレームが 1 枚も無い．
+    #[error("表示時間を付けるフレームが 1 枚も無い")]
+    AnimNoFrames,
+
+    /// コマ打ちの数がフレーム数と合わない．**足りないぶんを黙って埋めない**．
+    #[error("コマ打ちが {holds} 個だがフレームは {frames} 枚ある (1 個か，枚数ちょうどにすること)")]
+    AnimHoldCountMismatch { holds: usize, frames: usize },
+
+    /// 周期アニメのフレームが 3 枚に満たない (D44)．
+    #[error(
+        "周期アニメのフレームは {min} 枚以上でなければならない ({frames} 枚)．\n\
+         2 枚では軌跡が表現できず，正弦波では振幅がいくつでも 1 画素も動かない"
+    )]
+    AnimTooFewFrames { frames: u32, min: u32 },
+
+    /// 回転は書いていない．
+    ///
+    /// **推測で書かない** — 回転は `px rotate` (設計書 6.13) の仕事であり，
+    /// ここで別に書くと回転の実装が 2 つになる (D110 と同じ形の誤り) ．
+    #[error(
+        "回転の変調は書いていない (px rotate が未実装のため)．\n\
+         16 通りのうち Rotate の 4 通りだけが未実装である"
+    )]
+    AnimRotateNotWritten,
+
+    /// ランプが宣言されていない．
+    #[error(
+        "ランプの変調にはランプの宣言が要る (--ramp)．\n\
+         絵だけから «どの色がどのランプの何段目か» は決まらない"
+    )]
+    AnimNoRamp,
+
+    /// 中割りの `t` が $[0, 1]$ の外．**外挿は `px anim extrapolate` の仕事**である．
+    #[error("中割りの t は 0 以上 1 以下でなければならない ({t})")]
+    TweenBadT { t: f32 },
+
+    /// 中割りの入力が空．補間する形が無い．
+    #[error("中割りの入力に透明でない画素が 1 つも無い")]
+    TweenEmptyMask,
+
+    /// 中割りの枚数が 0．
+    #[error("中割りの枚数は 1 以上でなければならない")]
+    TweenNoSteps,
+
+    /// 中割りの結果が共通の画布の外へ出た．
+    ///
+    /// $R \subseteq A \cup B$ は代数から出るので，**これが起きたら符号の規約か
+    /// 余白の切り方が壊れている**．黙って切らずに落とす．
+    #[error("中割りの結果が画布の外 ({x},{y}) へ出た (包含関係が破れている)")]
+    TweenEscapedCanvas { x: i32, y: i32 },
 }
 
 /// `px-core` の `Result` 別名．

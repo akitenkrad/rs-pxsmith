@@ -33,6 +33,7 @@
 //! | [`error`] | エラーモデル | 3.7 |
 
 pub mod aa;
+pub mod anim;
 pub mod autotile;
 pub mod canvas;
 pub mod clean;
@@ -56,6 +57,7 @@ pub mod sheet;
 pub mod smooth;
 pub mod tilejson;
 pub mod tileset;
+pub mod tween;
 pub mod validate;
 
 pub use aa::{AaAddOptions, AaReport, add_antialiasing};
@@ -66,6 +68,7 @@ pub use direction::{
     mirror_frame,
 };
 
+pub use anim::{CycleSpec, ModTarget, Wave, cycle, duration_ms, ease, reverse_derive};
 pub use autotile::{
     CornerState, Quadrant, QuadrantArt, blob_masks, canonical_mask, corner_state,
     mirror_to_all_quadrants, seam_doubled,
@@ -94,3 +97,4 @@ pub use sheet::{PackOptions, PackReport, SheetCell, SheetDoc, SheetItem, pack};
 pub use smooth::{SmoothOptions, SmoothReport, smooth_canvas, smooth_mask};
 pub use tilejson::{TerrainEntry, TileMapJson, TileRefJson, TilesetDoc};
 pub use tileset::{DedupeMode, ExtractOptions, ExtractReport, extract, rebuild};
+pub use tween::{TweenOptions, Tweened, tween_mask, tween_series};

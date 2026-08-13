@@ -44,6 +44,7 @@ mod scene;
 mod sprite;
 mod sweep;
 mod tilecal;
+mod tweencal;
 
 use dataset::Split;
 use metrics::Summary;
@@ -544,6 +545,16 @@ enum Command {
         seeds: PathBuf,
         #[arg(long, default_value_t = 5)]
         steps: u8,
+    },
+    /// **中割りが実用になるかを測る (R11)** — 真値のある平行移動 ・余白 ・トポロジー
+    Tween {
+        #[arg(long, default_value = "testdata/grid-eval/seeds")]
+        seeds: PathBuf,
+        /// トポロジーを測る «別の絵» (省略時は Dungeon Crawl の生き物 6 枚)
+        #[arg(long, num_args = 1..)]
+        pair: Vec<String>,
+        #[arg(long)]
+        out: Option<PathBuf>,
     },
     /// lint の負例を作る (良い絵に欠陥を 1 つだけ入れる)
     LintGen {
@@ -1993,6 +2004,87 @@ fn main() -> Result<()> {
                 text.push('\n');
                 for r in &runs {
                     text.push_str(&composecal::run_csv(r));
+                    text.push('\n');
+                }
+                std::fs::write(&path, text)
+                    .with_context(|| format!("{} を書き出せない", path.display()))?;
+                println!("\n{} に書き出した", path.display());
+            }
+        }
+
+        Command::Tween { seeds, pair, out } => {
+            let names: Vec<String> = if pair.is_empty() {
+                tweencal::DEFAULT_PAIRS
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect()
+            } else {
+                pair.clone()
+            };
+
+            let shifts = tweencal::default_shifts();
+            let truths = tweencal::truths(&seeds, &shifts)?;
+            println!("== 真値のある場面 (平行移動．t = 0.5 の真値は «半分だけ動かした絵») ==");
+            println!("\n  ずらし    件数  場のまま  重心を取り除く  動かさない  重心が勝った");
+            for (shift, n, plain, centroid, hold, better) in tweencal::summarise_truths(&truths) {
+                println!(
+                    "  ({:>2},{:>3}) {n:>7} {plain:>9.3} {centroid:>15.3} {hold:>11.3} {better:>13}",
+                    shift.x, shift.y
+                );
+            }
+            let (total, plain_wins, centroid_wins) = tweencal::beats_hold(&truths);
+            println!(
+                "\n  «動かさない» に勝てた件数 — 場のまま {plain_wins} / {total} ・重心を取り除く {centroid_wins} / {total}"
+            );
+
+            let margins = [0u32, 2, 4, 8, 16, 32];
+            let reference = 64u32;
+            use px_core::tween::TweenAlign;
+            println!(
+                "\n== 余白の掃引 (基準は余白 {reference}．画像の外を «背景» とみなす穴を潰すため) =="
+            );
+            // **縁に接する絵も入れる** — 余白が要るとしたらそこである (D91 と同じ穴)
+            for (label, align, pad) in [
+                ("場のまま ・縁に余地あり", TweenAlign::None, 2u32),
+                ("場のまま ・縁に接する", TweenAlign::None, 0),
+                ("重心 ・縁に接する", TweenAlign::Centroid, 0),
+            ] {
+                let rows = tweencal::margin_sweep(&seeds, &margins, reference, align, pad)?;
+                let moved: Vec<String> = rows
+                    .iter()
+                    .filter(|r| r.differing > 0)
+                    .map(|r| format!("余白 {} で {} 画素 ({} 枚)", r.margin, r.differing, r.files))
+                    .collect();
+                if moved.is_empty() {
+                    println!("  {label:<24} — 余白 0 まで含めて 1 画素も動かない");
+                } else {
+                    println!("  {label:<24} — {}", moved.join(" ・"));
+                }
+            }
+
+            let ts = [0.25f32, 0.5, 0.75];
+            let pairs = tweencal::pairs(&seeds, &names, &ts)?;
+            let (n, changed, empty, split) = tweencal::summarise_pairs(&pairs);
+            println!(
+                "\n== 別の絵どうし (真値なし．{} 枚の総当たり x t 3 通り) ==",
+                names.len()
+            );
+            println!(
+                "\n  {n} 件 — トポロジーが変わった {changed} ・空になった {empty} ・成分が増えた {split}"
+            );
+
+            if let Some(path) = out {
+                let mut text = String::new();
+                text.push_str(tweencal::TRUTH_HEADER);
+                text.push('\n');
+                for r in &truths {
+                    text.push_str(&tweencal::truth_csv(r));
+                    text.push('\n');
+                }
+                text.push_str(tweencal::PAIR_HEADER);
+                text.push('\n');
+                for r in &pairs {
+                    text.push_str(&tweencal::pair_csv(r));
                     text.push('\n');
                 }
                 std::fs::write(&path, text)

@@ -282,6 +282,72 @@ impl Frame {
     }
 }
 
+/// フレーム列のパレットを 1 つに束ね，添字を付け替える．
+///
+/// `.aseprite` はスプライトに 1 つのパレットしか持てないので，別々の由来で
+/// 作ったフレームを 1 本の列にするときに要る (`px anim tween` が中割りだけを
+/// 陰影付けする場面など) ．
+///
+/// **束ねるのは «画素が実際に指している色» だけである** (D93 と同じ作法) —
+/// 素材のパレットには使っていない色が普通に入っており，全項目を写そうとすると
+/// 256 色を使い切る．
+pub fn unify_palettes(frames: &mut [Frame]) -> Result<Palette> {
+    let mut sources: Vec<(&IndexedCanvas, &Palette)> = Vec::new();
+    for frame in frames.iter() {
+        for layer in &frame.layers {
+            if let Some(c) = layer.surface.as_indexed() {
+                sources.push((c, &frame.palette));
+            }
+        }
+    }
+    let mut palette = Palette::extract_from(sources.iter().copied())?;
+    let transparent = match palette.entries().iter().position(|c| c.a == 0) {
+        Some(i) => i as u8,
+        None => palette.push(crate::color::Rgba8::TRANSPARENT)?,
+    };
+
+    for frame in frames.iter_mut() {
+        let mut used = [false; 256];
+        for layer in &frame.layers {
+            if let Some(c) = layer.surface.as_indexed() {
+                for v in c.pixels() {
+                    used[*v as usize] = true;
+                }
+            }
+        }
+        let mut map = vec![transparent; 256];
+        for (i, u) in used.iter().enumerate() {
+            if !u {
+                continue;
+            }
+            // **黙って透明にしない** — 元の絵が壊れているなら，そう言う
+            let color = frame
+                .palette
+                .get(i as u8)
+                .ok_or(CoreError::PaletteIndexMissing {
+                    index: i as u8,
+                    len: frame.palette.len(),
+                })?;
+            if color.a == 0 {
+                continue;
+            }
+            map[i] = palette
+                .entries()
+                .iter()
+                .position(|d| *d == color)
+                .ok_or(CoreError::ComposeColorLost { color })? as u8;
+        }
+        for layer in &mut frame.layers {
+            if let Surface::Indexed(c) = &mut layer.surface {
+                c.remap(&map)?;
+                c.set_transparent(Some(transparent));
+            }
+        }
+        frame.palette = palette.clone();
+    }
+    Ok(palette)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
