@@ -241,6 +241,25 @@ pub struct Gates {
     pub edge_curve_residual: f32,
     /// 同上 (境界の本数の下限)．
     pub edge_curve_min_count: usize,
+    /// **当てはまりが «酷い» 候補を落とす床** (`None` で落とさない)．
+    ///
+    /// 境界の当てはめはこれまで**肩代わり (通す側) にしか使っていない**．
+    /// [`EdgeMode::And`] は肩代わりの構造ごと置き換えてしまうので B が崩れる
+    /// (25 / 50) — 欲しいのは «肩代わりは残したまま，直線にまるで乗らない候補だけ
+    /// 落とす» 床である．
+    ///
+    /// 実測の裾 (2 階差分の残差 max(x, y)) ．
+    ///
+    /// | | 中央 | 90% | 最大 |
+    /// | --- | --- | --- | --- |
+    /// | 真の $s$ (通したい) | 0.073 | 0.280 | 0.543 |
+    /// | 格子なしで通ってしまう候補 | 0.323 | 0.634 | 0.934 |
+    ///
+    /// **測れない候補は落とさない** — 平坦な絵で境界が拾えないことは «格子が無い»
+    /// ことの根拠にならない (肩代わりの側と同じ規則) ．
+    pub edge_drop_residual: Option<f32>,
+    /// 床を «両軸とも酷いときだけ» 掛ける (既定) か，«どちらかが酷ければ» 掛けるか．
+    pub edge_drop_both_axes: bool,
     /// 曲線の食い違いの正規化 — 分母を «谷の深さ $A - M$» から
     /// «$(A - M) + \lambda A$» へ寄せる．$\lambda = 0$ が現行 (谷の深さ) ，
     /// $\lambda \to \infty$ が «曲線の高さ» に当たる．
@@ -281,6 +300,8 @@ impl Default for Gates {
             edge_curve_slope: p.edge_fit_slope,
             edge_curve_residual: p.edge_fit_residual,
             edge_curve_min_count: p.edge_fit_min_count,
+            edge_drop_residual: None,
+            edge_drop_both_axes: true,
             curve_lambda: 0.0,
             curve_axis: CurveAxis::Mean,
         }
@@ -455,8 +476,31 @@ impl Cand {
         self.recon <= g.tau || (g.rescue.recon && self.edge_fits(g))
     }
 
+    /// **当てはまりが酷い候補を落とす床．** 測れない候補は落とさない．
+    fn passes_edge_floor(&self, g: &Gates) -> bool {
+        let Some(max) = g.edge_drop_residual else {
+            return true;
+        };
+        if g.edge_order == 0 || !self.edge_measurable(g) {
+            return true;
+        }
+        let e = &self.edge[(g.edge_order - 1) as usize];
+        // **両軸とも酷いときだけ落とす．** 片方の軸だけ酷い件は実データの正例に
+        // 実在する (真の $s$ で 0.715 / 0.278 ・0.607 / 0.134 ・0.823 / 0.605) ．
+        // 絵の中身が一方向に強い縞を持つと，格子が正しくてもその軸の峰が乱れる —
+        // **格子は等方でも当てはまりは等方ではない．**
+        if g.edge_drop_both_axes {
+            !(0..2).all(|axis| e.residual[axis].is_some_and(|v| v > max))
+        } else {
+            (0..2).all(|axis| e.residual[axis].is_some_and(|v| v <= max))
+        }
+    }
+
     /// 位相の検査と境界の当てはめの合わせ方．
     fn passes_geometry(&self, g: &Gates) -> bool {
+        if !self.passes_edge_floor(g) {
+            return false;
+        }
         match (g.edge_order, g.edge_mode) {
             (0, _) => self.passes_phase(g),
             (_, EdgeMode::And) => self.passes_phase(g) && self.passes_edge(g),

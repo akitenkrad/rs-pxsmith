@@ -358,6 +358,14 @@ enum Command {
         /// 同上 (境界の本数の下限)
         #[arg(long, num_args = 1.., default_values_t = [px_core::grid::GridParams::default().edge_fit_min_count])]
         edge_curve_min_count: Vec<usize>,
+        /// **当てはまりが酷い候補を落とす床** (残差の上限．複数指定可)．
+        /// **負の値で «落とさない»** (`--edge-drop-residual=-1` と書く)．
+        /// 肩代わりは残したまま «落とす側» にだけ働く
+        #[arg(long, num_args = 1.., allow_negative_numbers = true, default_values_t = [-1.0f32])]
+        edge_drop_residual: Vec<f32>,
+        /// 床を «どちらかの軸が酷ければ» 落とす形にする (既定は «両軸とも酷いときだけ»)
+        #[arg(long)]
+        edge_drop_any_axis: bool,
         /// 曲線の正規化 — 分母を $(A - M) + \lambda A$ にする ($\lambda = 0$ が現行)
         #[arg(long, num_args = 1.., default_values_t = [0.0f32])]
         curve_lambda: Vec<f32>,
@@ -824,6 +832,8 @@ fn main() -> Result<()> {
             edge_curve_slope,
             edge_curve_residual,
             edge_curve_min_count,
+            edge_drop_residual,
+            edge_drop_any_axis,
             curve_lambda,
             curve_axis,
             top,
@@ -892,6 +902,10 @@ fn main() -> Result<()> {
             });
             grid = expand(&grid, &edge_curve_min_count, |g, v| {
                 g.edge_curve_min_count = v
+            });
+            grid = expand(&grid, &edge_drop_residual, |g, v| {
+                g.edge_drop_residual = (v >= 0.0).then_some(v);
+                g.edge_drop_both_axes = !edge_drop_any_axis;
             });
             grid = expand(&grid, &curve_lambda, |g, v| g.curve_lambda = v);
             grid = expand(&grid, &axes, |g, v| g.curve_axis = v);
@@ -1719,7 +1733,10 @@ fn report_replay_sweep(cases: &[replay::Case], grid: &[replay::Gates], top: usiz
 
     let show = |(g, s): &(replay::Gates, replay::Score)| {
         let rescue = format!(
-            "{} (曲線は 傾き {} 残差 {} 本数 {})",
+            "床 {:<5} 肩代 {} (曲線は 傾き {} 残差 {} 本数 {})",
+            g.edge_drop_residual
+                .map(|v| format!("{v}"))
+                .unwrap_or_else(|| "-".to_string()),
             g.rescue.label(),
             g.edge_curve_slope,
             g.edge_curve_residual,
