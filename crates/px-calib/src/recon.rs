@@ -39,6 +39,10 @@ use crate::dataset::{Manifest, Split};
 #[derive(Clone, Debug)]
 pub struct Record {
     pub item_id: u32,
+    /// 目録から見た相対パス．**実データを測るときはこれが件の名前である**
+    /// (合成データは `item_id` で足りるが，実データ枠は `local/other/009.png` の
+    /// ように «どの絵か» が分からないと漏れを追えない) ．
+    pub file: String,
     pub scale: u32,
     pub truth_scale: u32,
     /// 整数の格子がある件か．**無い件も測る** — 位相ずれ検査が本当に相手にしている
@@ -108,7 +112,7 @@ pub struct Record {
     pub edge2: EdgeFit,
 }
 
-pub const HEADER: &str = "item_id,scale,truth_scale,has_integer_grid,is_truth,filter,\
+pub const HEADER: &str = "file,item_id,scale,truth_scale,has_integer_grid,is_truth,filter,\
 overall,interior,border,median_delta_e,interior_median_delta_e,v,v_half,\
 edge_share_x,edge_share_y,echo1_x,echo1_y,echo2_x,echo2_y,\
 relief1_x,relief1_y,relief2_x,relief2_y,\
@@ -147,13 +151,14 @@ impl Record {
         let p = &self.profile;
         let c = &self.contrast;
         format!(
-            "{},{},{},{},{},{},{:.5},{:.5},{:.5},{:.5},{:.5},{:.6},{:.6},\
+            "{},{},{},{},{},{},{},{:.5},{:.5},{:.5},{:.5},{:.5},{:.6},{:.6},\
 {:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},\
 {:.5},{:.5},{:.4},{:.4},{:.4},{:.4},{},{},{},{},{},{},{},{},{},\
 {},{},{},{},{},{},{:.5},{:.5},{:.6},{},{},{},{},\
 {},{:.7},{:.7},{:.7},{:.7},{:.7},{:.7},\
 {},{},{:.4},{:.4},{},{},{},{},\
 {},{},{:.4},{:.4},{},{},{},{}",
+            self.file,
             self.item_id,
             self.scale,
             self.truth_scale,
@@ -268,61 +273,124 @@ pub fn run(
     let nested: Vec<Vec<Record>> = items
         .par_iter()
         .map(|item| -> Result<Vec<Record>> {
-            let img = px_io::png::read_rgba(dir.join(&item.file))
-                .with_context(|| format!("{} を読めない", item.file))?;
-            let (candidates, image_var) = scale_candidates(&img, params);
-            let v_of = |s: u32| {
-                candidates
-                    .iter()
-                    .find(|c| c.scale == s)
-                    .map_or(0.0, |c| c.mean_variance)
-            };
-            Ok(candidates
-                .iter()
-                .map(|c| Record {
-                    item_id: item.id,
-                    scale: c.scale,
+            of_image(
+                dir,
+                &Subject {
+                    id: item.id,
+                    file: item.file.clone(),
                     truth_scale: item.truth_scale,
                     has_integer_grid: item.has_integer_grid(),
-                    is_truth: item.has_integer_grid() && c.scale == item.truth_scale,
                     filter: item.degradation.filter.as_str().to_string(),
-                    stats: recon_stats(&img, c.scale, c.phase, params.delta),
-                    v: c.mean_variance,
-                    v_half: v_of(c.scale / 2),
-                    profile: profile_stats(&img, c.scale, c.phase),
-                    contrast: phase_contrast(&img, c.scale, c.phase, params.delta),
-                    passes_epsilon: c.passes_epsilon,
-                    passes_phase: c.passes_phase,
-                    bands_by_count: [2, 3, 4]
-                        .map(|b| band_phases(&img, c.scale, c.phase, b, params.phase_min_cells)),
-                    subpixel_by_count: [2, 3, 4].map(|b| {
-                        band_phases_subpixel(&img, c.scale, c.phase, b, params.phase_min_cells)
-                    }),
-                    image_var,
-                    width: img.width(),
-                    height: img.height(),
-                    phase: (c.phase.x, c.phase.y),
-                    agreement: band_agreement(
-                        &img,
-                        c.scale,
-                        c.phase,
-                        params.phase_bands,
-                        params.phase_min_cells,
-                    ),
-                    edge1: edge_fit(&img, c.scale, 1),
-                    edge2: edge_fit(&img, c.scale, 2),
-                    split_gain: split_gain(&img, c.scale, c.phase),
-                    split_recon_gain: split_recon_gain(&img, c.scale, c.phase, params.delta),
-                    drift: phase_drift_spread(
-                        &img,
-                        c.scale,
-                        c.phase,
-                        params.phase_bands,
-                        params.phase_min_cells,
-                    ),
-                })
-                .collect())
+                },
+                params,
+            )
         })
+        .collect::<Result<_>>()?;
+    Ok(nested.into_iter().flatten().collect())
+}
+
+/// 測る対象 1 件．**合成データと実データで共通の «正解の持ち方»．**
+///
+/// 実データの目録 ([`crate::real::Item`]) は補間法も添字も持たないが，測る中身は
+/// 同じである — **同じ CSV に出せれば，同じ道具で解析できる**．
+pub struct Subject {
+    pub id: u32,
+    pub file: String,
+    pub truth_scale: u32,
+    pub has_integer_grid: bool,
+    pub filter: String,
+}
+
+/// 1 枚から候補ぶんの行を作る．
+fn of_image(dir: &Path, subject: &Subject, params: &GridParams) -> Result<Vec<Record>> {
+    let img = px_io::png::read_rgba(dir.join(&subject.file))
+        .with_context(|| format!("{} を読めない", subject.file))?;
+    let (candidates, image_var) = scale_candidates(&img, params);
+    let v_of = |s: u32| {
+        candidates
+            .iter()
+            .find(|c| c.scale == s)
+            .map_or(0.0, |c| c.mean_variance)
+    };
+    Ok(candidates
+        .iter()
+        .map(|c| Record {
+            item_id: subject.id,
+            file: subject.file.clone(),
+            scale: c.scale,
+            truth_scale: subject.truth_scale,
+            has_integer_grid: subject.has_integer_grid,
+            is_truth: subject.has_integer_grid && c.scale == subject.truth_scale,
+            filter: subject.filter.clone(),
+            stats: recon_stats(&img, c.scale, c.phase, params.delta),
+            v: c.mean_variance,
+            v_half: v_of(c.scale / 2),
+            profile: profile_stats(&img, c.scale, c.phase),
+            contrast: phase_contrast(&img, c.scale, c.phase, params.delta),
+            passes_epsilon: c.passes_epsilon,
+            passes_phase: c.passes_phase,
+            bands_by_count: [2, 3, 4]
+                .map(|b| band_phases(&img, c.scale, c.phase, b, params.phase_min_cells)),
+            subpixel_by_count: [2, 3, 4]
+                .map(|b| band_phases_subpixel(&img, c.scale, c.phase, b, params.phase_min_cells)),
+            image_var,
+            width: img.width(),
+            height: img.height(),
+            phase: (c.phase.x, c.phase.y),
+            agreement: band_agreement(
+                &img,
+                c.scale,
+                c.phase,
+                params.phase_bands,
+                params.phase_min_cells,
+            ),
+            edge1: edge_fit(&img, c.scale, 1),
+            edge2: edge_fit(&img, c.scale, 2),
+            split_gain: split_gain(&img, c.scale, c.phase),
+            split_recon_gain: split_recon_gain(&img, c.scale, c.phase, params.delta),
+            drift: phase_drift_spread(
+                &img,
+                c.scale,
+                c.phase,
+                params.phase_bands,
+                params.phase_min_cells,
+            ),
+        })
+        .collect())
+}
+
+/// **実データの目録で同じ測定を行う．**
+///
+/// `diagnose` は正解が分かっている件の**誤棄却**しか見ない — 負例に何が起きたかは
+/// 判定行 (「s=14 位相=(12,13) 信頼度 0.074」) からしか読めなかった．
+/// D72 ・D73 の判断はどちらも «漏れた件の $\hat{s}$ と信頼度» だけを頼りに下しており，
+/// **候補ごとの統計を見ないまま «塞げない» と結論する**ところだった．
+///
+/// 実データ枠が採否を決める枠になった以上，ここも合成データと同じ CSV へ出す．
+pub fn run_real(
+    dir: &Path,
+    manifest: &crate::real::Manifest,
+    params: &GridParams,
+) -> Result<Vec<Record>> {
+    let subjects: Vec<Subject> = manifest
+        .items
+        .iter()
+        .enumerate()
+        .map(|(i, item)| Subject {
+            id: i as u32,
+            file: item.file.clone(),
+            // 正解が分からない件は «格子なし» と混ぜない — `truth` があるものだけ
+            // 正例として扱い，`no_grid` の件は truth_scale 0 のまま負例にする
+            truth_scale: item.truth.map_or(0, |t| t.scale),
+            has_integer_grid: item.truth.is_some(),
+            // 補間法は分からないので «出どころ» を入れる (分布のずれを見る区分)
+            filter: format!("{:?}", item.category).to_lowercase(),
+        })
+        .collect();
+
+    let nested: Vec<Vec<Record>> = subjects
+        .par_iter()
+        .map(|s| of_image(dir, s, params))
         .collect::<Result<_>>()?;
     Ok(nested.into_iter().flatten().collect())
 }
@@ -359,6 +427,7 @@ mod tests {
     fn rec(is_truth: bool, overall: f32) -> Record {
         Record {
             item_id: 0,
+            file: "0000.png".to_string(),
             scale: 4,
             truth_scale: 4,
             has_integer_grid: true,

@@ -290,6 +290,10 @@ enum Command {
         /// 整数の格子が無い件 (非整数倍リサイズ) も測る．**位相ずれ検査の相手**である
         #[arg(long)]
         include_resized: bool,
+        /// **実データの目録を測る** (`--dir testdata/grid-eval/real` のように指す)．
+        /// 負例に何が起きたかは判定行からしか読めなかった — 漏れを追う口である
+        #[arg(long)]
+        real: bool,
     },
     /// **掃引を回さずに関門を掛け替える** — recon の CSV から estimate_grid を再現する
     Replay {
@@ -775,11 +779,16 @@ fn main() -> Result<()> {
             out,
             split,
             include_resized,
+            real,
         } => {
-            let manifest = dataset::read(&dir)?;
-            let only = parse_split(&split)?;
             let params = px_core::grid::GridParams::default();
-            let records = recon::run(&dir, &manifest, only, &params, include_resized)?;
+            let records = if real {
+                recon::run_real(&dir, &crate::real::read(&dir)?, &params)?
+            } else {
+                let manifest = dataset::read(&dir)?;
+                let only = parse_split(&split)?;
+                recon::run(&dir, &manifest, only, &params, include_resized)?
+            };
             let path = out.unwrap_or_else(|| dir.join("recon.csv"));
             let mut text = String::from(recon::HEADER);
             text.push('\n');
