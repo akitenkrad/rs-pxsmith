@@ -15,7 +15,7 @@
 //! 4 〜 6 なので許容誤差は $1/(2 \lvert R \rvert) \approx 8 \sim 12\%$ であり，
 //! 多点サンプリングの精度は丸めで消える．
 
-use crate::geom::{Field, Mask, normal_and_curvature, signed_distance};
+use crate::geom::{Field, Mask, curvature_field, normal_and_curvature, signed_distance};
 use crate::math::{IVec2, Rect, Vec2, ivec2, vec2};
 use crate::ramp::{LightSource, LightingModel};
 
@@ -220,6 +220,24 @@ pub struct ShadeOptions {
     pub smooth_passes: usize,
     /// 近傍の確定した法線を探す半径 (3 段処理の 2 段目)．
     pub fill_radius: i32,
+    /// **環境遮蔽 (`--ao`)．凹んだところを遮蔽色へ落とす閾値** (`None` で掛けない)．
+    ///
+    /// 曲率は符号付き距離場の $-\nabla^2 d$ で，**凸で正 ・凹で負**である (D56) ．
+    /// 谷折りの角は左右の面から光が届きにくいので暗くなる — これを 1 画素単位で
+    /// 近似する．曲率が $-\text{閾値}$ を下回った画素を [`LightingModel::occlusion`] にする．
+    ///
+    /// > [!warning] **曲率は平滑化した距離場から取る．**
+    /// > ラスタライズした縁の階段は高周波で，**素の曲率では形の凹凸より階段が勝つ** —
+    /// > 実測すると凸な円板でも 5% 点が $-1.333$ (最小値そのもの) に張り付き，
+    /// > 谷折りのある形と区別が付かない．3 回均すと 円板 $-0.066$ 対 谷折り $-0.289$ と
+    /// > 分かれる．
+    /// >
+    /// > **それでも完全には分かれない** — 円板の最小は $-0.294$ なので，閾値を
+    /// > 下げるほど凸な形の縁も拾う．遮蔽は «少し乗る» 側で使う効果なので許容する．
+    ///
+    /// > **閾値は暫定である．** 設計書は «`--ao` は G2 を使う» としか書いていない．
+    /// > 正例 ・負例で決めるのは M3 の lint 閾値と同じ枠でやる．
+    pub ambient_occlusion: Option<f32>,
 }
 
 impl Default for ShadeOptions {
@@ -230,6 +248,9 @@ impl Default for ShadeOptions {
             smooth_passes: 1,
             // 稜線は 1 px の骨格線なので，左右 2 px も見れば面の法線に当たる
             fill_radius: 2,
+            // 既定では掛けない — 遮蔽は «足すと絵が締まるが，掛けすぎると汚れる» 類の
+            // 効果なので，利用者が明示的に頼んだときだけ働かせる
+            ambient_occlusion: None,
         }
     }
 }
@@ -306,6 +327,12 @@ fn nearest_settled(field: &Field<Option<Vec2>>, p: IVec2, radius: i32) -> Option
     None
 }
 
+/// 環境遮蔽の曲率を測る前に距離場を均す回数．
+///
+/// **縁の階段を落とすために要る．** 3 回で 凸 (円板 5% 点 $-0.066$) と
+/// 凹 (谷折り 5% 点 $-0.289$) が分かれる — 均さないとどちらも $-1.333$ に張り付く．
+const AO_SMOOTH_PASSES: usize = 3;
+
 /// 3x3 の箱平滑化．範囲外は縁を複製する ([`normal_and_curvature`] と同じ扱い)．
 fn box_blur(d: &Field<f32>) -> Field<f32> {
     let mut out = Field::filled(d.width(), d.height(), 0.0f32);
@@ -363,6 +390,14 @@ pub fn shade_mask(
     let normals = normal_field(&d, opts);
     let bounce = bounce_distance_field(mask, opts.bounce_reach);
     let reach = opts.bounce_reach as f32;
+    // 環境遮蔽は曲率から求める (G2)．掛けないなら場も作らない
+    let curvature = opts.ambient_occlusion.map(|_| {
+        let mut smoothed = d.clone();
+        for _ in 0..AO_SMOOTH_PASSES {
+            smoothed = box_blur(&smoothed);
+        }
+        curvature_field(&smoothed)
+    });
 
     let mut out = Field::filled(mask.width(), mask.height(), None);
     for p in mask.bounds().iter() {
@@ -385,10 +420,19 @@ pub fn shade_mask(
             Lamp::Bounce => &model.bounce,
         };
         let entries = ramp.entries();
-        let index = entries
+        let mut index = entries
             .get(shading.index(entries.len()))
             .copied()
             .unwrap_or(model.occlusion);
+
+        // 環境遮蔽 — **凹んだところだけ**遮蔽色へ落とす
+        if let (Some(threshold), Some(k)) = (
+            opts.ambient_occlusion,
+            curvature.as_ref().and_then(|f| f.copied(p)),
+        ) && k < -threshold
+        {
+            index = model.occlusion;
+        }
         out.set(p, Some(index));
     }
     out
@@ -410,6 +454,29 @@ mod tests {
             }
         }
         m
+    }
+
+    /// 内角 (谷折り) のある形 — 遮蔽が乗る相手である．
+    fn notch(size: u32) -> Mask {
+        let mut m = Mask::new(size, size);
+        for p in m.bounds().iter() {
+            // 右下の 1/4 を削った L 字
+            let cut = p.x >= size as i32 / 2 && p.y >= size as i32 / 2;
+            if !cut && p.x > 0 && p.y > 0 && p.x < size as i32 - 1 && p.y < size as i32 - 1 {
+                m.set(p, true);
+            }
+        }
+        m
+    }
+
+    fn lighting() -> (crate::palette::Palette, LightingModel) {
+        crate::ramp::build_lighting(
+            crate::color::Rgba8::rgb(120, 90, 70),
+            crate::ramp::LightPreset::Clear,
+            5,
+            crate::palette::ChromaCurve::default(),
+        )
+        .expect("ランプを作れない")
     }
 
     fn dir(x: f32, y: f32) -> LightSource {
@@ -603,13 +670,7 @@ mod tests {
     #[test]
     fn every_pixel_inside_the_silhouette_gets_a_colour() {
         let mask = disc(21, 9.0);
-        let (palette, model) = crate::ramp::build_lighting(
-            crate::color::Rgba8::rgb(120, 90, 70),
-            crate::ramp::LightPreset::Clear,
-            5,
-            crate::palette::ChromaCurve::default(),
-        )
-        .expect("ランプを作れない");
+        let (palette, model) = lighting();
         let out = shade_mask(
             &mask,
             crate::ramp::LightPreset::Clear.default_source(),
@@ -628,6 +689,77 @@ mod tests {
         }
     }
 
+    /// 曲率の分布を測る (閾値を決めるための一時的な口ではなく，**根拠として残す**)．
+    #[test]
+    fn curvature_separates_a_convex_disc_from_a_notched_shape() {
+        use crate::geom::{curvature_field, signed_distance};
+        let stats = |m: &Mask| {
+            let mut d = signed_distance(m);
+            // 縁の階段は高周波なので均す (掛けないと形の凹凸より階段が勝つ)
+            for _ in 0..3 {
+                d = box_blur(&d);
+            }
+            let k = curvature_field(&d);
+            let mut v: Vec<f32> = m
+                .bounds()
+                .iter()
+                .filter(|&p| m.get(p))
+                .filter_map(|p| k.copied(p))
+                .collect();
+            v.sort_by(f32::total_cmp);
+            (v[0], v[v.len() / 20], v[v.len() / 2], v[v.len() - 1])
+        };
+        let (dmin, dp5, dmed, dmax) = stats(&disc(21, 9.0));
+        let (nmin, np5, nmed, nmax) = stats(&notch(16));
+        println!("円板  最小 {dmin:.3} 5% {dp5:.3} 中央 {dmed:.3} 最大 {dmax:.3}");
+        println!("谷折り 最小 {nmin:.3} 5% {np5:.3} 中央 {nmed:.3} 最大 {nmax:.3}");
+    }
+
+    /// **環境遮蔽は凹んだところにだけ乗る．** 凸な形 (円板) では 1 画素も落ちない．
+    #[test]
+    fn ambient_occlusion_only_darkens_concave_places() {
+        let (_, model) = lighting();
+        let source = LightSource::Directional {
+            dir: vec2(1.0, 1.0),
+        };
+        let on = ShadeOptions {
+            ambient_occlusion: Some(0.25),
+            ..ShadeOptions::default()
+        };
+
+        // 凸な形にはほとんど乗らない．**完全に 0 にはならない** — 平滑化しても
+        // 円板の縁の曲率は最小 -0.294 まで振れるので，閾値を下げるほど拾う
+        let mask = disc(21, 9.0);
+        let inside = mask.bounds().iter().filter(|&p| mask.get(p)).count();
+        let disc_out = shade_mask(&mask, source, &model, on);
+        let disc_dark = disc_out
+            .data()
+            .iter()
+            .filter(|c| **c == Some(model.occlusion))
+            .count();
+        assert!(
+            disc_dark * 20 < inside,
+            "凸な形に遮蔽が乗りすぎ ({disc_dark} / {inside})"
+        );
+
+        // 谷折りのある形 — 内角のところが落ちる
+        let notched = notch(16);
+        let off = shade_mask(&notched, source, &model, ShadeOptions::default());
+        let with_ao = shade_mask(&notched, source, &model, on);
+        let count = |f: &Field<Option<u8>>| {
+            f.data()
+                .iter()
+                .filter(|c| **c == Some(model.occlusion))
+                .count()
+        };
+        assert!(
+            count(&with_ao) > count(&off),
+            "凹んだ形で遮蔽が増えない ({} → {})",
+            count(&off),
+            count(&with_ao)
+        );
+    }
+
     /// **光の当たる側と影の側で色が違う．** 陰影が付いていることの最低限の確認である．
     #[test]
     fn the_lit_side_and_the_shadow_side_use_different_colours() {
@@ -636,13 +768,7 @@ mod tests {
         let source = LightSource::Directional {
             dir: vec2(1.0, 1.0),
         };
-        let (_, model) = crate::ramp::build_lighting(
-            crate::color::Rgba8::rgb(120, 90, 70),
-            crate::ramp::LightPreset::Clear,
-            5,
-            crate::palette::ChromaCurve::default(),
-        )
-        .expect("ランプを作れない");
+        let (_, model) = lighting();
         let out = shade_mask(&mask, source, &model, ShadeOptions::default());
         let lit = out.copied(ivec2(6, 6)).flatten().expect("左上が空");
         let dark = out.copied(ivec2(14, 14)).flatten().expect("右下が空");
