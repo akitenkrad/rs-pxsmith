@@ -15,8 +15,9 @@
 //! 4 〜 6 なので許容誤差は $1/(2 \lvert R \rvert) \approx 8 \sim 12\%$ であり，
 //! 多点サンプリングの精度は丸めで消える．
 
-use crate::math::{Rect, Vec2};
-use crate::ramp::LightSource;
+use crate::geom::{Field, Mask, normal_and_curvature, signed_distance};
+use crate::math::{IVec2, Rect, Vec2, ivec2, vec2};
+use crate::ramp::{LightSource, LightingModel};
 
 /// どのランプを引くか (設計書 6.2)．
 ///
@@ -210,10 +211,206 @@ pub fn shade(
     }
 }
 
+/// 陰影を作るときの設定．
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct ShadeOptions {
+    /// `HasBounceNeighbor` の探索距離 (下方向 $k$ 画素．設計書 6.2 の既定は 2)．
+    pub bounce_reach: u32,
+    /// 稜線を埋めるときに距離場を平滑化する回数 (3 段処理の 1 段目)．
+    pub smooth_passes: usize,
+    /// 近傍の確定した法線を探す半径 (3 段処理の 2 段目)．
+    pub fill_radius: i32,
+}
+
+impl Default for ShadeOptions {
+    fn default() -> Self {
+        Self {
+            bounce_reach: 2,
+            // 1 回で足りることが多い．増やすと稜線以外の法線まで鈍る
+            smooth_passes: 1,
+            // 稜線は 1 px の骨格線なので，左右 2 px も見れば面の法線に当たる
+            fill_radius: 2,
+        }
+    }
+}
+
+/// **疑似法線の場．稜線の不定を 3 段で埋める** (設計書 6.2)．
+///
+/// > [!warning] **環境光へ直行してはならない．**
+/// > 稜線 (medial axis) は**パーツ中心を貫く 1 px の骨格線**である．そこだけ環境光に
+/// > すると，**明るい面の真ん中に暗い線が 1 本入る** — 最も目に付く壊れ方になる．
+///
+/// | 段 | 手 | 効く相手 |
+/// | --- | --- | --- |
+/// | 1 | 距離場を平滑化して再評価する | 量子化で偶然勾配が消えた点 |
+/// | 2 | 近傍の確定した法線をコピーする | 本物の稜線 (骨格線) |
+/// | 3 | それでも埋まらない点だけ `None` | 近傍が丸ごと不定な平坦部 |
+///
+/// 3 段目が残ったときだけ呼び出し側が環境光へ落とす．
+pub fn normal_field(d: &Field<f32>, opts: ShadeOptions) -> Field<Option<Vec2>> {
+    let mut out = Field::filled(d.width(), d.height(), None);
+    for p in d.bounds().iter() {
+        out.set(p, normal_and_curvature(d, p).map(|(n, _)| n));
+    }
+
+    // 1 段目 — 平滑化した距離場で測り直す
+    let mut smoothed = d.clone();
+    for _ in 0..opts.smooth_passes {
+        smoothed = box_blur(&smoothed);
+        for p in d.bounds().iter() {
+            if out.copied(p).flatten().is_none()
+                && let Some((n, _)) = normal_and_curvature(&smoothed, p)
+            {
+                out.set(p, Some(n));
+            }
+        }
+    }
+
+    // 2 段目 — 近傍の確定した法線をコピーする．**同じ場を読みながら書かない**
+    // (埋めた値が次の点の «確定値» になると，稜線に沿って伝播して面の法線を汚す)
+    let settled = out.clone();
+    for p in d.bounds().iter() {
+        if out.copied(p).flatten().is_some() {
+            continue;
+        }
+        if let Some(n) = nearest_settled(&settled, p, opts.fill_radius) {
+            out.set(p, Some(n));
+        }
+    }
+    out
+}
+
+/// 近傍の確定した法線を**そのままコピーする** (半径内で最も近いものから順に見る)．
+///
+/// > [!warning] **平均を取ってはいけない．**
+/// > 稜線は左右の面から等距離にある骨格線なので，近傍の法線は**互いに向かい合う**．
+/// > 円板の中心では放射状に並んだ法線が**足すと零ベクトルになり**，正規化できずに
+/// > «埋まらない» ことになる — 埋めたい相手のちょうど真ん中で失敗する．
+/// > 設計書 6.2 が «近傍の確定した法線をコピーして埋める» と書いているとおりにする．
+///
+/// 同じ半径に複数あるときは走査順で先のものを採る (決定論性の規則 2) ．
+fn nearest_settled(field: &Field<Option<Vec2>>, p: IVec2, radius: i32) -> Option<Vec2> {
+    for r in 1..=radius {
+        for dy in -r..=r {
+            for dx in -r..=r {
+                // その半径の «輪» だけを見る (内側は前の周回で見ている)
+                if dx.abs() != r && dy.abs() != r {
+                    continue;
+                }
+                if let Some(Some(n)) = field.copied(p + ivec2(dx, dy)) {
+                    return Some(n);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// 3x3 の箱平滑化．範囲外は縁を複製する ([`normal_and_curvature`] と同じ扱い)．
+fn box_blur(d: &Field<f32>) -> Field<f32> {
+    let mut out = Field::filled(d.width(), d.height(), 0.0f32);
+    let at = |p: IVec2| -> f32 {
+        let x = p.x.clamp(0, d.width() as i32 - 1);
+        let y = p.y.clamp(0, d.height() as i32 - 1);
+        d.copied(ivec2(x, y)).unwrap_or(0.0)
+    };
+    for p in d.bounds().iter() {
+        let mut acc = 0.0;
+        for dy in -1..=1 {
+            for dx in -1..=1 {
+                acc += at(p + ivec2(dx, dy));
+            }
+        }
+        out.set(p, acc / 9.0);
+    }
+    out
+}
+
+/// `HasBounceNeighbor` — **下方向 $k$ 画素以内にシルエット境界があるか** (設計書 6.2)．
+///
+/// 返すのは境界までの距離である (無ければ `None`) ．反射光は接地面からの照り返しなので，
+/// **近いほど明るい**．
+pub fn bounce_distance_field(mask: &Mask, reach: u32) -> Field<Option<f32>> {
+    let mut out = Field::filled(mask.width(), mask.height(), None);
+    for p in mask.bounds().iter() {
+        if !mask.get(p) {
+            continue;
+        }
+        for k in 1..=reach as i32 {
+            let below = p + ivec2(0, k);
+            // 画像の外もシルエットの外なので «境界がある» と数える
+            let outside = !mask.get(below);
+            if outside {
+                out.set(p, Some(k as f32 - 1.0));
+                break;
+            }
+        }
+    }
+    out
+}
+
+/// **シルエットへ陰影を付け，パレットの添字を返す** (設計書 6.2)．
+///
+/// 返り値はシルエットの外が `None`．稜線の 3 段処理で埋まらなかった画素だけ
+/// `model.occlusion` (環境光) へ落ちる．
+pub fn shade_mask(
+    mask: &Mask,
+    source: LightSource,
+    model: &LightingModel,
+    opts: ShadeOptions,
+) -> Field<Option<u8>> {
+    let d = signed_distance(mask);
+    let normals = normal_field(&d, opts);
+    let bounce = bounce_distance_field(mask, opts.bounce_reach);
+    let reach = opts.bounce_reach as f32;
+
+    let mut out = Field::filled(mask.width(), mask.height(), None);
+    for p in mask.bounds().iter() {
+        if !mask.get(p) {
+            continue;
+        }
+        let Some(Some(n)) = normals.copied(p) else {
+            // 3 段目 — 近傍に確定した法線が 1 つも無い画素だけがここへ来る
+            out.set(p, Some(model.occlusion));
+            continue;
+        };
+        let centre = vec2(p.x as f32 + 0.5, p.y as f32 + 0.5);
+        // **面の法線は距離場の勾配の逆向きである．**
+        // 符号付き距離場は内側ほど値が大きいので $\nabla d$ は «内側» を指す —
+        // そのまま使うと光と影が丸ごと裏返る (左上から照らした円板の左上が影になる) ．
+        let shading = shade(source, centre, n * -1.0, bounce.copied(p).flatten(), reach);
+        let ramp = match shading.lamp {
+            Lamp::Key => &model.key,
+            Lamp::Shadow => &model.shadow,
+            Lamp::Bounce => &model.bounce,
+        };
+        let entries = ramp.entries();
+        let index = entries
+            .get(shading.index(entries.len()))
+            .copied()
+            .unwrap_or(model.occlusion);
+        out.set(p, Some(index));
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::math::vec2;
+
+    /// 円板 — 中心に稜線 (medial axis) ができる形である．
+    fn disc(size: u32, radius: f32) -> Mask {
+        let mut m = Mask::new(size, size);
+        let c = (size as f32 - 1.0) / 2.0;
+        for p in m.bounds().iter() {
+            let (dx, dy) = (p.x as f32 - c, p.y as f32 - c);
+            if dx * dx + dy * dy <= radius * radius {
+                m.set(p, true);
+            }
+        }
+        m
+    }
 
     fn dir(x: f32, y: f32) -> LightSource {
         LightSource::Directional { dir: vec2(x, y) }
@@ -349,6 +546,112 @@ mod tests {
         assert_eq!(s.lamp, Lamp::Shadow);
         assert!((s.t - 0.5).abs() < 1e-6);
         assert!(incidence(LightSource::Ambient, vec2(0.0, 0.0), vec2(0.0, -1.0)).is_none());
+    }
+
+    /// **稜線に暗い線が入らない．** 設計書 6.2 が名指しで禁じている壊れ方である．
+    ///
+    /// 円板の中心は medial axis なので勾配が消える．3 段処理が無いとそこだけ環境光へ
+    /// 落ち，**明るい面の真ん中に 1 px の暗い線が走る**．
+    #[test]
+    fn the_ridge_does_not_fall_through_to_the_ambient_colour() {
+        let mask = disc(21, 9.0);
+        let d = signed_distance(&mask);
+        let opts = ShadeOptions::default();
+
+        // 素の勾配では中心付近が不定になる (これが埋める相手である)
+        let raw_holes = mask
+            .bounds()
+            .iter()
+            .filter(|&p| mask.get(p) && normal_and_curvature(&d, p).is_none())
+            .count();
+        assert!(raw_holes > 0, "稜線が 1 つも無い形では試験にならない");
+
+        let filled = normal_field(&d, opts);
+        let left = mask
+            .bounds()
+            .iter()
+            .filter(|&p| mask.get(p) && filled.copied(p).flatten().is_none())
+            .count();
+        assert!(
+            left < raw_holes,
+            "3 段処理で埋まっていない (前 {raw_holes} → 後 {left})"
+        );
+    }
+
+    /// 反射光は**下方向 $k$ 画素以内にシルエット境界がある画素だけ**が引く．
+    #[test]
+    fn only_pixels_above_the_silhouette_edge_can_bounce() {
+        // 4x4 の四角
+        let mut mask = Mask::new(6, 6);
+        for y in 1..5 {
+            for x in 1..5 {
+                mask.set(ivec2(x, y), true);
+            }
+        }
+        let b = bounce_distance_field(&mask, 2);
+        // 最下段は真下が外なので距離 0
+        assert_eq!(b.copied(ivec2(2, 4)).flatten(), Some(0.0));
+        // その 1 つ上は距離 1
+        assert_eq!(b.copied(ivec2(2, 3)).flatten(), Some(1.0));
+        // さらに上は届かない
+        assert_eq!(b.copied(ivec2(2, 2)).flatten(), None);
+        // シルエットの外は測らない
+        assert_eq!(b.copied(ivec2(0, 0)).flatten(), None);
+    }
+
+    /// シルエットの中はすべて色が付き，外は付かない．
+    #[test]
+    fn every_pixel_inside_the_silhouette_gets_a_colour() {
+        let mask = disc(21, 9.0);
+        let (palette, model) = crate::ramp::build_lighting(
+            crate::color::Rgba8::rgb(120, 90, 70),
+            crate::ramp::LightPreset::Clear,
+            5,
+            crate::palette::ChromaCurve::default(),
+        )
+        .expect("ランプを作れない");
+        let out = shade_mask(
+            &mask,
+            crate::ramp::LightPreset::Clear.default_source(),
+            &model,
+            ShadeOptions::default(),
+        );
+        for p in mask.bounds().iter() {
+            assert_eq!(
+                out.copied(p).flatten().is_some(),
+                mask.get(p),
+                "{p:?} でシルエットと食い違う"
+            );
+            if let Some(Some(i)) = out.copied(p) {
+                assert!((i as usize) < palette.len(), "パレットの外を指した {i}");
+            }
+        }
+    }
+
+    /// **光の当たる側と影の側で色が違う．** 陰影が付いていることの最低限の確認である．
+    #[test]
+    fn the_lit_side_and_the_shadow_side_use_different_colours() {
+        let mask = disc(21, 9.0);
+        // 光は右下へ進む → 左上が明るい
+        let source = LightSource::Directional {
+            dir: vec2(1.0, 1.0),
+        };
+        let (_, model) = crate::ramp::build_lighting(
+            crate::color::Rgba8::rgb(120, 90, 70),
+            crate::ramp::LightPreset::Clear,
+            5,
+            crate::palette::ChromaCurve::default(),
+        )
+        .expect("ランプを作れない");
+        let out = shade_mask(&mask, source, &model, ShadeOptions::default());
+        let lit = out.copied(ivec2(6, 6)).flatten().expect("左上が空");
+        let dark = out.copied(ivec2(14, 14)).flatten().expect("右下が空");
+        assert_ne!(lit, dark, "光側と影側が同じ色である");
+        assert!(model.key.entries().contains(&lit), "左上が光ランプでない");
+        assert!(
+            model.shadow.entries().contains(&dark) || model.bounce.entries().contains(&dark),
+            "右下が影 / 反射ランプでない"
+        );
     }
 
     /// 添字は $\lfloor t (m - 1) \rfloor$ で，**$t = 1$ がちょうど最終段**である．

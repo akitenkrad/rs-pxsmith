@@ -50,4 +50,6 @@ pub use ink::{Brush, FillOpts, Ink, PatternMask};
 pub use math::{IRect, IVec2, Rect, UVec2, Vec2, clip_pair, ivec2, uvec2, vec2};
 pub use palette::{ChromaCurve, Palette, Ramp};
 pub use ramp::{LightPreset, LightSource, LightingModel, RampSpec, generate_ramp};
-pub use shade::{Lamp, Shading, incidence, shade};
+pub use shade::{
+    Lamp, ShadeOptions, Shading, bounce_distance_field, incidence, normal_field, shade, shade_mask,
+};
