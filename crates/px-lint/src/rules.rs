@@ -13,7 +13,7 @@ use px_core::frame::{Frame, Surface};
 use px_core::geom::distance::signed_distance;
 use px_core::geom::regions::{RegionMap, label_regions};
 use px_core::grid::{GridParams, local_grid, uniformity};
-use px_core::math::{IRect, IVec2, ivec2};
+use px_core::math::{IRect, IVec2, Vec2, ivec2};
 use px_core::palette::Palette;
 use serde::{Deserialize, Serialize};
 
@@ -1029,6 +1029,101 @@ fn shading_agreement_with(
         return None;
     }
     Some((gx / norm) as f32 * l.x + (gy / norm) as f32 * l.y)
+}
+
+/// **ルール 7 が勾配を取れる画素の数．**
+///
+/// [`shading_agreement`] が `None` を返す理由は 2 つあり，**混ぜてはいけない**．
+///
+/// | 理由 | 見分け方 |
+/// | --- | --- |
+/// | 標本が足りない (タイルが小さい ・細い) | この関数が `shading_min_pixels` 未満を返す |
+/// | **向きが無い** (平坦か左右対称で勾配が打ち消し合う) | 標本は足りているのに `None` |
+///
+/// 2 つ目は**見逃しではない** — 左右対称な絵は左右反転しても同じ絵なので，
+/// 光源と矛盾のしようがない．autotile は象限を鏡像で組むので，
+/// **47 枚のうち左右対称になるものがここに落ちる**．
+pub fn shading_sample_count(canvas: &IndexedCanvas, palette: &Palette) -> usize {
+    let lightness = |p: IVec2| -> Option<f32> {
+        let i = canvas.get_at(p)?;
+        if canvas.transparent() == Some(i) {
+            return None;
+        }
+        let c = palette.get(i)?;
+        (c.a != 0).then(|| palette.lab_of(i).map(|x| x.l))?
+    };
+    let mut n = 0usize;
+    for p in canvas.bounds().iter() {
+        if lightness(p).is_none() {
+            continue;
+        }
+        let (Some(_), Some(_), Some(_), Some(_)) = (
+            lightness(p + ivec2(1, 0)),
+            lightness(p + ivec2(-1, 0)),
+            lightness(p + ivec2(0, 1)),
+            lightness(p + ivec2(0, -1)),
+        ) else {
+            continue;
+        };
+        n += 1;
+    }
+    n
+}
+
+/// **絵が «どちらから照らされているように見えるか»** — 平均した明度勾配の向き．
+///
+/// > [!warning] **これで «その絵» を検査してはいけない．** 推定した向きと絵が
+/// > 合っているかを見るのは同語反復である (D89．ルール 7 が光源の宣言を要求する
+/// > 理由がこれである) ．
+/// >
+/// > 使ってよいのは**別の絵を検査するとき**である — 元の絵から向きを取り，
+/// > その向きの下で**反転した絵**を検査するのは同語反復ではない．方向展開の
+/// > 測定 (`px-calib direction`) はこの形で使う．
+pub fn mean_lightness_direction(canvas: &IndexedCanvas, palette: &Palette) -> Option<Vec2> {
+    mean_lightness_direction_with(canvas, palette, LintConfig::default().shading_min_pixels)
+}
+
+fn mean_lightness_direction_with(
+    canvas: &IndexedCanvas,
+    palette: &Palette,
+    min_pixels: u32,
+) -> Option<Vec2> {
+    let lightness = |p: IVec2| -> Option<f32> {
+        let i = canvas.get_at(p)?;
+        if canvas.transparent() == Some(i) {
+            return None;
+        }
+        let c = palette.get(i)?;
+        (c.a != 0).then(|| palette.lab_of(i).map(|x| x.l))?
+    };
+    let (mut gx, mut gy, mut n) = (0.0f64, 0.0f64, 0usize);
+    for p in canvas.bounds().iter() {
+        if lightness(p).is_none() {
+            continue;
+        }
+        let (Some(east), Some(west), Some(south), Some(north)) = (
+            lightness(p + ivec2(1, 0)),
+            lightness(p + ivec2(-1, 0)),
+            lightness(p + ivec2(0, 1)),
+            lightness(p + ivec2(0, -1)),
+        ) else {
+            continue;
+        };
+        gx += (east - west) as f64 * 0.5;
+        gy += (south - north) as f64 * 0.5;
+        n += 1;
+    }
+    if n < min_pixels as usize {
+        return None;
+    }
+    let norm = (gx * gx + gy * gy).sqrt();
+    if norm <= f64::EPSILON {
+        return None;
+    }
+    Some(Vec2 {
+        x: (gx / norm) as f32,
+        y: (gy / norm) as f32,
+    })
 }
 
 // --- ルール 8: ジャギー ---

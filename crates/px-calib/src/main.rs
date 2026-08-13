@@ -22,10 +22,12 @@ use clap::{Parser, Subcommand};
 
 mod aocal;
 mod bands;
+mod composecal;
 mod confidence;
 mod dataset;
 mod degrade;
 mod diagnose;
+mod dircal;
 mod ingest;
 mod jaggycal;
 mod lintcal;
@@ -41,6 +43,7 @@ mod rng;
 mod scene;
 mod sprite;
 mod sweep;
+mod tilecal;
 
 use dataset::Split;
 use metrics::Summary;
@@ -491,6 +494,50 @@ enum Command {
         #[arg(long)]
         out: Option<PathBuf>,
     },
+    /// **ディザの位相を測る** — 設計書 4.3 / D45 の «偶数幅だと反復で連結する» を確かめる
+    Dither {
+        /// 測るタイルの一辺
+        #[arg(long, num_args = 1.., default_values_t = [8u32, 15, 16])]
+        tile: Vec<u32>,
+    },
+    /// **タイル分割と同値判定を測る** — 3 モードの削減率と，ルール 7 が掛かるタイルの割合
+    Tileset {
+        #[arg(long, default_value = "testdata/grid-eval/seeds")]
+        seeds: PathBuf,
+        /// 切るタイルの一辺
+        #[arg(long, num_args = 1.., default_values_t = [8u32, 16])]
+        tile: Vec<u32>,
+        /// 宣言する光源 (ルール 7 用)
+        #[arg(long, default_value = "dir:-0.6,0.8")]
+        light: String,
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
+    /// **方向展開 (反転 + 陰影再導出) を測る** — 実素材でルール 7 が鳴るか ・再導出が何を書き換えるか
+    Direction {
+        #[arg(long, default_value = "testdata/grid-eval/seeds")]
+        seeds: PathBuf,
+        #[arg(long, default_value_t = 5)]
+        steps: u8,
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
+    /// **`px compose` の «置き方» を測る** — 余白 ・併合したパレット ・実際に合成した結果
+    Compose {
+        #[arg(long, default_value = "testdata/grid-eval/seeds")]
+        seeds: PathBuf,
+        /// 先頭のパーツにする絵 (省略時は Dungeon Crawl の生き物 12 枚)
+        #[arg(long, num_args = 1..)]
+        base: Vec<String>,
+        /// 重ねるパーツにする絵 (省略時は被り物と衣服 3 枚)
+        #[arg(long, num_args = 1..)]
+        equip: Vec<String>,
+        /// 先頭のパーツの画布に切り揃える側も測る
+        #[arg(long)]
+        clip: bool,
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
     /// **ルール 7 (反転同値の陰影不整合) の閾値を測る** — `px shade` の出力と，その左右反転
     Flip {
         #[arg(long, default_value = "testdata/grid-eval/seeds")]
@@ -525,6 +572,26 @@ enum Command {
         #[arg(long, default_value_t = 10)]
         top: usize,
     },
+}
+
+/// `dir:X,Y` だけを読む最小の解釈器 (`px` 側の `parse_light` の平行光源だけ)．
+fn parse_light_spec(spec: &str) -> Result<px_core::ramp::LightSource> {
+    let (kind, rest) = spec
+        .split_once(':')
+        .with_context(|| format!("光源 '{spec}' は 'dir:X,Y' の形で書くこと"))?;
+    anyhow::ensure!(kind == "dir", "ここで扱うのは平行光源だけである ('{spec}')");
+    let n: Vec<f32> = rest
+        .split(',')
+        .map(|v| {
+            v.trim()
+                .parse::<f32>()
+                .with_context(|| format!("'{v}' を読めない"))
+        })
+        .collect::<Result<_>>()?;
+    anyhow::ensure!(n.len() == 2, "dir は 2 つの数値が要る ('{spec}')");
+    Ok(px_core::ramp::LightSource::Directional {
+        dir: px_core::math::Vec2 { x: n[0], y: n[1] },
+    })
 }
 
 fn main() -> Result<()> {
@@ -1743,6 +1810,194 @@ fn main() -> Result<()> {
                     upright.len(),
                     mirrored.len()
                 );
+            }
+        }
+
+        Command::Dither { tile } => {
+            // 市松 (周期 2) を並べて，継ぎ目で同色が隣り合う行を数える．
+            // **閾値は無い — 数え上げである**
+            let touching = |w: u32, h: u32, mirror: bool| -> usize {
+                (0..h as i32)
+                    .filter(|&y| {
+                        let left = ((w as i32 - 1) + y) % 2;
+                        let right = if mirror {
+                            // 鏡像なら継ぎ目の列は元の «右端» がもう一度来る
+                            ((w as i32 - 1) + y) % 2
+                        } else {
+                            y % 2
+                        };
+                        left == right
+                    })
+                    .count()
+            };
+            println!("== ディザの位相 — 同じ絵を並べたときの継ぎ目 (市松，高さ 16) ==");
+            println!("\n  一辺  偶奇  同一タイルの反復  鏡像を隣に置く");
+            for &w in &tile {
+                println!(
+                    "  {w:>4}  {:<4} {:>13} / 16 {:>10} / 16",
+                    if w % 2 == 0 { "偶数" } else { "奇数" },
+                    touching(w, 16, false),
+                    touching(w, 16, true)
+                );
+            }
+            println!(
+                "\n  設計書 4.3 / D45 は «タイルの幅は必ず偶数なので，同一タイルを並べると\n                   ディザのドットが連結する» と言うが，**偶数幅の反復では 0 である** —\n                   幅が偶数だからこそ位相が続く．連結するのは奇数幅と «鏡像を隣に置いたとき»．\n                   autotile は象限を鏡像で組むので，**タイルの内側の継ぎ目**で起きる (D105)．"
+            );
+        }
+
+        Command::Tileset {
+            seeds,
+            tile,
+            light,
+            out,
+        } => {
+            let source = parse_light_spec(&light)?;
+            let records = tilecal::run(&seeds, &tile, source)?;
+            println!("== タイル分割と同値判定 (実素材 ・削減率は入力で決まる量である) ==");
+            println!(
+                "\n  一辺  モード        絵     縮約前   縮約後   削減率   反転で束ねた  測れた  鳴った  組み直し失敗"
+            );
+            for (t, mode, n, before, after, reduction, mirrored, measurable, fired, broken) in
+                tilecal::summarise(&records)
+            {
+                println!(
+                    "  {t:>4}  {mode:<12} {n:>4} {before:>9} {after:>8} {:>8.1}% {mirrored:>13} {measurable:>7} {fired:>7} {broken:>13}",
+                    reduction * 100.0
+                );
+            }
+            println!(
+                "\n  «測れた» はルール 7 が勾配を取れた枚数．\n                   **8x8 では上限 6x6 = 36 画素で {} 画素の下限に構造的に届かない**                  — 鳴らないのではなく検査していない",
+                px_lint::LintConfig::default().shading_min_pixels
+            );
+            if let Some(path) = out {
+                let mut text = String::from(tilecal::HEADER);
+                text.push('\n');
+                for r in &records {
+                    text.push_str(&tilecal::to_csv(r));
+                    text.push('\n');
+                }
+                std::fs::write(&path, text)
+                    .with_context(|| format!("{} を書き出せない", path.display()))?;
+                println!("\n{} に書き出した", path.display());
+            }
+        }
+
+        Command::Direction { seeds, steps, out } => {
+            let records = dircal::run(&seeds, steps)?;
+            let threshold = px_lint::LintConfig::default().min_shading_agreement;
+            println!("== 方向展開 — 光源との一致度 (ルール 7 の閾値 {threshold:.2} 未満で鳴る) ==");
+            println!("\n  群              段階            件数     最小    中央    最大  鳴る件数");
+            for (group, stage, n, min, median, max, below) in dircal::summarise(&records, threshold)
+            {
+                println!(
+                    "  {group:<15} {stage:<14} {n:>5} {min:>8.3} {median:>7.3} {max:>7.3} {below:>9}"
+                );
+            }
+            println!("\n== 再導出が «反転しただけの絵» から書き換えた不透明画素 ==");
+            println!("\n  群              件数    中央     最大");
+            for (group, n, median, max) in dircal::summarise_rewritten(&records) {
+                println!(
+                    "  {group:<15} {n:>5} {:>7.1}% {:>7.1}%",
+                    median * 100.0,
+                    max * 100.0
+                );
+            }
+            if let Some(path) = out {
+                let mut text = String::from(dircal::HEADER);
+                text.push('\n');
+                for r in &records {
+                    text.push_str(&dircal::to_csv(r));
+                    text.push('\n');
+                }
+                std::fs::write(&path, text)
+                    .with_context(|| format!("{} を書き出せない", path.display()))?;
+                println!("\n{} に書き出した", path.display());
+            }
+        }
+
+        Command::Compose {
+            seeds,
+            base,
+            equip,
+            clip,
+            out,
+        } => {
+            let bases = if base.is_empty() {
+                composecal::names(composecal::DEFAULT_BASES)
+            } else {
+                base.clone()
+            };
+            let equips = if equip.is_empty() {
+                composecal::names(composecal::DEFAULT_EQUIPS)
+            } else {
+                equip.clone()
+            };
+
+            let margins = composecal::margins(&seeds)?;
+            println!("== 画布の余白 (アンカーで動かしたときどれだけ余地があるか) ==");
+            println!("\n  群            枚数  縁に接する  最小余白の中央  最大");
+            for (label, n, touching, median, max) in composecal::summarise_margins(&margins) {
+                println!("  {label:<12} {n:>5} {touching:>11} {median:>15} {max:>5}");
+            }
+
+            let merges = composecal::merges(&seeds, &bases, &equips)?;
+            let (n, median, max, over62, over256, shared) = composecal::summarise_merges(&merges);
+            println!("\n== 併合したパレットの色数 (胴体 x 装備 {n} 組) ==");
+            println!("\n  中央 {median} 色 ・最大 {max} 色");
+            println!("  L0 の 62 色を超える {over62} 組 ・256 色を超える {over256} 組");
+            println!("  装備の色のうち胴体と共有しているものの割合 (中央) {shared:.2}");
+
+            let shifts = composecal::default_shifts();
+            let mut runs = composecal::runs(&seeds, &bases, &equips, &shifts, false)?;
+            if clip {
+                runs.extend(composecal::runs(&seeds, &bases, &equips, &shifts, true)?);
+            }
+            println!("\n== 実際に合成した ({} 組) ==", runs.len());
+            println!("\n  ずらし    切る  組数  画布が広がった  捨てた画素  blocking 増");
+            for (shift, clipped_mode, total, grew, clipped, worse) in
+                composecal::summarise_runs(&runs)
+            {
+                println!(
+                    "  ({:>2},{:>3}) {:>7} {total:>5} {grew:>15} {clipped:>11} {worse:>12}",
+                    shift.x,
+                    shift.y,
+                    if clipped_mode { "切る" } else { "広げる" }
+                );
+            }
+
+            let by_rule = composecal::blocking_by_rule(&runs);
+            if by_rule.is_empty() {
+                println!("\n  blocking は 1 件も増えていない");
+            } else {
+                println!("\n  増えた blocking の内訳");
+                for (rule, delta, cases) in by_rule {
+                    println!("    ルール {rule:>2}  +{delta} 件 ({cases} 組)");
+                }
+            }
+
+            if let Some(path) = out {
+                let mut text = String::new();
+                text.push_str(composecal::MARGIN_HEADER);
+                text.push('\n');
+                for m in &margins {
+                    text.push_str(&composecal::margin_csv(m));
+                    text.push('\n');
+                }
+                text.push_str(composecal::MERGE_HEADER);
+                text.push('\n');
+                for m in &merges {
+                    text.push_str(&composecal::merge_csv(m));
+                    text.push('\n');
+                }
+                text.push_str(composecal::RUN_HEADER);
+                text.push('\n');
+                for r in &runs {
+                    text.push_str(&composecal::run_csv(r));
+                    text.push('\n');
+                }
+                std::fs::write(&path, text)
+                    .with_context(|| format!("{} を書き出せない", path.display()))?;
+                println!("\n{} に書き出した", path.display());
             }
         }
 

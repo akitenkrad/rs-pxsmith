@@ -384,7 +384,7 @@ fn load_mask(path: &Path) -> Result<Mask> {
 /// `--light` の書式を読む (設計書 3.3 の光源 5 型)．
 ///
 /// **座標は画素の中心を基準にした画像の座標系である** (`y` は下向き) ．
-fn parse_light(spec: &str) -> Result<LightSource> {
+pub(crate) fn parse_light(spec: &str) -> Result<LightSource> {
     let (kind, rest) = spec.split_once(':').unwrap_or((spec, ""));
     let n: Vec<f32> = if rest.is_empty() {
         Vec::new()

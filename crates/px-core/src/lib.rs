@@ -22,14 +22,22 @@
 //! | [`aa`] | アンチエイリアス | 6.5 |
 //! | [`outline`] | 縁取り | D36 |
 //! | [`smooth`] | ジャギー正規化 | 6.4 |
+//! | [`compose`] | パーツ合成 ・variants 展開 | 5 章 / D42 |
+//! | [`direction`] | 方向展開 (反転 + 陰影再導出) | 4.3 / L2 |
+//! | [`tileset`] | タイル分割と同値判定 | 6.7 |
+//! | [`autotile`] | 象限合成による 47 枚生成 | 6.8 / 4.3 |
+//! | [`tilejson`] | タイルセットの正規出力 (JSON) | 4.4 |
 //! | [`ink`] | 描画インクとブラシ | 3.4 |
 //! | [`edit`] | 編集操作とパッチ | 3.6 |
 //! | [`error`] | エラーモデル | 3.7 |
 
 pub mod aa;
+pub mod autotile;
 pub mod canvas;
 pub mod clean;
 pub mod color;
+pub mod compose;
+pub mod direction;
 pub mod edit;
 pub mod error;
 pub mod frame;
@@ -43,11 +51,26 @@ pub mod quantize;
 pub mod ramp;
 pub mod shade;
 pub mod smooth;
+pub mod tilejson;
+pub mod tileset;
 pub mod validate;
 
 pub use aa::{AaAddOptions, AaReport, add_antialiasing};
 pub use canvas::{IndexedCanvas, RgbaCanvas};
 pub use color::{Oklab, Rgba8};
+pub use direction::{
+    Direction, ExpandMode, ExpandOptions, ExpandReport, ReshadeSpec, expand, mirror_canvas,
+    mirror_frame,
+};
+
+pub use autotile::{
+    CornerState, Quadrant, QuadrantArt, blob_masks, canonical_mask, corner_state,
+    mirror_to_all_quadrants, seam_doubled,
+};
+pub use compose::{
+    Alignment, ComposeOptions, ComposeReport, DelayMode, Part, Placement, compose, expand_template,
+    expand_variants,
+};
 pub use edit::{EditOp, FrameId, LayerId, Patch};
 pub use error::{CoreError, FailurePolicy, Result};
 pub use frame::{
@@ -65,3 +88,5 @@ pub use shade::{
     shade_to_canvas,
 };
 pub use smooth::{SmoothOptions, SmoothReport, smooth_canvas, smooth_mask};
+pub use tilejson::{TerrainEntry, TileMapJson, TileRefJson, TilesetDoc};
+pub use tileset::{DedupeMode, ExtractOptions, ExtractReport, extract, rebuild};

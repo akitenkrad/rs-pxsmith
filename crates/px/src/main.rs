@@ -13,7 +13,10 @@ use px_io::{Document, FrameId};
 use px_view::render::RenderOptions;
 
 mod color_cmds;
+mod compose_cmds;
+mod direction_cmds;
 mod shape_cmds;
+mod tileset_cmds;
 mod watch;
 
 #[derive(Parser)]
@@ -104,6 +107,21 @@ enum Command {
     Outline {
         #[command(flatten)]
         args: shape_cmds::OutlineArgs,
+    },
+    /// パーツを合成する (設計書 5 章 ・D42)
+    Compose {
+        #[command(flatten)]
+        args: compose_cmds::ComposeArgs,
+    },
+    /// 方向展開 (反転 + 陰影再導出で 8 方向．設計書 4.3)
+    Direction {
+        #[command(flatten)]
+        args: direction_cmds::DirectionArgs,
+    },
+    /// タイルセットの操作 (設計書 6.7 ・6.8)
+    Tileset {
+        #[command(subcommand)]
+        command: tileset_cmds::TilesetCommand,
     },
     /// 端末に表示して確かめる
     View {
@@ -252,6 +270,9 @@ fn main() -> Result<()> {
         Command::Smooth { args } => shape_cmds::smooth(&args),
         Command::Aa { args } => shape_cmds::aa(&args),
         Command::Outline { args } => shape_cmds::outline_cmd(&args),
+        Command::Compose { args } => compose_cmds::compose_cmd(&args),
+        Command::Direction { args } => direction_cmds::direction_cmd(&args),
+        Command::Tileset { command } => tileset_cmds::tileset(command),
         Command::View { path, display } => view(&path, &display),
         Command::Watch { path, display } => watch::run(&path, &display.options(), display.frame),
         Command::Diff { a, b, limit } => diff(&a, &b, limit),
