@@ -35,6 +35,7 @@ pub mod math;
 pub mod palette;
 pub mod quantize;
 pub mod ramp;
+pub mod shade;
 
 pub use canvas::{IndexedCanvas, RgbaCanvas};
 pub use color::{Oklab, Rgba8};
@@ -49,3 +50,4 @@ pub use ink::{Brush, FillOpts, Ink, PatternMask};
 pub use math::{IRect, IVec2, Rect, UVec2, Vec2, clip_pair, ivec2, uvec2, vec2};
 pub use palette::{ChromaCurve, Palette, Ramp};
 pub use ramp::{LightPreset, LightSource, LightingModel, RampSpec, generate_ramp};
+pub use shade::{Lamp, Shading, incidence, shade};
