@@ -448,10 +448,13 @@ pub fn run(
         phase_contrast_min: 1.0,
         phase_require_measurable: false,
         phase_subpixel: false,
+        // 境界の当てはめも切る (これも «検査» の側である)
+        edge_fit_order: 0,
         phase_tolerance_floor: 0.0,
         phase_min_cells: 2,
         min_confidence: 0.0,
         confidence_per_scale: false,
+        ..GridParams::default()
     };
 
     let items: Vec<&Item> = manifest

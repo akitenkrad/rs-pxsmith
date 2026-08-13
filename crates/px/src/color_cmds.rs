@@ -136,8 +136,10 @@ impl From<&GridArgs> for GridParams {
             confidence_per_scale: GridParams::default().confidence_per_scale,
             phase_agreement: a.phase_agreement,
             phase_contrast_min: a.phase_contrast_min,
-            // 校正で決めた形をそのまま使う (CLI からは切り替えない)
+            // 校正で決めた形をそのまま使う (CLI からは切り替えない)．
+            // **数値を書き写さない** — 校正値と黙って食い違う (D68 で実際にやった)
             phase_require_measurable: GridParams::default().phase_require_measurable,
+            ..GridParams::default()
         }
     }
 }

@@ -174,6 +174,41 @@ pub struct GridParams {
     /// | 完全一致 | 51.5% | 51.5% | 57.4% | **58.4%** |
     /// | 正しい棄却 | 89.4% | 92.0% | 87.9% | **91.5%** |
     pub confidence_per_scale: bool,
+    /// 境界の当てはめに使う差分の階数 (1 か 2)．**`0` でこの関門を外す．**
+    ///
+    /// 実測すると，真の $s$ の当てはめた間隔のずれは補間で大きく変わる．
+    ///
+    /// | 補間 | 1 階の \|傾き\| 中央 / 90% | 2 階の \|傾き\| 中央 / 90% |
+    /// | --- | --- | --- |
+    /// | nearest | 0.000 / 0.001 | 0.000 / 0.012 |
+    /// | bilinear | 0.035 / 0.170 | **0.003 / 0.121** |
+    /// | bicubic | 0.002 / 0.011 | 0.017 / 0.123 |
+    /// | lanczos | 0.021 / 0.082 | 0.090 / 0.316 |
+    ///
+    /// **1 階は bilinear で外れる** — bilinear はセル中心の間を直線で結ぶので 1 階差分が
+    /// 区間ごとに平らになり，峰の «頂点» が定まらない．2 階差分なら折れ点に山が立つ．
+    /// 選択規則を回すと 2 階が勝つ (完全一致 76 対 73) ．
+    pub edge_fit_order: u32,
+    /// 当てはめた間隔のずれ $|(\hat{s}_{\mathrm{fit}} - s)/s|$ の許容．
+    ///
+    /// 非整数倍リサイズ (1.3 ・0.85) の実効周期は整数から 2〜6% ずれるので，
+    /// 1.25% はその下に十分入る．検証セットで掃くと 0.0125 が膝で，
+    /// **これを超えると正棄却が崩れ始める** (0.0125 で 191 / 199 ・0.02 で 183 ・
+    /// 0.03 で 173) 一方，完全一致は 0.0125 で頭打ちになる (76 → 75) ．
+    pub edge_fit_slope: f32,
+    /// 直線からの残差 RMS ($s$ で正規化) の許容．
+    ///
+    /// **ほとんど効いていない** — 外す (1.0) のと 0.15 とで正棄却が 1 件違うだけである．
+    /// 傾きの検査が先に落とすためで，残しているのは «峰が直線にまったく乗らない»
+    /// という別の壊れ方への備えにすぎない．検証セットはその場面をほとんど見ていない．
+    pub edge_fit_residual: f32,
+    /// 肩代わりに要る境界の本数 (軸ごと)．
+    ///
+    /// 4 点あれば，切片と傾きの 2 つを決めた上で残差に 2 自由度が残る．検証セットでは
+    /// **3 でも 5 でも完全一致が 2 件落ちる** (74 対 76) ので，数字そのものには
+    /// それ以上の根拠が無い — 少なすぎれば当てずっぽうを肩代わりし，多すぎれば
+    /// 小さい絵の本物を肩代わりできない，という両側の効き方だけが確かである．
+    pub edge_fit_min_count: usize,
     /// $\varepsilon$ を**画像全体の分散に対する割合**として解釈する．
     ///
     /// $\varepsilon$ は分散の絶対値に対する閾値なので，**低コントラストの入力では
@@ -205,10 +240,18 @@ impl Default for GridParams {
             // **実物の元絵へ差し替えた検証セットで測り直した値である．**
             // 1/8 で 67.5% ・1/6 で 69.2% ・1/5 で 69.0% ・**1/4 で 70.5%** ・1/3 で 69.0%
             // (マクロ平均．ε = 0.2 ・δ = 0.1 ・τ = 0.1 ・信頼度 0.03)
-            phase_tolerance: 0.35,
+            // 境界の当てはめ (D71) が «真の $s$ を通す» 側を引き受けたので**締め直した**．
+            // 検証セットで 0.25 ・0.28 ・0.30 が同じ成績の平らな面になり，その中央を
+            // 採った (0.35 のままだと A が 26 → 24 に落ちる — 緩い帯ずれは
+            // $2 s_*$ に «閾値を満たす最大の $s$» を渡してしまう)
+            phase_tolerance: 0.28,
             // 検証セットで θ ・許容を同時に掃いて選んだ (平らな面の内側)．
-            // 1.0 以上にすると曲線の検査は働かない
-            phase_agreement: 0.16,
+            // 1.0 以上にすると曲線の検査は働かない．
+            // **境界の当てはめ (D71) を入れて選び直した値である** — 肩代わりされた分
+            // 曲線に掛かる相手が変わる．0.16 ・0.18 ・0.20 は検証セットで同じ成績
+            // (73 / 101 ・191 / 199) で，その平らな面の中央を採った．実データ枠は
+            // 0.18 以上で完全一致 58 → 60 と動き，誤答 ・誤受理は変わらない
+            phase_agreement: 0.18,
             // 検証セットで信頼度の下限と同時に掃いて選び，**実データ枠で膝を確かめて**
             // 決めた値．1.14 以上にすると検証セットの正棄却は 3 件増えるが，実データの
             // AI 出力の正例が 23 → 19 / 28 件へ落ちる — 元絵が連続階調の «本物の格子» は
@@ -226,11 +269,30 @@ impl Default for GridParams {
             // 運転点．**$\hat{s}$ で割って使う** (confidence_per_scale) ．
             // 検証セットで 0.05〜0.16 を掃引し 0.10 が最良 (マクロ 74.9%) ．
             // 0.06〜0.14 で 72.9〜74.9% と平らなので，尖った選び方ではない
-            min_confidence: 0.10,
+            //
+            // **0.10 → 0.095 (D72)．** 掃引の格子が 0.08 の次に 0.10 と粗く，間が
+            // 測れていなかった — 下限は $\hat{s}$ で割るので，$\hat{s} = 2 \ldots 3$
+            // では 0.005 の差が実際の下限の 0.002 の差になる．0.095 は検証セットの
+            // 完全一致を 72 → 73 (B 38 → 39) にし，**正棄却 192 ・D 9 ・実データ枠
+            // (同梱 148 件 ・`local/` 92 件) はどれも 1 件も動かない**．
+            //
+            // > [!warning] 0.09 まで下げると B は 40 / 50 (目標 80%) に届くが採らない
+            // > 検証セットは完全一致 74 ・B 40 になる一方，`local/` 92 件で
+            // > **誤答 0 → 1 ・誤受理 2 → 3** と後退する (同梱は不変) ．`local/` は
+            // > `px conform` が実際に受け取る入力に最も近い枠であり，D66 の要件は
+            // > «黙って誤答しないこと» の方である．**取り戻す 1 件 (信頼度 0.0305 ・
+            // > $\hat{s} = 3$) と失う 1 件 (`local/009.png` ・信頼度 0.031 ・
+            // > $\hat{s} = 3$) は 0.0005 しか違わず，この統計では分離できない．**
+            min_confidence: 0.095,
             confidence_per_scale: true,
             // 検証セットで確かめてから立てた．**実データでは誤答が半分になり
             // (8 → 4 件) ，代償は無かった** — 負例の成績はどちらも同じである
             normalize_epsilon: true,
+            // 2 階差分で拾う (1 階は bilinear で外れる)．検証セットで掃いて決めた膝
+            edge_fit_order: 2,
+            edge_fit_slope: 0.0125,
+            edge_fit_residual: 0.15,
+            edge_fit_min_count: 4,
         }
     }
 }
@@ -571,25 +633,25 @@ fn cyclic_spread(phases: &[usize], s: usize) -> usize {
 /// | 曲線なしで $\theta = 0.35$ にしただけ | 62 / 101 | 151 / 199 | 68.6% |
 ///
 /// 最下行が「曲線が棄却を引き受けている」ことの実測である (正棄却 151 → 183) ．
-fn phase_check_ok(it: &Integral, s: usize, d: IVec2, check: DriftCheck) -> bool {
+/// 位相の検査を**帯ずれと曲線に分けて**返す．`None` は «測れない» である．
+///
+/// 分けてあるのは，境界の当てはめ (D71) に**帯ずれだけを肩代わりさせる**ためである．
+/// 曲線はまとめて肩代わりさせない — D68 で «曲線が棄却を引き受けている» ことが
+/// 分かっており (外すと正棄却が 183 → 151 / 199) ，そこを手放すと，取り戻した
+/// 完全一致と同じだけ誤受理が戻ってくる．
+fn phase_parts(it: &Integral, s: usize, d: IVec2, check: DriftCheck) -> Option<(bool, bool)> {
     // 帯 0 ・1 は «検査を切る» 指定である．**測れなかった候補とは区別する**
     if check.bands < 2 {
-        return true;
+        return Some((true, true));
     }
-    let Some((_, curves)) = adaptive_curves(it, s, d, check.bands, check.min_cells) else {
-        // 測れない候補は**棄却する**．検査を通せない答えを返すほうが危ない
-        // (実測で完全一致 58 → 60 ・正棄却は 182 のまま) ．
-        return !check.require_measurable;
-    };
+    // 測れない候補は**棄却する**．検査を通せない答えを返すほうが危ない
+    // (実測で完全一致 58 → 60 ・正棄却は 182 のまま) ．
+    let (_, curves) = adaptive_curves(it, s, d, check.bands, check.min_cells)?;
     let spread = drift_of(&curves, s, check.subpixel);
-    if spread > (s as f32 * check.tolerance).max(check.floor) {
-        return false;
-    }
-    match agreement_of(&curves) {
-        // 谷が無い = 位相を選ぶ根拠が無い．測れない候補と同じ扱いにする
-        None => !check.require_measurable,
-        Some(penalty) => penalty <= check.agreement,
-    }
+    let drift = spread <= (s as f32 * check.tolerance).max(check.floor);
+    // 谷が無い = 位相を選ぶ根拠が無い．測れない候補と同じ扱いにする
+    let curve = agreement_of(&curves)? <= check.agreement;
+    Some((drift, curve))
 }
 
 /// 位相ずれ検査の設定．**[`GridParams`] から検査に要る分だけ取り出したもの．**
@@ -1370,6 +1432,210 @@ pub fn profile_stats(img: &RgbaCanvas, s: u32, phase: IVec2) -> ProfileStats {
     out
 }
 
+/// セル境界の位置に直線を当てたときの当てはまり (診断用)．推定には使わない．
+///
+/// **測る対象を «位相» から «セル境界そのものの位置» へ移した量である．**
+///
+/// 帯ごとの位相は «セル内平均分散を最小にする位相» を離散の $s$ 通りから選ぶが，
+/// 補間で谷が浅くなると 1 画素ずれた位相と区別が付かなくなる — 落としたい候補の
+/// 帯ずれは $\lfloor s/2 \rfloor$ に張り付き (巡回距離の上限) ，**滲んだ本物の格子も
+/// 同じ値を取る**．失敗は argmin の雑音であって，同じ量の上ではどこで切っても動かない．
+///
+/// 差分エネルギーの極大は事情が違う．
+///
+/// | | 帯の位相 | 境界の位置 |
+/// | --- | --- | --- |
+/// | 標本数 | 帯の数 = 4 | 境界の数 = 幅 / $s$ (数十) |
+/// | 1 標本 | 浅い谷の argmin (離散) | 鋭い峰の頂点 (副画素) |
+/// | 補間の効き方 | 谷が浅くなり argmin が飛ぶ | **峰が広がるだけで頂点は動かない** |
+/// | 位置の情報 | 巡回距離に潰す (上限 $s/2$ で飽和) | 直線の当てはめでそのまま使う |
+///
+/// **対称な暈けは峰の位置を動かさない** — ここが «補間で滲んだ本物の格子» に効く
+/// 見込みの根拠である．非整数の周期なら，当てはめた間隔が $s$ から離れる．
+///
+/// > [!note] 折り畳み ([`ProfileStats`]) とは別物である
+/// > あちらは $s$ で畳んで**位置の情報を捨てて**いた．ここでは畳まずに $b_k$ の
+/// > **並び**を使う．
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct EdgeFit {
+    /// 拾えた境界の数 (`[x, y]`)．
+    pub count: [usize; 2],
+    /// 期待される本数 (幅 / $s$) に対する割合 (`[x, y]`)．
+    ///
+    /// **平坦な絵では境界が拾えない．** 本物の格子でも全部の境目で色が変わるわけでは
+    /// ないので 1 にはならないが，これが小さい候補は «測れない» 側である．
+    pub coverage: [f32; 2],
+    /// 当てた直線からの残差の RMS を $s$ で割ったもの (`[x, y]`)．測れなければ `None`．
+    pub residual: [Option<f32>; 2],
+    /// 当てはめた間隔と $s$ のずれ $(\hat{s}_{\mathrm{fit}} - s) / s$ (`[x, y]`)．
+    pub slope: [Option<f32>; 2],
+}
+
+/// 差分エネルギーの極大点を副画素で拾う．
+///
+/// 非極大抑制の窓は $s/2$ — 補間で境界が 2 画素に広がっても峰を 2 つ数えないためである．
+/// 下限は平均エネルギー (絵の中身に依らない尺度が無いので，画像自身の平均を使う)．
+/// **同点の平坦部は左端を採る** (設計書 6.15 規則 2) ．bilinear の 1 階差分は
+/// セル中心の間で平らになるが，左端を採れば間隔は $s$ のままで，ずれは切片が吸収する．
+fn energy_peaks(energy: &[Option<f64>], s: usize) -> Vec<f32> {
+    let r = (s / 2).max(1);
+    let defined: Vec<f64> = energy.iter().flatten().copied().collect();
+    if defined.is_empty() {
+        return Vec::new();
+    }
+    let floor = defined.iter().sum::<f64>() / defined.len() as f64;
+
+    let mut out = Vec::new();
+    for (i, slot) in energy.iter().enumerate() {
+        let Some(v) = *slot else { continue };
+        // **平坦なところに峰は無い．** 等号を含めると，どこも同じエネルギー
+        // (平坦な絵 ・一様な勾配) でも先頭が «峰» として拾われてしまう
+        if v <= floor {
+            continue;
+        }
+        let lo = i.saturating_sub(r);
+        let hi = (i + r).min(energy.len() - 1);
+        let peak = (lo..=hi).all(|j| match energy[j] {
+            Some(u) if j < i => u < v,
+            Some(u) if j > i => u <= v,
+            _ => true,
+        });
+        if peak {
+            out.push(refine_peak(energy, i));
+        }
+    }
+    out
+}
+
+/// 峰の周りに放物線を当てて位置を**副画素**にする．谷になっていなければ整数のまま．
+fn refine_peak(energy: &[Option<f64>], i: usize) -> f32 {
+    if i == 0 || i + 1 >= energy.len() {
+        return i as f32;
+    }
+    let (Some(l), Some(c), Some(r)) = (energy[i - 1], energy[i], energy[i + 1]) else {
+        return i as f32;
+    };
+    let denom = l - 2.0 * c + r;
+    if denom >= 0.0 {
+        return i as f32;
+    }
+    (i as f64 + (0.5 * (l - r) / denom).clamp(-0.5, 0.5)) as f32
+}
+
+/// 境界の並びに直線 $b_k = a + k b$ を当てる．返すのは (残差の RMS, 間隔 $b$)．
+///
+/// **添字 $k$ は隣どうしの間隔から積む．** 位置から直接 $\mathrm{round}((p - d)/s)$ と
+/// 求めると，非整数の周期でずれが溜まって途中で添字が 1 つ飛び，«間隔» と «残差» の
+/// 両方に中途半端に現れる (周期 5.3 を $s = 5$ で読むと 9 本目で半分を超える) ．
+/// 間隔から積めば，1 本の飛びは 1 か所の判定にしか効かないので，
+/// **«間隔が 5.3 である» という 1 つの読み方**に落ちる．
+///
+/// 間隔は最低 1 セルとする．非極大抑制の窓が $s/2$ なので峰は $s/2$ より近づかず，
+/// 0 セル (同じ境界を 2 度数える) は起こらない — 起きたとすれば絵の側の縞である．
+fn fit_spacing(peaks: &[f32], s: f32) -> Option<(f32, f32)> {
+    if peaks.len() < 3 {
+        return None;
+    }
+    let mut ks = Vec::with_capacity(peaks.len());
+    let mut k = 0.0f32;
+    ks.push(k);
+    for w in peaks.windows(2) {
+        k += (((w[1] - w[0]) / s).round()).max(1.0);
+        ks.push(k);
+    }
+
+    let n = peaks.len() as f32;
+    let mk = ks.iter().sum::<f32>() / n;
+    let mp = peaks.iter().sum::<f32>() / n;
+    let sxx: f32 = ks.iter().map(|k| (k - mk) * (k - mk)).sum();
+    if sxx <= f32::EPSILON {
+        return None;
+    }
+    let b: f32 = ks
+        .iter()
+        .zip(peaks)
+        .map(|(k, p)| (k - mk) * (p - mp))
+        .sum::<f32>()
+        / sxx;
+    if !b.is_finite() || b <= 0.0 {
+        return None;
+    }
+    let a = mp - b * mk;
+    let rss: f32 = ks
+        .iter()
+        .zip(peaks)
+        .map(|(k, p)| {
+            let e = p - (a + b * k);
+            e * e
+        })
+        .sum();
+    Some(((rss / n).sqrt(), b))
+}
+
+/// セル境界の位置に直線を当てて測る (診断用)．`order` は差分の階数 (1 か 2)．
+///
+/// 階数を選べるようにしてあるのは，**補間で «境界» の現れ方が変わる**ためである．
+/// nearest なら 1 階差分が境界で尖るが，bilinear はセル中心の間を直線で結ぶので
+/// 1 階差分が区間ごとに平らになり，尖るのは 2 階差分の方である．どちらで拾うのが
+/// 良いかは測ってから決める．
+pub fn edge_fit(img: &RgbaCanvas, s: u32, order: u32) -> EdgeFit {
+    edge_fit_of(&axis_energies(img, order), s)
+}
+
+/// 軸ごとの差分エネルギー．**$s$ に依らないので候補ごとに作り直さない．**
+///
+/// 作り直すと候補の数だけ画像を走査することになる (再構成検査と同じ費用が
+/// もう 1 つ増える) ．帯の曲線を 1 か所にまとめたのと同じ理由である．
+fn axis_energies(img: &RgbaCanvas, order: u32) -> [Vec<Option<f64>>; 2] {
+    [
+        difference_energy(img, true, order),
+        difference_energy(img, false, order),
+    ]
+}
+
+/// 用意した差分エネルギーから当てはめる．
+fn edge_fit_of(energies: &[Vec<Option<f64>>; 2], s: u32) -> EdgeFit {
+    let su = (s as usize).max(1);
+    let mut out = EdgeFit {
+        count: [0; 2],
+        coverage: [0.0; 2],
+        residual: [None; 2],
+        slope: [None; 2],
+    };
+    for (axis, energy) in energies.iter().enumerate() {
+        let peaks = energy_peaks(energy, su);
+        out.count[axis] = peaks.len();
+        out.coverage[axis] = peaks.len() as f32 / (energy.len() / su).max(1) as f32;
+        if let Some((rms, b)) = fit_spacing(&peaks, su as f32) {
+            out.residual[axis] = Some(rms / su as f32);
+            out.slope[axis] = Some((b - su as f32) / su as f32);
+        }
+    }
+    out
+}
+
+/// **境界の当てはめが «真の $s$ である» と言えるか (D71)．**
+///
+/// これは位相の検査を**肩代わりする**関門である — 通す側にしか働かない．
+/// 帯ずれと曲線が落とした候補でも，境界の位置が $b_k = d + k s$ の直線に乗るなら通す．
+///
+/// > **落とす側を兼ねさせない．** $2 s_*$ の抑止は再構成検査と半セルずらし (D69) の
+/// > 仕事であり，こちらに背負わせると D68 で飽和した量と同じ罠に入る．
+///
+/// 測れない候補 (境界が足りない ・直線を当てられない) は**肩代わりしない**．
+/// 平坦な絵で境界が拾えないことは «格子がある» ことの根拠にならない．
+fn edge_fit_ok(energies: &[Vec<Option<f64>>; 2], s: u32, params: &GridParams) -> bool {
+    if params.edge_fit_order == 0 {
+        return false;
+    }
+    let fit = edge_fit_of(energies, s);
+    (0..2).all(|axis| {
+        fit.count[axis] >= params.edge_fit_min_count
+            && matches!(fit.slope[axis], Some(v) if v.abs() <= params.edge_fit_slope)
+            && matches!(fit.residual[axis], Some(v) if v <= params.edge_fit_residual)
+    })
+}
+
 fn divisors_and_multiples(s: u32, max: u32) -> impl Fn(u32) -> bool {
     move |t: u32| t != 0 && (s.is_multiple_of(t) || (t.is_multiple_of(s) && t <= max))
 }
@@ -1432,12 +1698,22 @@ fn evaluate(
     }
 
     let epsilon = params.epsilon_for(image_variance(it));
+    // 差分エネルギーは $s$ に依らない．候補ごとに作り直さない
+    let energies = axis_energies(img, params.edge_fit_order);
     let accepted: Vec<&Candidate> = all
         .iter()
         .filter(|c| c.mean_variance <= epsilon)
         .filter(|c| recon_ok(img, it, c.scale as usize, c.phase, params.delta, params.tau))
-        // 非整数の周期を落とす．再構成検査と違い，絵の中身に左右されない
-        .filter(|c| phase_check_ok(it, c.scale as usize, c.phase, params.into()))
+        // 非整数の周期を落とす．再構成検査と違い，絵の中身に左右されない．
+        // **境界の当てはめが肩代わりできる** (D71) — 帯ごとの argmin は谷が浅いと
+        // 当てずっぽうになるが，境界の並びは標本が数十あり，対称な暈けで動かない
+        .filter(|c| {
+            let check: DriftCheck = params.into();
+            match phase_parts(it, c.scale as usize, c.phase, check) {
+                None => !check.require_measurable,
+                Some((drift, curve)) => curve && (drift || edge_fit_ok(&energies, c.scale, params)),
+            }
+        })
         // 格子がそこに «在る» ことを確かめる (滑らかな絵はここで落ちる)
         .filter(|c| phase_contrast_ok(it, c.scale as usize, c.phase, params.phase_contrast_min))
         .collect();
@@ -1482,6 +1758,7 @@ pub fn scale_candidates(img: &RgbaCanvas, params: &GridParams) -> (Vec<ScaleCand
         .min(img.height().max(1));
     let it = Integral::new(img);
     let image_var = image_variance(&it);
+    let energies = axis_energies(img, params.edge_fit_order);
 
     let out = (2..=max)
         .filter_map(|s| {
@@ -1492,8 +1769,20 @@ pub fn scale_candidates(img: &RgbaCanvas, params: &GridParams) -> (Vec<ScaleCand
                 phase,
                 passes_epsilon: v <= params.epsilon_for(image_var),
                 passes_recon: recon_ok(img, &it, s as usize, phase, params.delta, params.tau),
-                passes_phase: phase_check_ok(&it, s as usize, phase, params.into())
-                    && phase_contrast_ok(&it, s as usize, phase, params.phase_contrast_min),
+                passes_phase: {
+                    let check: DriftCheck = params.into();
+                    match phase_parts(&it, s as usize, phase, check) {
+                        None => !check.require_measurable,
+                        Some((drift, curve)) => {
+                            curve && (drift || edge_fit_ok(&energies, s, params))
+                        }
+                    }
+                } && phase_contrast_ok(
+                    &it,
+                    s as usize,
+                    phase,
+                    params.phase_contrast_min,
+                ),
             })
         })
         .collect();
@@ -1748,6 +2037,17 @@ mod tests {
             }
         }
         out
+    }
+
+    /// 位相の検査を «帯ずれも曲線も課す» 形で回す (境界の当てはめは使わない)．
+    ///
+    /// 推定器は帯ずれの方だけを境界の当てはめに肩代わりさせるので，production には
+    /// この形の呼び出しが無い．**検査そのものの振る舞いはここで固定する．**
+    fn phase_check_ok(it: &Integral, s: usize, d: IVec2, check: DriftCheck) -> bool {
+        match phase_parts(it, s, d, check) {
+            None => !check.require_measurable,
+            Some((drift, curve)) => drift && curve,
+        }
     }
 
     /// 位相ずれ検査の設定．**下限 0 ・整数の位相**が既定の形である．
@@ -2374,5 +2674,70 @@ mod tests {
     fn uniformity_is_none_without_any_estimate() {
         let empty: Field<Option<u32>> = Field::filled(2, 2, None);
         assert_eq!(uniformity(&empty), None);
+    }
+
+    /// 本物の格子なら，境界の並びに当てた直線の間隔が $s$ と一致する．
+    #[test]
+    fn the_fitted_spacing_matches_a_real_grid() {
+        let img = upscaled(&WIDE, &palette(), 6, (0, 0));
+        let fit = edge_fit(&img, 6, 1);
+        for axis in 0..2 {
+            let slope = fit.slope[axis].expect("境界を拾えていない");
+            assert!(slope.abs() < 0.02, "軸 {axis} の間隔がずれている: {slope}");
+            let residual = fit.residual[axis].expect("境界を拾えていない");
+            assert!(residual < 0.05, "軸 {axis} の残差が大きい: {residual}");
+        }
+    }
+
+    /// **非整数の周期は «間隔のずれ» として出る．** 残差ではないところが要点で，
+    /// 添字付けを繰り返すと «5 画素の格子が途中で 1 本飛んだ» ではなく
+    /// «間隔が 5.3» という 1 つの読み方に収束する．
+    #[test]
+    fn a_non_integer_period_shows_up_as_a_spacing_error() {
+        let peaks: Vec<f32> = (0..20).map(|k| k as f32 * 5.3).collect();
+        let (rms, b) = fit_spacing(&peaks, 5.0).expect("当てはまらない");
+        assert!((b - 5.3).abs() < 0.01, "間隔 {b}");
+        assert!(rms < 0.01, "残差 {rms}");
+    }
+
+    /// 真の $s$ の約数は**そのまま直線に乗る**．止めるのは «閾値を満たす最大の $s$» の
+    /// 規則であって，この量の仕事ではない — **この検査は «真の $s$ を通す» 側だけを
+    /// 担当する** (2 倍の抑止は再構成検査と半セルずらしのままである) ．
+    #[test]
+    fn a_divisor_still_fits_the_line() {
+        let peaks: Vec<f32> = (0..12).map(|k| k as f32 * 6.0).collect();
+        let (rms, b) = fit_spacing(&peaks, 3.0).expect("当てはまらない");
+        assert!(rms < 0.01, "残差 {rms}");
+        assert!((b - 3.0).abs() < 0.01, "間隔 {b}");
+    }
+
+    /// 平坦な画像では境界が 1 本も立たない — **測れない候補**である．
+    #[test]
+    fn a_flat_image_has_no_boundaries() {
+        let img = RgbaCanvas::filled(64, 64, Rgba8::rgb(10, 20, 30));
+        let fit = edge_fit(&img, 4, 1);
+        assert_eq!(fit.count, [0, 0]);
+        assert_eq!(fit.residual, [None, None]);
+    }
+
+    /// 峰の頂点は**対称な暈けで動かない** — これがこの量を採る理由である．
+    #[test]
+    fn a_symmetric_blur_keeps_the_peak_in_place() {
+        let sharp = [0.0, 1.0, 5.0, 1.0, 0.0].map(Some);
+        let blurred = [0.5, 2.0, 4.0, 2.0, 0.5].map(Some);
+        assert_eq!(refine_peak(&sharp, 2), refine_peak(&blurred, 2));
+        assert_eq!(refine_peak(&sharp, 2), 2.0);
+    }
+
+    /// 非極大抑制の窓は $s/2$ — 2 画素に広がった峰を 2 本と数えない．
+    #[test]
+    fn a_widened_peak_is_counted_once() {
+        let mut energy = vec![Some(0.0); 24];
+        for k in 1..6 {
+            energy[k * 4] = Some(9.0);
+            energy[k * 4 + 1] = Some(8.0);
+        }
+        let peaks = energy_peaks(&energy, 4);
+        assert_eq!(peaks.len(), 5, "峰を数え違えている: {peaks:?}");
     }
 }

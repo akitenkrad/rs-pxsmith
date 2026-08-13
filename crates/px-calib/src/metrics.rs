@@ -108,6 +108,70 @@ impl Summary {
     }
 }
 
+/// D66 の区分．**保証範囲を «どの補間まで» で切る**ので，補間法でそのまま決まる．
+///
+/// | 区分 | 中身 | 目標 |
+/// | --- | --- | --- |
+/// | A | nearest (整数倍の拡大) | 完全一致 95% |
+/// | B | bilinear ・bicubic | 完全一致 80% |
+/// | C | lanczos | 目標を置かない |
+/// | D | 全 300 件のうち黙って誤答した件 | 5% 以下 |
+pub fn tier_of(filter: &str) -> char {
+    match filter {
+        "nearest" => 'A',
+        "bilinear" | "bicubic" => 'B',
+        _ => 'C',
+    }
+}
+
+/// 区分ごとの完全一致数と，黙って誤答した件数．
+///
+/// **率で語らない場面があるので件数のまま返す** — A は 26 件しかなく，1 件が 3.8% 動く．
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub struct Tiers {
+    /// `[A, B, C]` の (完全一致, 件数)．
+    pub exact: [(usize, usize); 3],
+    /// 黙って誤答した件 (格子ありの誤答 + 格子なしの誤受理)．
+    pub wrong: usize,
+    pub n: usize,
+}
+
+impl Tiers {
+    pub fn line(&self) -> String {
+        let [(ae, an), (be, bn), (ce, cn)] = self.exact;
+        format!(
+            "A {ae}/{an} ({:.1}%) ・B {be}/{bn} ({:.1}%) ・C {ce}/{cn} ・D {}/{} ({:.1}%)",
+            pct(ae, an),
+            pct(be, bn),
+            self.wrong,
+            self.n,
+            pct(self.wrong, self.n),
+        )
+    }
+}
+
+fn pct(n: usize, total: usize) -> f32 {
+    rate(n, total) * 100.0
+}
+
+/// 区分ごとに数える．**信頼度の下限を当てはめてから数える** ([`Row::outcome_at`])．
+pub fn tiers(rows: &[&Row], min_confidence: f32) -> Tiers {
+    let mut out = Tiers::default();
+    for r in rows {
+        out.n += 1;
+        let outcome = r.outcome_at(min_confidence);
+        if outcome == Outcome::Wrong {
+            out.wrong += 1;
+        }
+        if r.has_integer_grid {
+            let slot = &mut out.exact[(tier_of(&r.filter) as u8 - b'A') as usize];
+            slot.1 += 1;
+            slot.0 += usize::from(outcome == Outcome::Exact);
+        }
+    }
+    out
+}
+
 fn rate(n: usize, total: usize) -> f32 {
     if total == 0 {
         0.0

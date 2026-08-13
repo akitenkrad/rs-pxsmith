@@ -27,8 +27,8 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use px_core::grid::{
-    BandAgreement, GridParams, PhaseContrast, ProfileStats, ReconStats, band_agreement,
-    band_phases, band_phases_subpixel, phase_contrast, phase_drift_spread, profile_stats,
+    BandAgreement, EdgeFit, GridParams, PhaseContrast, ProfileStats, ReconStats, band_agreement,
+    band_phases, band_phases_subpixel, edge_fit, phase_contrast, phase_drift_spread, profile_stats,
     recon_stats, scale_candidates, split_gain, split_recon_gain,
 };
 use rayon::prelude::*;
@@ -95,6 +95,17 @@ pub struct Record {
     /// — **統計が飽和している**．正規化のしかたを CSV 側で試せるよう，生の 3 つ
     /// ($J$ ・$M$ ・$A$) をそのまま残す．
     pub agreement: Option<BandAgreement>,
+    /// **セル境界の位置に直線を当てた当てはまり (1 階差分と 2 階差分)．**
+    ///
+    /// 帯の位相は標本が 4 つしかなく，浅い谷の argmin なので雑音に負ける．境界の位置は
+    /// 数十本あり，しかも**対称な暈けが峰の位置を動かさない** — 補間で滲んだ本物の
+    /// 格子を通せる見込みがここにある．
+    ///
+    /// 階数を両方残すのは，補間で «境界» の現れ方が変わるためである (nearest は 1 階が
+    /// 尖り，bilinear はセル中心の間が直線になるので 2 階が尖る) ．**どちらで拾うかは
+    /// CSV の上で決める．**
+    pub edge1: EdgeFit,
+    pub edge2: EdgeFit,
 }
 
 pub const HEADER: &str = "item_id,scale,truth_scale,has_integer_grid,is_truth,filter,\
@@ -104,12 +115,20 @@ relief1_x,relief1_y,relief2_x,relief2_y,\
 vmargin_x,vmargin_y,vratio_x,vratio_y,rratio_x,rratio_y,\
 passes_epsilon,passes_phase,drift,bx2,by2,bx3,by3,bx4,by4,\
 sx2,sy2,sx3,sy3,sx4,sy4,split_gain,split_recon_gain,image_var,width,height,dx,dy,\
-agree_bands,jx,jy,mx,my,ax,ay";
+agree_bands,jx,jy,mx,my,ax,ay,\
+e1nx,e1ny,e1cx,e1cy,e1rx,e1ry,e1sx,e1sy,\
+e2nx,e2ny,e2cx,e2cy,e2rx,e2ry,e2sx,e2sy";
 
 /// 帯ごとの位相を `|` でつなぐ (CSV の 1 欄に収めるため)．
 fn join(v: Option<&Vec<usize>>) -> String {
     v.map(|v| v.iter().map(usize::to_string).collect::<Vec<_>>().join("|"))
         .unwrap_or_default()
+}
+
+/// 測れなかった量は**空欄**にする．$-1$ などの番兵は，傾きが負を取りうる
+/// (2 倍の候補で $-0.5$) この量では «測れない» と区別できない．
+fn optf(v: Option<f32>) -> String {
+    v.map(|x| format!("{x:.5}")).unwrap_or_default()
 }
 
 /// 副画素の位相を `|` でつなぐ．
@@ -132,7 +151,9 @@ impl Record {
 {:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},\
 {:.5},{:.5},{:.4},{:.4},{:.4},{:.4},{},{},{},{},{},{},{},{},{},\
 {},{},{},{},{},{},{:.5},{:.5},{:.6},{},{},{},{},\
-{},{:.7},{:.7},{:.7},{:.7},{:.7},{:.7}",
+{},{:.7},{:.7},{:.7},{:.7},{:.7},{:.7},\
+{},{},{:.4},{:.4},{},{},{},{},\
+{},{},{:.4},{:.4},{},{},{},{}",
             self.item_id,
             self.scale,
             self.truth_scale,
@@ -191,6 +212,22 @@ impl Record {
             self.agreement.map_or(-1.0, |a| a.separate[1]),
             self.agreement.map_or(-1.0, |a| a.level[0]),
             self.agreement.map_or(-1.0, |a| a.level[1]),
+            self.edge1.count[0],
+            self.edge1.count[1],
+            self.edge1.coverage[0],
+            self.edge1.coverage[1],
+            optf(self.edge1.residual[0]),
+            optf(self.edge1.residual[1]),
+            optf(self.edge1.slope[0]),
+            optf(self.edge1.slope[1]),
+            self.edge2.count[0],
+            self.edge2.count[1],
+            self.edge2.coverage[0],
+            self.edge2.coverage[1],
+            optf(self.edge2.residual[0]),
+            optf(self.edge2.residual[1]),
+            optf(self.edge2.slope[0]),
+            optf(self.edge2.slope[1]),
         )
     }
 
@@ -272,6 +309,8 @@ pub fn run(
                         params.phase_bands,
                         params.phase_min_cells,
                     ),
+                    edge1: edge_fit(&img, c.scale, 1),
+                    edge2: edge_fit(&img, c.scale, 2),
                     split_gain: split_gain(&img, c.scale, c.phase),
                     split_recon_gain: split_recon_gain(&img, c.scale, c.phase, params.delta),
                     drift: phase_drift_spread(
@@ -351,6 +390,18 @@ mod tests {
             height: 64,
             phase: (0, 0),
             agreement: None,
+            edge1: EdgeFit {
+                count: [8, 8],
+                coverage: [1.0; 2],
+                residual: [Some(overall); 2],
+                slope: [Some(overall); 2],
+            },
+            edge2: EdgeFit {
+                count: [0, 0],
+                coverage: [0.0; 2],
+                residual: [None; 2],
+                slope: [None; 2],
+            },
             stats: ReconStats {
                 overall,
                 interior: overall,

@@ -33,6 +33,7 @@ mod real;
 mod recon;
 mod recover;
 mod render;
+mod replay;
 mod rng;
 mod scene;
 mod sprite;
@@ -124,6 +125,9 @@ enum Command {
         /// 省略すると既定値に従う — **旗の有無で既定を潰さない**
         #[arg(long, num_args = 0..=1, default_missing_value = "true")]
         normalize_epsilon: Option<bool>,
+        /// 境界の当てはめに使う差分の階数．**0 でこの関門を外して比べられる**
+        #[arg(long, default_value_t = px_core::grid::GridParams::default().edge_fit_order)]
+        edge_fit_order: u32,
     },
     /// 再構成誤差を帯ごとに測る (掃引の行き止まりを抜けられるかの実測)
     Bands {
@@ -256,6 +260,15 @@ enum Command {
         /// 測れない候補も素通しする (既定は棄却)
         #[arg(long, num_args = 0..=1, default_missing_value = "true")]
         allow_unmeasurable: Option<bool>,
+        /// 境界の当てはめに使う差分の階数．**0 でこの関門を外す**
+        #[arg(long)]
+        edge_fit_order: Option<u32>,
+        /// 当てはめた間隔のずれの許容
+        #[arg(long)]
+        edge_fit_slope: Option<f32>,
+        /// 肩代わりに要る境界の本数 (軸ごと)
+        #[arg(long)]
+        edge_fit_min_count: Option<usize>,
     },
     /// 再構成検査の統計を測り直す (内側と境界を分けたら真の s を見分けられるか)
     Recon {
@@ -268,6 +281,69 @@ enum Command {
         /// 整数の格子が無い件 (非整数倍リサイズ) も測る．**位相ずれ検査の相手**である
         #[arg(long)]
         include_resized: bool,
+    },
+    /// **掃引を回さずに関門を掛け替える** — recon の CSV から estimate_grid を再現する
+    Replay {
+        #[arg(long, default_value = DEFAULT_DIR)]
+        dir: PathBuf,
+        /// 読む CSV．既定は <dir>/recon.csv (**--include-resized で取ったもの**)
+        #[arg(long)]
+        csv: Option<PathBuf>,
+        #[arg(long, default_value = "validation")]
+        split: String,
+        /// 画像から estimate_grid を回し，再現とどれだけ食い違うかを数える
+        #[arg(long)]
+        verify: bool,
+        /// 落ちた関門を候補ごとに数える (真の $s$ を何が落としているか)
+        #[arg(long)]
+        gates: bool,
+        #[arg(long, num_args = 1.., default_values_t = [px_core::grid::GridParams::default().epsilon])]
+        epsilon: Vec<f32>,
+        #[arg(long, num_args = 1.., default_values_t = [px_core::grid::GridParams::default().tau])]
+        tau: Vec<f32>,
+        #[arg(long, num_args = 1.., default_values_t = [px_core::grid::GridParams::default().phase_tolerance])]
+        phase_tolerance: Vec<f32>,
+        #[arg(long, num_args = 1.., default_values_t = [px_core::grid::GridParams::default().phase_agreement])]
+        phase_agreement: Vec<f32>,
+        #[arg(long, num_args = 1.., default_values_t = [px_core::grid::GridParams::default().phase_contrast_min])]
+        phase_contrast_min: Vec<f32>,
+        #[arg(long, num_args = 1.., default_values_t = [px_core::grid::GridParams::default().min_confidence])]
+        min_confidence: Vec<f32>,
+        /// 境界の当てはめを使う階数 (1 か 2)．0 でこの関門を外す
+        #[arg(long, num_args = 1.., default_values_t = [px_core::grid::GridParams::default().edge_fit_order])]
+        edge_order: Vec<u32>,
+        /// 境界の当てはめの掛け方 (`and` = 位相に足す ・`or` = 位相を肩代わりする)
+        #[arg(long, num_args = 1.., default_values_t = [String::from("or-drift")])]
+        edge_mode: Vec<String>,
+        /// 当てはめた間隔のずれの許容 (複数指定可)
+        #[arg(long, num_args = 1.., default_values_t = [px_core::grid::GridParams::default().edge_fit_slope])]
+        edge_slope: Vec<f32>,
+        /// 残差 RMS ($s$ で正規化) の許容 (複数指定可)
+        #[arg(long, num_args = 1.., default_values_t = [px_core::grid::GridParams::default().edge_fit_residual])]
+        edge_residual: Vec<f32>,
+        /// 拾えた境界の本数の下限 (複数指定可)
+        #[arg(long, num_args = 1.., default_values_t = [px_core::grid::GridParams::default().edge_fit_min_count])]
+        edge_min_count: Vec<usize>,
+        /// 期待される本数に対する割合の下限 (複数指定可)
+        #[arg(long, num_args = 1.., default_values_t = [0.0f32])]
+        edge_min_coverage: Vec<f32>,
+        /// 境界が拾えない候補に肩代わりを**させない** (`and` では棄却する)．
+        /// 既定は真 — `--edge-require-measurable false` で外せる
+        #[arg(long, num_args = 0..=1, default_missing_value = "true", default_value_t = true)]
+        edge_require_measurable: bool,
+        /// 境界の当てはめが**帯ずれ以外に**肩代わりする関門
+        /// (`none` ・`eps` ・`recon` ・`contrast` を `+` でつなぐ．複数指定可)
+        #[arg(long, num_args = 1.., default_values_t = [String::from("none")])]
+        edge_rescue: Vec<String>,
+        /// 曲線の正規化 — 分母を $(A - M) + \lambda A$ にする ($\lambda = 0$ が現行)
+        #[arg(long, num_args = 1.., default_values_t = [0.0f32])]
+        curve_lambda: Vec<f32>,
+        /// 曲線を軸ごとにまとめる形 (`mean` = 現行 ・`max`)
+        #[arg(long, num_args = 1.., default_values_t = [String::from("mean")])]
+        curve_axis: Vec<String>,
+        /// 上位何組を出すか
+        #[arg(long, default_value_t = 20)]
+        top: usize,
     },
     /// **正解の格子を与えて**縮小し，元絵が戻るかを測る (当てる価値があるのか)
     Recover {
@@ -398,6 +474,7 @@ fn main() -> Result<()> {
             uniform_confidence,
             phase_min_cells,
             normalize_epsilon,
+            edge_fit_order,
         } => {
             let manifest = dataset::read(&dir)?;
             let only = parse_split(&split)?;
@@ -422,6 +499,8 @@ fn main() -> Result<()> {
                 epsilons: or_default(epsilon, &default.epsilons),
                 deltas: or_default(delta, &default.deltas),
                 taus: or_default(tau, &default.taus),
+                edge_fit_order,
+                ..default
             };
             let combos = grid.combinations().len();
             let items = manifest
@@ -566,6 +645,9 @@ fn main() -> Result<()> {
             phase_contrast_min,
             phase_tolerance_floor,
             allow_unmeasurable,
+            edge_fit_order,
+            edge_fit_slope,
+            edge_fit_min_count,
         } => {
             let d = px_core::grid::GridParams::default();
             let params = px_core::grid::GridParams {
@@ -579,10 +661,13 @@ fn main() -> Result<()> {
                 phase_contrast_min: phase_contrast_min.unwrap_or(d.phase_contrast_min),
                 phase_tolerance_floor: phase_tolerance_floor.unwrap_or(d.phase_tolerance_floor),
                 phase_require_measurable: !allow_unmeasurable.unwrap_or(false),
+                edge_fit_order: edge_fit_order.unwrap_or(d.edge_fit_order),
+                edge_fit_slope: edge_fit_slope.unwrap_or(d.edge_fit_slope),
+                edge_fit_min_count: edge_fit_min_count.unwrap_or(d.edge_fit_min_count),
                 ..d
             };
             println!(
-                "ε = {}{} / δ = {} / τ = {} / min_confidence = {} / θ = {} / 曲線 {} / 測れない候補を{}\n",
+                "ε = {}{} / δ = {} / τ = {} / min_confidence = {} / θ = {} / 曲線 {} / 測れない候補を{} / 境界 {} 階 傾き {} 本数 {}\n",
                 params.epsilon,
                 if params.normalize_epsilon {
                     " (画像分散に対する割合)"
@@ -599,6 +684,9 @@ fn main() -> Result<()> {
                 } else {
                     "素通し"
                 },
+                params.edge_fit_order,
+                params.edge_fit_slope,
+                params.edge_fit_min_count,
             );
             let manifest = real::read(&dir)?;
             let outcomes = real::run(&dir, &manifest, &params)?;
@@ -669,6 +757,93 @@ fn main() -> Result<()> {
             px_io::atomic::write(&path, text.as_bytes())?;
             report_recon(&records);
             println!("\n{} 行を {} へ書いた", records.len(), path.display());
+        }
+
+        Command::Replay {
+            dir,
+            csv,
+            split,
+            verify,
+            gates,
+            epsilon,
+            tau,
+            phase_tolerance,
+            phase_agreement,
+            phase_contrast_min,
+            min_confidence,
+            edge_order,
+            edge_mode,
+            edge_slope,
+            edge_residual,
+            edge_min_count,
+            edge_min_coverage,
+            edge_require_measurable,
+            edge_rescue,
+            curve_lambda,
+            curve_axis,
+            top,
+        } => {
+            let manifest = dataset::read(&dir)?;
+            let only = parse_split(&split)?;
+            let path = csv.unwrap_or_else(|| dir.join("recon.csv"));
+            let cases = replay::load(&path, &manifest, only)?;
+            println!("{} 件を {} から読んだ", cases.len(), path.display());
+
+            let base = replay::Gates::default();
+            println!(
+                "\n== 既定の運転点 (再現) ==\n  {}",
+                replay::score(&cases, &base).line()
+            );
+            if verify {
+                report_replay_verify(&dir, &manifest, only, &cases, &base)?;
+            }
+            if gates {
+                report_replay_gates(&cases, &base);
+            }
+
+            let modes: Vec<replay::EdgeMode> = edge_mode
+                .iter()
+                .map(|m| {
+                    replay::EdgeMode::parse(m)
+                        .with_context(|| format!("掛け方は and / or / or-drift: {m}"))
+                })
+                .collect::<Result<_>>()?;
+            let rescues: Vec<replay::Rescue> = edge_rescue
+                .iter()
+                .map(|r| {
+                    replay::Rescue::parse(r).with_context(|| {
+                        format!("肩代わりは none / eps / recon / contrast を + でつなぐ: {r}")
+                    })
+                })
+                .collect::<Result<_>>()?;
+            let axes: Vec<replay::CurveAxis> = curve_axis
+                .iter()
+                .map(|a| {
+                    replay::CurveAxis::parse(a)
+                        .with_context(|| format!("軸のまとめ方は mean / max: {a}"))
+                })
+                .collect::<Result<_>>()?;
+
+            let mut grid = vec![replay::Gates {
+                edge_require_measurable,
+                ..base
+            }];
+            grid = expand(&grid, &epsilon, |g, v| g.epsilon = v);
+            grid = expand(&grid, &tau, |g, v| g.tau = v);
+            grid = expand(&grid, &phase_tolerance, |g, v| g.phase_tolerance = v);
+            grid = expand(&grid, &phase_agreement, |g, v| g.phase_agreement = v);
+            grid = expand(&grid, &phase_contrast_min, |g, v| g.phase_contrast_min = v);
+            grid = expand(&grid, &min_confidence, |g, v| g.min_confidence = v);
+            grid = expand(&grid, &edge_order, |g, v| g.edge_order = v);
+            grid = expand(&grid, &modes, |g, v| g.edge_mode = v);
+            grid = expand(&grid, &edge_slope, |g, v| g.edge_slope = v);
+            grid = expand(&grid, &edge_residual, |g, v| g.edge_residual = v);
+            grid = expand(&grid, &edge_min_count, |g, v| g.edge_min_count = v);
+            grid = expand(&grid, &edge_min_coverage, |g, v| g.edge_min_coverage = v);
+            grid = expand(&grid, &rescues, |g, v| g.rescue = v);
+            grid = expand(&grid, &curve_lambda, |g, v| g.curve_lambda = v);
+            grid = expand(&grid, &axes, |g, v| g.curve_axis = v);
+            report_replay_sweep(&cases, &grid, top);
         }
 
         Command::Recover {
@@ -1347,6 +1522,192 @@ fn report_diagnose(records: &[diagnose::Record]) {
 }
 
 /// どの統計が「真の $s$」を見分けられるかを並べる．
+/// 再現が本物の `estimate_grid` とどれだけ食い違うか．
+///
+/// **完全には一致しない．** `scale_candidates` は全 $s$ を素通しで評価するが，
+/// `estimate_grid` は自己相関で絞ってから全探索へ落ちる．食い違いの数を出しておかないと，
+/// 再現の上で見た差が «関門の差» なのか «再現の粗さ» なのか分からない．
+fn report_replay_verify(
+    dir: &std::path::Path,
+    manifest: &dataset::Manifest,
+    only: Option<Split>,
+    cases: &[replay::Case],
+    gates: &replay::Gates,
+) -> Result<()> {
+    use rayon::prelude::*;
+    let params = px_core::grid::GridParams::default();
+    let by_id: std::collections::BTreeMap<u32, &dataset::Item> =
+        manifest.items.iter().map(|i| (i.id, i)).collect();
+
+    let diffs: Vec<(u32, String)> = cases
+        .par_iter()
+        .filter(|c| only.is_none_or(|s| by_id[&c.item_id].split == s))
+        .map(|case| -> Result<Option<(u32, String)>> {
+            let item = by_id[&case.item_id];
+            let img = px_io::png::read_rgba(dir.join(&item.file))?;
+            let real = px_core::grid::estimate_grid(&img, &params)
+                .ok()
+                .map(|e| (e.scale, e.phase.x, e.phase.y));
+            let mine = case
+                .decide(gates)
+                .map(|c| (c.scale, c.phase.0 as i32, c.phase.1 as i32));
+            Ok((real != mine).then(|| (case.item_id, format!("{real:?} 対 {mine:?}"))))
+        })
+        .collect::<Result<Vec<_>>>()?
+        .into_iter()
+        .flatten()
+        .collect();
+
+    println!("\n== 本物の estimate_grid との食い違い ==");
+    println!("  {} / {} 件", diffs.len(), cases.len());
+    for (id, d) in diffs.iter().take(10) {
+        println!("    {id:04}  {d}");
+    }
+    Ok(())
+}
+
+/// 真の $s$ を落としている関門を数える．**落ち方は 1 つとは限らない**ので，
+/// 落ちた関門をすべて数える (最初の 1 つだけだと犯人を取り違える) ．
+/// 掃引の格子を 1 軸ぶん広げる．**入れ子の for を積み上げない** — 軸を足すたびに
+/// 段が深くなると，足し忘れや順序の取り違えが起きる．
+fn expand<T: Copy>(
+    grid: &[replay::Gates],
+    values: &[T],
+    set: impl Fn(&mut replay::Gates, T),
+) -> Vec<replay::Gates> {
+    let mut out = Vec::with_capacity(grid.len() * values.len());
+    for &v in values {
+        for g in grid {
+            let mut g = *g;
+            set(&mut g, v);
+            out.push(g);
+        }
+    }
+    out
+}
+
+fn report_replay_gates(cases: &[replay::Case], gates: &replay::Gates) {
+    // 区分ごとに数える．**B が唯一の未達**なので，どの関門が B を落としているかが要る
+    let mut counts: std::collections::BTreeMap<String, [usize; 4]> =
+        std::collections::BTreeMap::new();
+    let mut order: Vec<String> = Vec::new();
+    let mut alive = [0usize; 4];
+    let mut total = [0usize; 4];
+    for case in cases.iter().filter(|c| c.has_integer_grid) {
+        let Some(truth) = case.cands.iter().find(|c| c.scale == case.truth_scale) else {
+            continue;
+        };
+        let slot = case.tier().map_or(3, |t| (t as u8 - b'A') as usize);
+        total[slot] += 1;
+        total[3] += 1;
+        let failed = truth.failed_gates(gates, case.image_var);
+        if failed.is_empty() {
+            alive[slot] += 1;
+            alive[3] += 1;
+        }
+        for name in failed {
+            let entry = counts.entry(name.to_string()).or_insert_with(|| {
+                order.push(name.to_string());
+                [0; 4]
+            });
+            entry[slot] += 1;
+            entry[3] += 1;
+        }
+    }
+    println!("\n== 真の $s$ を落とした関門 (格子あり {} 件) ==", total[3]);
+    println!("  {:<32} {:>5} {:>5} {:>5} {:>5}", "", "計", "A", "B", "C");
+    println!(
+        "  {:<32} {:>5} {:>5} {:>5} {:>5} — **完全一致の上限**",
+        "すべて通る", alive[3], alive[0], alive[1], alive[2],
+    );
+    for name in &order {
+        let n = counts[name];
+        println!(
+            "  {name:<32} {:>5} {:>5} {:>5} {:>5}",
+            n[3], n[0], n[1], n[2],
+        );
+    }
+
+    // 関門を通ったのに取り逃した件．**ここは関門を掛け替えても動かない**
+    println!("\n== 関門を通ったのに取り逃した件 ==");
+    let mut any = false;
+    for case in cases {
+        let Some(reason) = case.missed_reason(gates) else {
+            continue;
+        };
+        any = true;
+        let conf = case
+            .confidence_at(gates)
+            .map(|(c, f, s)| format!("信頼度 {c:.4} / 下限 {f:.4} (s = {s})"))
+            .unwrap_or_default();
+        println!(
+            "  {:04}  区分 {}  {:<9} {reason}  {conf}",
+            case.item_id,
+            case.tier().unwrap_or('-'),
+            case.filter,
+        );
+    }
+    if !any {
+        println!("  無し");
+    }
+}
+
+/// 関門の組を総当たりして，選択規則を回した完全一致数で並べる．
+///
+/// **分離能では選ばない** (課題分析と戦略 8 節) ．並べる鍵はマクロ平均だが，採否は
+/// D66 の区分 (A ・B ・D) と実データ枠で決めるので，区分をそのまま出す．
+fn report_replay_sweep(cases: &[replay::Case], grid: &[replay::Gates], top: usize) {
+    let mut rows: Vec<(replay::Gates, replay::Score)> =
+        grid.iter().map(|g| (*g, replay::score(cases, g))).collect();
+    rows.sort_by(|a, b| {
+        b.1.macro_rate()
+            .total_cmp(&a.1.macro_rate())
+            .then(b.1.exact.cmp(&a.1.exact))
+    });
+
+    let show = |(g, s): &(replay::Gates, replay::Score)| {
+        println!(
+            "  ε {:<5} τ {:<5} θ {:<5} 曲線 {:<5} λ {:<4} 軸 {:<4} 比 {:<5} 信 {:<5} | 境界 {} {:<8} 傾き {:<6} 残差 {:<6} 本数 {:<3} 割合 {:<5} 肩代 {:<14} | {}",
+            g.epsilon,
+            g.tau,
+            g.phase_tolerance,
+            g.phase_agreement,
+            g.curve_lambda,
+            g.curve_axis.as_str(),
+            g.phase_contrast_min,
+            g.min_confidence,
+            g.edge_order,
+            g.edge_mode.as_str(),
+            g.edge_slope,
+            g.edge_residual,
+            g.edge_min_count,
+            g.edge_min_coverage,
+            g.rescue.label(),
+            s.line(),
+        );
+    };
+
+    println!("\n== 関門を掛け替えた結果 ({} 組) ==", rows.len());
+    for row in rows.iter().take(top) {
+        show(row);
+    }
+
+    // 採否の基準 — **測る前に決めておく** (課題分析と戦略 10 節 ・11 節) ．
+    // **再現は本物より 1〜2 件甘い**ので，本物で B 40 / 50 を狙うなら再現では 41 を見る
+    // (再現の現行は B 39 ・本物は 38) ．
+    let ok: Vec<&(replay::Gates, replay::Score)> = rows
+        .iter()
+        .filter(|(_, s)| s.tier[1].0 >= 41 && s.tier[0].0 >= 25 && s.wrong <= 12)
+        .collect();
+    println!("\n== 採否の基準を満たす組 (B >= 41 ・A >= 25 ・D <= 12) ==");
+    if ok.is_empty() {
+        println!("  無し");
+    }
+    for row in ok.iter().take(top) {
+        show(row);
+    }
+}
+
 fn report_recon(records: &[recon::Record]) {
     let truth = records.iter().filter(|r| r.is_truth).count();
     println!(
@@ -1544,7 +1905,13 @@ fn report_bands(records: &[bands::Record]) {
 /// 「閾値で落ちる件」と「信頼度で落ちる件」に割れており，2 つは逆を向いている —
 /// 下限を下げれば正例が戻る代わりに負例の誤受理が増える．片方ずつ動かすと，
 /// 一方を直して他方を壊した分が打ち消し合って見えなくなる．
-const CONFIDENCE_LEVELS: [f32; 10] = [0.0, 0.005, 0.01, 0.02, 0.03, 0.05, 0.08, 0.10, 0.12, 0.20];
+/// **運転点の周りは細かく刻む．** 0.08 と 0.10 の間が空いていたため «信頼度の下限は
+/// 掃いても動かない» と読めていたが，実際には 0.09 で真の $s$ が 2 件戻る (D72) ．
+/// 下限は $\hat{s}$ で割って使うので，$\hat{s} = 2 \ldots 3$ では 0.01 の差が
+/// 0.003 〜 0.005 の差になる — **格子が粗いと «動かない» が «測れていない» になる．**
+const CONFIDENCE_LEVELS: [f32; 14] = [
+    0.0, 0.005, 0.01, 0.02, 0.03, 0.05, 0.08, 0.085, 0.09, 0.095, 0.10, 0.11, 0.12, 0.20,
+];
 
 fn report(dir: &std::path::Path, rows: &[Row], target: f32, top: usize) -> Result<()> {
     let validation: Vec<Row> = rows
@@ -1637,6 +2004,22 @@ fn report(dir: &std::path::Path, rows: &[Row], target: f32, top: usize) -> Resul
         best.resized_reject_rate * 100.0,
     );
 
+    println!(
+        "  D66 の区分: {}",
+        metrics::tiers(&best_rows, best.min_confidence).line()
+    );
+
+    // **自動で選んだ組と出荷の既定値は一致しないことがある．**
+    // マクロ平均だけで選ぶと実データ枠の後退が見えない (D69 ・D72) ので，
+    // 既定値での成績も必ず並べる — 黙って «最良» へ寄せ直さないための歯止めである
+    let shipped = px_core::grid::GridParams::default().min_confidence;
+    if (shipped - best.min_confidence).abs() > f32::EPSILON {
+        println!(
+            "  ※ 出荷の既定は min_confidence = {shipped} である (この表の最良と違う) ．\n     既定での区分: {}\n     **実データ枠を見て決めた値なので，マクロ平均だけで書き換えないこと** (grid.rs の doc を読む)",
+            metrics::tiers(&best_rows, shipped).line()
+        );
+    }
+
     match metrics::operating_point(&curve, target) {
         Some(p) => println!(
             "  min_confidence = {:.2} で誤り {:.1}% / 採用 {:.1}% ({} 件)  ← 目標 {:.0}% を満たす最小の閾値",
@@ -1658,6 +2041,13 @@ fn report(dir: &std::path::Path, rows: &[Row], target: f32, top: usize) -> Resul
         .filter(|r| r.split == Split::Test && r.param_id == best.param_id)
         .cloned()
         .collect();
+    if !test.is_empty() {
+        let refs: Vec<&Row> = test.iter().collect();
+        println!(
+            "  (テストセットの D66 区分: {})",
+            metrics::tiers(&refs, best.min_confidence).line()
+        );
+    }
     if test.is_empty() {
         println!(
             "\n(テストセットは掃引に含まれていない．`sweep --split test` を選んだ組だけで回すこと．\n 検証セットで決めた閾値をテストセットで選び直してはいけない)"

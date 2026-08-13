@@ -42,21 +42,33 @@ pub struct ParamGrid {
     /// $\varepsilon$ を画像分散に対する割合として扱うか．**掃引 1 回につき 1 通り**
     /// — 絶対値と割合では意味のある水準の桁が違うので，同じ列に混ぜない
     pub normalize_epsilon: bool,
+    /// 境界の当てはめ (D71)．**掃引 1 回につき 1 通り** — 細かい掃引は
+    /// [`crate::replay`] の仕事である (CSV の上で数えられる)
+    pub edge_fit_order: u32,
+    pub edge_fit_slope: f32,
+    pub edge_fit_residual: f32,
+    pub edge_fit_min_count: usize,
 }
 
 impl Default for ParamGrid {
     fn default() -> Self {
+        // **数値を書き写さない．** 1 通りしか見ない軸は校正値をそのまま引く
+        let p = GridParams::default();
         Self {
-            max_scale: 16,
-            phase_bands: 4,
-            phase_tolerances: vec![0.35],
-            phase_agreements: vec![0.16],
-            phase_contrast_mins: vec![1.12],
-            phase_require_measurable: true,
-            phase_subpixel: false,
-            confidence_per_scale: true,
-            phase_tolerance_floors: vec![0.0],
-            phase_min_cells: 2,
+            max_scale: p.max_scale,
+            phase_bands: p.phase_bands,
+            phase_tolerances: vec![p.phase_tolerance],
+            phase_agreements: vec![p.phase_agreement],
+            phase_contrast_mins: vec![p.phase_contrast_min],
+            phase_require_measurable: p.phase_require_measurable,
+            phase_subpixel: p.phase_subpixel,
+            confidence_per_scale: p.confidence_per_scale,
+            edge_fit_order: p.edge_fit_order,
+            edge_fit_slope: p.edge_fit_slope,
+            edge_fit_residual: p.edge_fit_residual,
+            edge_fit_min_count: p.edge_fit_min_count,
+            phase_tolerance_floors: vec![p.phase_tolerance_floor],
+            phase_min_cells: p.phase_min_cells,
             // 予備調査で「補間を挟むと必要な ε が 1 桁以上大きくなる」ことが
             // 分かっている (開発ノート 5 節)．既定の 2e-4 から 2 桁上まで見る
             epsilons: vec![2.0e-4, 5.0e-4, 1.0e-3, 2.0e-3, 5.0e-3, 1.0e-2, 2.0e-2],
@@ -97,6 +109,13 @@ impl ParamGrid {
                                         min_confidence: 0.0,
                                         confidence_per_scale: self.confidence_per_scale,
                                         normalize_epsilon: self.normalize_epsilon,
+                                        // **掃引 1 回につき 1 通り．** 境界の当てはめの
+                                        // 細かい掃引は `replay` の仕事である (CSV の上で
+                                        // 数えられるので，こちらを回す必要が無い)
+                                        edge_fit_order: self.edge_fit_order,
+                                        edge_fit_slope: self.edge_fit_slope,
+                                        edge_fit_residual: self.edge_fit_residual,
+                                        edge_fit_min_count: self.edge_fit_min_count,
                                     });
                                 }
                             }
