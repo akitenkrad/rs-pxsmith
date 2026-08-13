@@ -57,6 +57,9 @@ struct Cli {
     command: Command,
 }
 
+// 掃引の口は «掛け替えられる軸» をそのまま旗にしているので，`Sweep` と `Replay` だけ
+// 大きくなる．1 回しか作らない値なので，箱に入れて間接参照を増やす意味が無い
+#[allow(clippy::large_enum_variant)]
 #[derive(Subcommand)]
 enum Command {
     /// 合成の評価データセットを作る
@@ -128,6 +131,9 @@ enum Command {
         /// 境界の当てはめに使う差分の階数．**0 でこの関門を外して比べられる**
         #[arg(long, default_value_t = px_core::grid::GridParams::default().edge_fit_order)]
         edge_fit_order: u32,
+        /// 曲線を肩代わりする残差 (D73)．**負の値でこの肩代わりを外して比べられる**
+        #[arg(long)]
+        edge_fit_curve_residual: Option<f32>,
     },
     /// 再構成誤差を帯ごとに測る (掃引の行き止まりを抜けられるかの実測)
     Bands {
@@ -269,6 +275,9 @@ enum Command {
         /// 肩代わりに要る境界の本数 (軸ごと)
         #[arg(long)]
         edge_fit_min_count: Option<usize>,
+        /// 曲線を肩代わりする残差 (D73)．**負の値でこの肩代わりを外す**
+        #[arg(long)]
+        edge_fit_curve_residual: Option<f32>,
     },
     /// 再構成検査の統計を測り直す (内側と境界を分けたら真の s を見分けられるか)
     Recon {
@@ -332,9 +341,19 @@ enum Command {
         #[arg(long, num_args = 0..=1, default_missing_value = "true", default_value_t = true)]
         edge_require_measurable: bool,
         /// 境界の当てはめが**帯ずれ以外に**肩代わりする関門
-        /// (`none` ・`eps` ・`recon` ・`contrast` を `+` でつなぐ．複数指定可)
+        /// (`none` ・`eps` ・`recon` ・`contrast` ・`curve` を `+` でつなぐ．複数指定可)
         #[arg(long, num_args = 1.., default_values_t = [String::from("none")])]
         edge_rescue: Vec<String>,
+        /// **曲線を肩代わりするときだけの傾きの許容** (既定は帯ずれと同じ値)．
+        /// 曲線は «棄却を引き受ける» 量なので，緩いまま手放すと誤受理が戻る
+        #[arg(long, num_args = 1.., default_values_t = [px_core::grid::GridParams::default().edge_fit_slope])]
+        edge_curve_slope: Vec<f32>,
+        /// 同上 (残差 RMS)
+        #[arg(long, num_args = 1.., default_values_t = [px_core::grid::GridParams::default().edge_fit_residual])]
+        edge_curve_residual: Vec<f32>,
+        /// 同上 (境界の本数の下限)
+        #[arg(long, num_args = 1.., default_values_t = [px_core::grid::GridParams::default().edge_fit_min_count])]
+        edge_curve_min_count: Vec<usize>,
         /// 曲線の正規化 — 分母を $(A - M) + \lambda A$ にする ($\lambda = 0$ が現行)
         #[arg(long, num_args = 1.., default_values_t = [0.0f32])]
         curve_lambda: Vec<f32>,
@@ -475,6 +494,7 @@ fn main() -> Result<()> {
             phase_min_cells,
             normalize_epsilon,
             edge_fit_order,
+            edge_fit_curve_residual,
         } => {
             let manifest = dataset::read(&dir)?;
             let only = parse_split(&split)?;
@@ -500,6 +520,12 @@ fn main() -> Result<()> {
                 deltas: or_default(delta, &default.deltas),
                 taus: or_default(tau, &default.taus),
                 edge_fit_order,
+                // 負の値は «肩代わりしない» の指定である (旗の有無で既定を潰さない)
+                edge_fit_curve_residual: match edge_fit_curve_residual {
+                    Some(v) if v < 0.0 => None,
+                    Some(v) => Some(v),
+                    None => default.edge_fit_curve_residual,
+                },
                 ..default
             };
             let combos = grid.combinations().len();
@@ -640,6 +666,7 @@ fn main() -> Result<()> {
             tau,
             min_confidence,
             normalize_epsilon,
+            edge_fit_curve_residual,
             phase_tolerance,
             phase_agreement,
             phase_contrast_min,
@@ -655,6 +682,12 @@ fn main() -> Result<()> {
                 delta: delta.unwrap_or(d.delta),
                 tau: tau.unwrap_or(d.tau),
                 min_confidence: min_confidence.unwrap_or(d.min_confidence),
+                // 負の値は «肩代わりしない» の指定である (旗の有無で既定を潰さない)
+                edge_fit_curve_residual: match edge_fit_curve_residual {
+                    Some(v) if v < 0.0 => None,
+                    Some(v) => Some(v),
+                    None => d.edge_fit_curve_residual,
+                },
                 normalize_epsilon: normalize_epsilon.unwrap_or(d.normalize_epsilon),
                 phase_tolerance: phase_tolerance.unwrap_or(d.phase_tolerance),
                 phase_agreement: phase_agreement.unwrap_or(d.phase_agreement),
@@ -779,6 +812,9 @@ fn main() -> Result<()> {
             edge_min_coverage,
             edge_require_measurable,
             edge_rescue,
+            edge_curve_slope,
+            edge_curve_residual,
+            edge_curve_min_count,
             curve_lambda,
             curve_axis,
             top,
@@ -841,6 +877,13 @@ fn main() -> Result<()> {
             grid = expand(&grid, &edge_min_count, |g, v| g.edge_min_count = v);
             grid = expand(&grid, &edge_min_coverage, |g, v| g.edge_min_coverage = v);
             grid = expand(&grid, &rescues, |g, v| g.rescue = v);
+            grid = expand(&grid, &edge_curve_slope, |g, v| g.edge_curve_slope = v);
+            grid = expand(&grid, &edge_curve_residual, |g, v| {
+                g.edge_curve_residual = v
+            });
+            grid = expand(&grid, &edge_curve_min_count, |g, v| {
+                g.edge_curve_min_count = v
+            });
             grid = expand(&grid, &curve_lambda, |g, v| g.curve_lambda = v);
             grid = expand(&grid, &axes, |g, v| g.curve_axis = v);
             report_replay_sweep(&cases, &grid, top);
@@ -1666,8 +1709,15 @@ fn report_replay_sweep(cases: &[replay::Case], grid: &[replay::Gates], top: usiz
     });
 
     let show = |(g, s): &(replay::Gates, replay::Score)| {
+        let rescue = format!(
+            "{} (曲線は 傾き {} 残差 {} 本数 {})",
+            g.rescue.label(),
+            g.edge_curve_slope,
+            g.edge_curve_residual,
+            g.edge_curve_min_count
+        );
         println!(
-            "  ε {:<5} τ {:<5} θ {:<5} 曲線 {:<5} λ {:<4} 軸 {:<4} 比 {:<5} 信 {:<5} | 境界 {} {:<8} 傾き {:<6} 残差 {:<6} 本数 {:<3} 割合 {:<5} 肩代 {:<14} | {}",
+            "  ε {:<5} τ {:<5} θ {:<5} 曲線 {:<5} λ {:<4} 軸 {:<4} 比 {:<5} 信 {:<5} | 境界 {} {:<8} 傾き {:<6} 残差 {:<6} 本数 {:<3} 割合 {:<5} 肩代 {} | {}",
             g.epsilon,
             g.tau,
             g.phase_tolerance,
@@ -1682,7 +1732,7 @@ fn report_replay_sweep(cases: &[replay::Case], grid: &[replay::Gates], top: usiz
             g.edge_residual,
             g.edge_min_count,
             g.edge_min_coverage,
-            g.rescue.label(),
+            rescue,
             s.line(),
         );
     };

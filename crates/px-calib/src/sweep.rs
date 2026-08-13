@@ -48,6 +48,8 @@ pub struct ParamGrid {
     pub edge_fit_slope: f32,
     pub edge_fit_residual: f32,
     pub edge_fit_min_count: usize,
+    /// 曲線を肩代わりする残差 (D73)．`None` で肩代わりしない
+    pub edge_fit_curve_residual: Option<f32>,
 }
 
 impl Default for ParamGrid {
@@ -67,6 +69,7 @@ impl Default for ParamGrid {
             edge_fit_slope: p.edge_fit_slope,
             edge_fit_residual: p.edge_fit_residual,
             edge_fit_min_count: p.edge_fit_min_count,
+            edge_fit_curve_residual: p.edge_fit_curve_residual,
             phase_tolerance_floors: vec![p.phase_tolerance_floor],
             phase_min_cells: p.phase_min_cells,
             // 予備調査で「補間を挟むと必要な ε が 1 桁以上大きくなる」ことが
@@ -116,6 +119,7 @@ impl ParamGrid {
                                         edge_fit_slope: self.edge_fit_slope,
                                         edge_fit_residual: self.edge_fit_residual,
                                         edge_fit_min_count: self.edge_fit_min_count,
+                                        edge_fit_curve_residual: self.edge_fit_curve_residual,
                                     });
                                 }
                             }

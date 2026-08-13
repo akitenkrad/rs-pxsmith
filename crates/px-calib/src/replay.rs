@@ -73,6 +73,17 @@ pub struct Rescue {
     pub epsilon: bool,
     pub recon: bool,
     pub contrast: bool,
+    /// **曲線の検査を肩代わりする．**
+    ///
+    /// D71 は «まるごと肩代わり» (`EdgeMode::Or`) として測って捨てた — 検証セットは
+    /// +2 件だが実データの誤答が 2 → 4 ・`local/` の誤受理が 2 → 4 に増えた．
+    /// ただしそのとき使った当てはめの許容は**帯ずれ用と同じ緩い値**である
+    /// (傾き 0.0125 ・残差 0.15) ．
+    ///
+    /// 曲線で落ちている B 4 件の当てはめは残差 0.001 〜 0.032 ・傾き 0.0044 以下と
+    /// **一桁良い**ので，**役目ごとに厳しさを変える** ([`Gates::edge_curve_slope`]) と
+    /// 分けられる見込みがある．**緩い許容のまま肩代わりさせないこと．**
+    pub curve: bool,
 }
 
 impl Rescue {
@@ -85,6 +96,7 @@ impl Rescue {
                 "eps" | "epsilon" => out.epsilon = true,
                 "recon" => out.recon = true,
                 "contrast" => out.contrast = true,
+                "curve" => out.curve = true,
                 _ => return None,
             }
         }
@@ -101,6 +113,9 @@ impl Rescue {
         }
         if self.contrast {
             parts.push("contrast");
+        }
+        if self.curve {
+            parts.push("curve");
         }
         if parts.is_empty() {
             "none".to_string()
@@ -215,6 +230,17 @@ pub struct Gates {
     pub edge_require_measurable: bool,
     /// 境界の当てはめが**帯ずれ以外に**肩代わりする関門．
     pub rescue: Rescue,
+    /// **曲線を肩代わりするときだけに使う，厳しい方の許容** (傾き)．
+    ///
+    /// 曲線は D68 で «棄却を引き受ける» ために入れた量なので，**帯ずれと同じ緩さで
+    /// 手放すと取り戻した分だけ誤受理が戻る** (D71 で実測) ．役目が違えば厳しさも
+    /// 変える — 帯ずれの肩代わりは «通す» 側だけを担うが，曲線の肩代わりは
+    /// «落とす» 側を削るからである．
+    pub edge_curve_slope: f32,
+    /// 同上 (残差 RMS)．
+    pub edge_curve_residual: f32,
+    /// 同上 (境界の本数の下限)．
+    pub edge_curve_min_count: usize,
     /// 曲線の食い違いの正規化 — 分母を «谷の深さ $A - M$» から
     /// «$(A - M) + \lambda A$» へ寄せる．$\lambda = 0$ が現行 (谷の深さ) ，
     /// $\lambda \to \infty$ が «曲線の高さ» に当たる．
@@ -250,6 +276,11 @@ impl Default for Gates {
             edge_min_coverage: 0.0,
             edge_require_measurable: true,
             rescue: Rescue::default(),
+            // 既定は帯ずれと同じ値 — こうしておけば `--edge-rescue curve` を
+            // 単独で指定したときが D71 の «まるごと肩代わり» の再現になる
+            edge_curve_slope: p.edge_fit_slope,
+            edge_curve_residual: p.edge_fit_residual,
+            edge_curve_min_count: p.edge_fit_min_count,
             curve_lambda: 0.0,
             curve_axis: CurveAxis::Mean,
         }
@@ -323,6 +354,20 @@ impl Cand {
     /// **境界の当てはめそのもの** (肩代わりの資格)．測れない候補は `false` である —
     /// 肩代わりの側では «測れない» は常に «肩代わりしない» でなければならない．
     fn edge_fits(&self, g: &Gates) -> bool {
+        self.edge_fits_within(g, g.edge_slope, g.edge_residual, g.edge_min_count)
+    }
+
+    /// **曲線を肩代わりするときの資格** — 厳しい方の許容で見る．
+    fn edge_fits_strictly(&self, g: &Gates) -> bool {
+        self.edge_fits_within(
+            g,
+            g.edge_curve_slope,
+            g.edge_curve_residual,
+            g.edge_curve_min_count,
+        )
+    }
+
+    fn edge_fits_within(&self, g: &Gates, slope_max: f32, residual_max: f32, min: usize) -> bool {
         if g.edge_order == 0 {
             return false;
         }
@@ -330,7 +375,7 @@ impl Cand {
         let mut worst_slope = 0.0f32;
         let mut worst_residual = 0.0f32;
         for axis in 0..2 {
-            if e.count[axis] < g.edge_min_count || e.coverage[axis] < g.edge_min_coverage {
+            if e.count[axis] < min || e.coverage[axis] < g.edge_min_coverage {
                 return false;
             }
             let (Some(slope), Some(residual)) = (e.slope[axis], e.residual[axis]) else {
@@ -339,7 +384,7 @@ impl Cand {
             worst_slope = worst_slope.max(slope.abs());
             worst_residual = worst_residual.max(residual);
         }
-        worst_slope <= g.edge_slope && worst_residual <= g.edge_residual
+        worst_slope <= slope_max && worst_residual <= residual_max
     }
 
     /// **境界の当てはめ (この案)．** 軸は `max` に揃える (帯ずれと同じ作法)．
@@ -419,7 +464,12 @@ impl Cand {
             (_, EdgeMode::OrDrift) => match self.phase_parts(g) {
                 // 測れない候補は肩代わりしない (曲線が課せないので «残す» 側が無い)
                 None => !g.require_measurable,
-                Some((drift, curve)) => curve && (drift || self.passes_edge(g)),
+                Some((drift, curve)) => {
+                    // **曲線の肩代わりは «厳しい方» の許容で見る** (D71 は帯ずれと
+                    // 同じ緩さで手放して誤受理を戻した) ．既定は肩代わりしない
+                    let curve = curve || (g.rescue.curve && self.edge_fits_strictly(g));
+                    curve && (drift || self.passes_edge(g))
+                }
             },
         }
     }
@@ -922,6 +972,42 @@ mod tests {
             }),
             Outcome::Exact,
         );
+    }
+
+    /// **曲線の肩代わりは «厳しい方» の許容で見る (D73)．**
+    ///
+    /// 帯ずれと同じ緩さ (残差 0.15) で手放すと，D71 で捨てた «まるごと肩代わり» に
+    /// 戻ってしまう — 実データの誤受理が返ってくる形である．
+    #[test]
+    fn the_curve_rescue_uses_the_stricter_tolerance() {
+        let mut c = cand(4, 0.0);
+        c.agree_bands = 2;
+        c.bands[0] = Some((vec![0, 0], vec![0, 0])); // 帯ずれは無い
+        c.joint = [1.5; 2]; // 曲線は食い違う (0.5 > 0.18)
+        c.separate = [1.0; 2];
+        c.level = [2.0; 2];
+        // 当てはめは «そこそこ» — 帯ずれ用 (0.15) は通るが曲線用 (0.04) は通らない
+        c.edge[1] = Edge {
+            count: [10, 10],
+            coverage: [1.0; 2],
+            residual: [Some(0.08); 2],
+            slope: [Some(0.0); 2],
+        };
+        let g = Gates {
+            phase_agreement: 0.18,
+            require_measurable: true,
+            rescue: Rescue {
+                curve: true,
+                ..Rescue::default()
+            },
+            edge_curve_residual: 0.04,
+            ..open()
+        };
+        assert_eq!(case(vec![c.clone()]).outcome(&g), Outcome::Rejected);
+
+        // 同じ候補でも «良く乗っていれば» 肩代わりされる
+        c.edge[1].residual = [Some(0.01); 2];
+        assert_eq!(case(vec![c]).outcome(&g), Outcome::Exact);
     }
 
     /// **$\lambda = 0$ は現行そのものである．** 正規化を足しても既定の答えが動かない

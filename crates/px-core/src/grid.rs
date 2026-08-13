@@ -209,6 +209,39 @@ pub struct GridParams {
     /// それ以上の根拠が無い — 少なすぎれば当てずっぽうを肩代わりし，多すぎれば
     /// 小さい絵の本物を肩代わりできない，という両側の効き方だけが確かである．
     pub edge_fit_min_count: usize,
+    /// **曲線の検査も肩代わりしてよい残差の上限** (`None` で肩代わりしない)．
+    ///
+    /// 境界の当てはめは既定では帯ずれだけを肩代わりする (D71) ．曲線は D68 で
+    /// «帯ずれを緩めた分の棄却を引き受ける» ために入れた量なので，**同じ緩さで
+    /// 手放すと取り戻した分だけ誤受理が戻る** — D71 でまるごと肩代わりさせたときは
+    /// 実データの誤答が 2 → 4 ・`local/` の誤受理が 2 → 4 に増えた．
+    ///
+    /// **役目が違えば厳しさも変える**という案だった (D73) ．曲線で落ちていた真の $s$ の
+    /// 当てはめは残差 0.001 〜 0.032 と [`Self::edge_fit_residual`] (0.15) より**一桁良い**
+    /// ので，そこだけ 0.04 を課せば «良く乗っている» ものだけを通せる．
+    ///
+    /// **検証セットでは無償で目標に届く．**
+    ///
+    /// | 曲線を肩代わりする残差 | 完全一致 | 正棄却 | D | A | **B** |
+    /// | --- | --- | --- | --- | --- | --- |
+    /// | **`None` (既定)** | 73 | 192 | 9 | 26 / 26 | 39 / 50 |
+    /// | 0.04 | **74** | **192** | **9** | 26 / 26 | **40 / 50 — 目標 80%** |
+    /// | 0.15 (帯ずれと同じ緩さ．D71 で捨てた形) | 74 | 191 | 10 | 26 / 26 | 40 / 50 |
+    ///
+    /// > [!warning] **それでも既定は `None` である — 実データ枠が払う**
+    /// > 同梱 148 件が 完全一致 60 → 61 ・誤答 2 → **3** ・誤受理 0 → **1**，
+    /// > `local/` 92 件が 誤受理 2 → **4**．**正解 1 件と引き換えに誤りが 4 件**増える．
+    /// > D66 の要件は «黙って誤答しないこと» の方なので採らない．
+    /// >
+    /// > 漏れる 4 件は $\hat{s} = 8$ ・$14$ で信頼度 0.021 〜 0.074 と**大きい $\hat{s}$ に
+    /// > 偏っている** (下限は $\hat{s}$ で割るのでそこが最も弱い) ．**下限の形では塞げない** —
+    /// > $\hat{s} = 14$ の 0.074 を止めるには一様下限 0.074 が要り，それは小さい $\hat{s}$ 側を
+    /// > 壊す (D67) ．拾えた境界の «割合» でも分けられない — 真の $s$ の中央 0.63 に対し
+    /// > 格子なしの候補は 0.72 と**逆を向いている** (偽の峰は小さい $s$ ほど多く立つ) ．
+    ///
+    /// 傾きの許容は [`Self::edge_fit_slope`] と同じ値を使う — 0.005 まで締めても検証
+    /// セットの成績は 1 件も動かず，**分けているのは残差だけ**だからである．
+    pub edge_fit_curve_residual: Option<f32>,
     /// $\varepsilon$ を**画像全体の分散に対する割合**として解釈する．
     ///
     /// $\varepsilon$ は分散の絶対値に対する閾値なので，**低コントラストの入力では
@@ -293,6 +326,10 @@ impl Default for GridParams {
             edge_fit_slope: 0.0125,
             edge_fit_residual: 0.15,
             edge_fit_min_count: 4,
+            // **肩代わりしない．** 0.04 なら検証セットは無償で B 40 / 50 (目標 80%) に
+            // 届くが，実データ枠が 正解 1 件に対し誤り 4 件を払う (D73．doc を読む) ．
+            // `px-calib sweep|real --edge-fit-curve-residual` で掛け替えて比べられる
+            edge_fit_curve_residual: None,
         }
     }
 }
@@ -1625,6 +1662,26 @@ fn edge_fit_of(energies: &[Vec<Option<f64>>; 2], s: u32) -> EdgeFit {
 /// 測れない候補 (境界が足りない ・直線を当てられない) は**肩代わりしない**．
 /// 平坦な絵で境界が拾えないことは «格子がある» ことの根拠にならない．
 fn edge_fit_ok(energies: &[Vec<Option<f64>>; 2], s: u32, params: &GridParams) -> bool {
+    edge_fit_within(energies, s, params, params.edge_fit_residual)
+}
+
+/// **曲線の検査も肩代わりしてよいか (D73)．**
+///
+/// 帯ずれの肩代わりより**厳しい残差**を課す ([`GridParams::edge_fit_curve_residual`]) ．
+/// 曲線は «棄却を引き受ける» ために入れた量なので，帯ずれと同じ緩さで手放すと
+/// 取り戻した完全一致と同じだけ誤受理が戻る．
+fn edge_fit_rescues_curve(energies: &[Vec<Option<f64>>; 2], s: u32, params: &GridParams) -> bool {
+    params
+        .edge_fit_curve_residual
+        .is_some_and(|r| edge_fit_within(energies, s, params, r))
+}
+
+fn edge_fit_within(
+    energies: &[Vec<Option<f64>>; 2],
+    s: u32,
+    params: &GridParams,
+    residual_max: f32,
+) -> bool {
     if params.edge_fit_order == 0 {
         return false;
     }
@@ -1632,7 +1689,7 @@ fn edge_fit_ok(energies: &[Vec<Option<f64>>; 2], s: u32, params: &GridParams) ->
     (0..2).all(|axis| {
         fit.count[axis] >= params.edge_fit_min_count
             && matches!(fit.slope[axis], Some(v) if v.abs() <= params.edge_fit_slope)
-            && matches!(fit.residual[axis], Some(v) if v <= params.edge_fit_residual)
+            && matches!(fit.residual[axis], Some(v) if v <= residual_max)
     })
 }
 
@@ -1711,7 +1768,11 @@ fn evaluate(
             let check: DriftCheck = params.into();
             match phase_parts(it, c.scale as usize, c.phase, check) {
                 None => !check.require_measurable,
-                Some((drift, curve)) => curve && (drift || edge_fit_ok(&energies, c.scale, params)),
+                Some((drift, curve)) => {
+                    // **曲線も肩代わりできる — ただし厳しい残差で** (D73)
+                    let curve = curve || edge_fit_rescues_curve(&energies, c.scale, params);
+                    curve && (drift || edge_fit_ok(&energies, c.scale, params))
+                }
             }
         })
         // 格子がそこに «在る» ことを確かめる (滑らかな絵はここで落ちる)
@@ -1774,7 +1835,8 @@ pub fn scale_candidates(img: &RgbaCanvas, params: &GridParams) -> (Vec<ScaleCand
                     match phase_parts(&it, s as usize, phase, check) {
                         None => !check.require_measurable,
                         Some((drift, curve)) => {
-                            curve && (drift || edge_fit_ok(&energies, s, params))
+                            (curve || edge_fit_rescues_curve(&energies, s, params))
+                                && (drift || edge_fit_ok(&energies, s, params))
                         }
                     }
                 } && phase_contrast_ok(
