@@ -184,11 +184,6 @@ fn count(rows: &[&Row], f: impl Fn(&Row) -> bool) -> usize {
     rows.iter().filter(|r| f(r)).count()
 }
 
-/// パラメータ組ごとにまとめる (信頼度の下限 0)．
-pub fn summarize(rows: &[Row]) -> Vec<Summary> {
-    summarize_at(rows, 0.0)
-}
-
 /// 信頼度の下限を当てはめてまとめる．並びは `param_id` の昇順．
 ///
 /// **掃引をやり直さずに下限を変えられる** — 掃引は下限 0 で回し信頼度を行に残して
@@ -343,6 +338,12 @@ pub fn operating_point(curve: &[Point], target: f32) -> Option<Point> {
 
 #[cfg(test)]
 mod tests {
+    /// 試験用 — 信頼度の下限 0 でまとめる．**本体は必ず下限を当てはめてから数える**
+    /// (下限 0 の数字は運転点を通っていない) ．
+    fn summarize(rows: &[Row]) -> Vec<Summary> {
+        summarize_at(rows, 0.0)
+    }
+
     use super::*;
     use crate::dataset::Split;
 

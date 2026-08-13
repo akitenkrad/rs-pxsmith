@@ -2132,9 +2132,11 @@ fn report(dir: &std::path::Path, rows: &[Row], target: f32, top: usize) -> Resul
         .collect();
     if !test.is_empty() {
         let refs: Vec<&Row> = test.iter().collect();
+        // **出荷の既定で数える．** 自動で選んだ組ではなく «実際に出荷する運転点» が
+        // テストセットでどうなるかが完了条件である
         println!(
-            "  (テストセットの D66 区分: {})",
-            metrics::tiers(&refs, best.min_confidence).line()
+            "  (テストセットの D66 区分 ・既定 min_confidence = {shipped}: {})",
+            metrics::tiers(&refs, shipped).line()
         );
     }
     if test.is_empty() {
@@ -2142,7 +2144,9 @@ fn report(dir: &std::path::Path, rows: &[Row], target: f32, top: usize) -> Resul
             "\n(テストセットは掃引に含まれていない．`sweep --split test` を選んだ組だけで回すこと．\n 検証セットで決めた閾値をテストセットで選び直してはいけない)"
         );
     } else {
-        let t = &metrics::summarize(&test)[0];
+        // **信頼度の下限を当てはめてから数える．** `summarize` は下限 0 で数えるので，
+        // そのまま出すと «運転点を通していない» 数字になる (M2 の完了条件を誤って報告する)
+        let t = &metrics::summarize_at(&test, shipped)[0];
         println!(
             "\n== テストセット (選んだ組をそのまま適用) ==\n  マクロ平均 {:.1}% / 正解率 {:.1}% ({} 件) / ECE {:.3}\n  格子あり {} 件: 完全一致 {:.1}% / 誤棄却 {:.1}%\n  格子なし {} 件: 正しい棄却 {:.1}%",
             t.macro_rate() * 100.0,
