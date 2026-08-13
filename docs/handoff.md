@@ -2,7 +2,7 @@
 
 セッションをまたぐときの出発点．**まずこれを読み，次に `docs/status.md` を読む．**
 
-- 更新: 2026-08-13
+- 更新: 2026-08-14
 - 仕様: Obsidian の `設計書/ドット絵CLI-Rust/` — `設計書.md` / `実装計画書.md` / `開発ノート.md`
 - **`開発ノート.md` に「実装して初めて分かったこと」が全部入っている．** 設計書だけ読むと
   同じ穴に落ちる
@@ -11,12 +11,129 @@
 
 | 項目 | 値 |
 | --- | --- |
-| フェーズ | M0 ・M1 ・M1a ・**M2 完了** (B は未達のまま閉じた) ・**M3 完了**．**M4 進行中** — **`px compose`** (D93 〜 D95) ・**`px direction`** (D96 〜 D98) ・**`px tileset extract`** (D99 〜 D101) ・**`px tileset autotile`** (D102 〜 D104) ・**ディザの位相** (D105 〜 D107) ・**象限インポータ** (D108 ・D109) ・**正規 JSON の統合** (D110) ・**`px export tiled`** (D111) が済．**次は `px sheet pack`，そのあと `px anim`** |
-| テスト | 641 件すべて通過 |
+| フェーズ | M0 ・M1 ・M1a ・**M2 完了** (B は未達のまま閉じた) ・**M3 完了**．**M4 進行中** — **`px compose`** (D93 〜 D95) ・**`px direction`** (D96 〜 D98) ・**`px tileset extract`** (D99 〜 D101) ・**`px tileset autotile`** (D102 〜 D104) ・**ディザの位相** (D105 〜 D107) ・**象限インポータ** (D108 ・D109) ・**正規 JSON の統合** (D110) ・**`px export tiled`** (D111) ・**`px sheet pack`** (D112 ・D113) ・**`px anim tween`** (D114 ・D115) ・**`px anim ease`** (D116 ・D117) ・**`px anim cycle`** (D118 ・D119) が済．**次は `anim afterimage` / `subpixel` / `squash` / `extrapolate` / `smear`** |
+| テスト | **683 件**すべて通過 |
 | 品質 | `cargo fmt --all --check` と `cargo clippy --workspace --all-targets -- -D warnings` がクリーン |
 | クレート | `px-core` / `px-io` / `px-view` / `px-macro` / `px-lint` / `px` / `px-calib` |
 | ブランチ | `main` |
-| コミット | **M4 の 8 件をコミット済み** — `bb7b6dd` (合成 ・方向 ・タイル 4 件 ・正規 JSON) と `px export tiled` |
+| コミット | M4 の 8 件はコミット済み (`bb7b6dd` ・`83440b1`) ．**`sheet pack` と `anim` 3 件は未コミット** |
+
+> [!warning] 2026-08-14 の変更 — **`px anim cycle`．16 通りのうち 12 通りを書いた** (D118 ・D119)
+> 設計書 6.12 の «変調対象 4 x 波形 4» を実装した．**`Rotate` の 4 通りは書かない** —
+> 回転は `px rotate` (6.13) の仕事で，ここに書くと**回転の実装が 2 つになる**
+> (D110 と同じ形の誤り) ．D92 の作法で «書いていない» と報告する．
+>
+> **`Ramp` の変調はランプの宣言 (`--ramp`) を要求する** — 絵だけから «どの色が
+> どのランプの何段目か» は決まらない (D89 と同じ理由) ．
+>
+> > [!note] **D44 «最小 3 枚» には代数の裏付けがあった．**
+> > $n = 2$ の正弦波は $\sin(0) = \sin(\pi) = 0$ なので**振幅がいくつでも
+> > 1 画素も動かない**．**矩形波は 0 を取らないので 2 枚でも動く** —
+> > «3 枚要る» の理由は波によって違う (D104 の «理由も分ける» と同じ) ．
+>
+> > [!warning] **端から端まで通して 1 件出た** (今セッション 2 度目．**D81 と同じ形で 3 度目**) ．
+> > `.aseprite` は**フレームの `kind` を持てない**．中割りに `inbetween` を付けても
+> > 読み直すと `key` に戻るので，**設計書 7.1 ・D47 の lint スコープが効かない**
+> > (advisory 21 件 対 L0 なら 16 件) ．**単体試験は通る** — 作業層には `kind` が
+> > あるからである．欄を持っているのは L0 だけなので，`px anim` は L0 でも
+> > 書けるようにし，`.aseprite` のときは «スコープが効かない» と併記する．
+>
+> ```sh
+> cargo run -p px -- anim cycle a.aseprite sway.px.toml --preset sway \
+>     --amplitude 2 --frames 3 --seed 0 --reverse-derive
+> ```
+
+> [!note] 2026-08-14 の変更 — **`px anim ease`．未決事項 #5 を測って閉じた** (D116 ・D117)
+> 設計書 6.11 の表 12 マスはすべて $\mathrm{round}(\text{コマ打ち} \times 1000 / \mathrm{FPS})$
+> から出る (試験で固定) ．**表を書き写さず式から引く．**
+>
+> 付録 B 未決事項 #5 (60 FPS の 1 コマを 17 ms か 16 ms か) は «仕様の選択» と
+> されていたが，**`px validate` の «表示時間は表示周期の倍数か» に掛ければ決まる**．
+>
+> | | gb | nes ・snes | gba |
+> | --- | --- | --- | --- |
+> | **四捨五入 (17 ・33 ・50 ・67)** | **違反 0** | **違反 0** | **違反 0** |
+> | 16 ms 固定 (16 ・32 ・48 ・64) | 違反 3 | 違反 3 | 違反 3 |
+>
+> > [!warning] **1 コマだけ見ると 16 ms でも通る** (ずれ 0.64 〜 0.74 ms) ．
+> > 落ちるのは 2 コマ以降で，誤差が**コマ打ちのぶんだけ積もる**．
+> > **1 コマだけ測っていたら逆の答えを選んでいた．**
+>
+> **自分の出力が自分の検査に 8 件落ちたが，道具の誤りではなかった** (D117) —
+> **24 FPS は 60 Hz を割り切らない**ので，奇数コマ (42 ms = 走査 2.51 回 ・
+> 125 ms = 7.47 回) は実機に載らない．**落ちる側も «落ちること» を試験で固定した**．
+>
+> ```sh
+> cargo run -p px -- anim ease walk.px.toml eased.px.toml --fps 30 --hold 2,1,1,1,2
+> ```
+
+> [!warning] 2026-08-14 の変更 — **`px anim tween`．R11 を測って解いた** (D114 ・D115)
+> 実装計画書のリスク R11 は «SDF 補間が実用にならない → `tween` が無価値» である．
+> **«実用になるか» は真値のある場面を作らないと測れない**ので平行移動で作り，
+> **«動かさない» を対照に置いた** (勝てないなら中割りは無価値である) ．
+>
+> | ずらし | 件数 | 場のまま | **重心を取り除く** | 動かさない |
+> | --- | --- | --- | --- | --- |
+> | (4, 0) | 64 | 0.953 | **1.000** | 0.778 |
+> | (8, 0) | 64 | 0.844 | **1.000** | 0.600 |
+> | (6, 6) | 64 | 0.828 | **1.000** | 0.493 |
+> | (12, -4) | 64 | 0.641 | **1.000** | 0.376 |
+>
+> **重心を先に取り除けば 256 / 256 件すべてで真値と画素単位一致する．**
+>
+> > [!warning] **痩せるのは測定ではなく代数である．**
+> > 円板を $D$ 動かした 2 枚の 0 等高線は**焦点を 2 中心に持つ楕円**で，
+> > 短半径は $\sqrt{r^2 - (D/2)^2}$，**$D \geq 2r$ で空になる**
+> > (実測: $D/r = 1.5$ で面積比 0.645 ・$2.0$ で 0.076 ・$2.25$ で 0) ．
+> > **平行移動を SDF に解かせているのが原因**なので先に取り除く．
+> > 設計書どおりの式も `--align none` で残してある．
+>
+> > [!warning] **余白は «距離場のため» ではなく «重心を戻すため» に要った** (D115) ．
+> > D91 が `--ao` で «余白が要る» と結論した形の問いなので同じだろうと考えて
+> > 掃いたが，**測ったら «要らない»** — 縁に接する絵 66 枚でも余白 0 と 64 の差が
+> > **0 画素**である．頭打ちが起きるのは両方の形の外側で，そこは $d_A$ ・$d_B$ とも
+> > 負なので**補間しても負のまま**．差が出たのは重心側だけで，**理由も別だった**
+> > (ずらした先が画布からはみ出して切れていた．66 枚中 5 枚 ・17 画素) ．
+>
+> **トポロジーは保証できない** — 別の絵どうし 45 件のうち **11 件でオイラー標数が
+> 両端のどちらとも違う**．設計書 6.9 のとおりなので，**扱えないことを黙らず
+> t ごとに成分数と穴の数を出す**．
+>
+> ```sh
+> cargo run -p px -- anim tween walk.px.toml --from a.aseprite --to b.aseprite \
+>     --steps 3 --base 8A6A4A --light dir:-0.6,0.8
+> cargo run -p px-calib --release -- tween      # 真値のある平行移動 ・余白 ・トポロジー
+> ```
+
+> [!note] 2026-08-14 の変更 — **`px sheet pack`．並べ方を決める側を 1 つにした** (D112 ・D113)
+> 設計書 5 章は «シート + JSON メタ» としか書いていない．**列数は数え上げで決めた．**
+>
+> | 規則 | $N = 1 \ldots 600$ の空き升 | 最悪 | 47 枚 | 148 枚 |
+> | --- | --- | --- | --- | --- |
+> | $\lceil \sqrt N \rceil$ 列 | 4600 | 23 | 7x7 (空き 2) | 13x12 (空き 8) |
+> | 8 列固定 | 2100 | 7 | 8x6 (空き 1) | 8x19 (空き 4) |
+> | **掃いて最小 (採用)** | **507** | **6** | **8x6 (空き 1)** | **15x10 (空き 2)** |
+>
+> **`px export tiled` から `--columns` を取り上げた．** 並べ方を決める場所が
+> 2 つあると必ず食い違う (D110 と同じ形) ．`--sheet` でメタを読み，列数 ・升 ・
+> 隙間 ・画像の名前と寸法を**そこから引く**．引くついでに**突き合わせる** —
+> 升がタイルの一辺と違う ・枚数がシートを超えている，なら書かずに落とす．
+>
+> > [!warning] **実素材 66 枚は 1 枚のシートに載らない (417 色)** (D113) ．
+> > 添字は `u8` (D2) なので 1 パレット 256 色までである．**黙って減色せず，
+> > 何色になったかを言って落とす** — «並べたら色が変わった» は梱包の道具が
+> > 絶対に起こしてはいけない壊れ方である (D94 と同じ不変条件を試験で固定した) ．
+>
+> > [!warning] **端から端まで通して 1 件出た** (今セッション 1 度目) ．
+> > メタの既定を `tiles.json` にしていたため，**`px tileset extract --map` が
+> > 書いた正規 JSON を黙って上書きした**．既定を `.sheet.json` にし，
+> > **シートのメタでないファイルには上書きしない**ようにした．
+>
+> ```sh
+> cargo run -p px -- sheet pack tiles.png --input tiles.aseprite
+> cargo run -p px -- export tiled tiles.json --tsx t.tsx --tmx t.tmx \
+>     --sheet tiles.sheet.json
+> ```
 
 > [!note] 2026-08-13 の変更 — **`px export tiled`．書ける方だけ書いた** (D111)
 > 設計書 4.4 のアダプタを正規 JSON からの変換として実装した．**元の絵は見ない**．
@@ -602,6 +719,21 @@ cargo run -p px -- direction '/tmp/hero_${dir}.aseprite' \
 # 縁取りを描く (5 分類 + 選択的輪郭線．既定は内側)
 cargo run -p px -- outline /tmp/aa.aseprite /tmp/out.aseprite --style shaded --selective
 cargo run -p px -- lint /tmp/out.aseprite         # 端から端まで通して blocking 0
+
+# 中割りを作る (**L0 で書くこと** — .aseprite は kind を持てない．D119)
+cargo run -p px -- anim tween /tmp/walk.px.toml --from /tmp/a.aseprite --to /tmp/b.aseprite \
+    --steps 3 --base 8A6A4A --light dir:-0.6,0.8
+
+# 表示時間を付ける (コマ打ちを並べるとイージングになる)
+cargo run -p px -- anim ease /tmp/walk.px.toml /tmp/eased.px.toml --fps 30 --hold 2,1,1,1,2
+
+# 周期アニメ (2 軸 API．プリセットは flicker / sway / ripple．rotate は書いていない)
+cargo run -p px -- anim cycle /tmp/a.aseprite /tmp/sway.aseprite --preset sway \
+    --amplitude 2 --frames 3 --seed 0 --reverse-derive
+
+# シートへ梱包し，その並びから .tsx を書く (**並べ方を決めるのは pack だけ**)
+cargo run -p px -- sheet pack /tmp/sheet.png --input /tmp/eased.px.toml --input /tmp/sway.aseprite
+cargo run -p px -- export tiled tiles.json --tsx t.tsx --sheet /tmp/sheet.sheet.json
 ```
 
 M3 の 4 本の実素材試験はこれで回る．
@@ -655,8 +787,11 @@ cargo test -p px-lint       # ルール 13 と合成した形の自己整合性
 | **象限インポータ (`--from-template` の 3 レイアウト)** | **済 (D108 ・D109)** — 推測せず突き合わせる．往復を試験で固定 |
 | **正規 JSON (設計書 4.4)** | **済 (D110)** — `terrain` と `map` を 1 つの型に寄せた |
 | **`px export tiled`** | **済 (D111)** — `.tsx` / `.tmx`．Godot は**仕様を引くまで書かない** |
-| **`px sheet pack`** | **次はここ** |
-| `px anim tween` / `ease --fps --hold` / `cycle` | 未 |
+| **`px sheet pack`** | **済 (D112 ・D113)** — 並べ方を決める側．`export tiled` は `--sheet` で引く |
+| **`px anim tween`** | **済 (D114 ・D115)** — **R11 を «重心を先に取り除く» で解いた** |
+| **`px anim ease --fps --hold`** | **済 (D116 ・D117)** — **未決事項 #5 を閉じた** (17 ms) |
+| **`px anim cycle`** | **済 (D118 ・D119)** — 16 通りのうち 12 通り (rotate は書かない) |
+| `px anim afterimage` / `subpixel` / `squash` / `extrapolate` / `smear` | **次はここ** |
 
 > [!note] **export と sheet pack で先に見ること**
 > 設計書 4.4 は «**独自 JSON (bitmask → tile index + flip flags) がエンジン非依存の
@@ -974,6 +1109,7 @@ cargo run -p px-calib --release -- compose --clip           # 切る側も測る
 cargo run -p px-calib --release -- direction                # 方向展開 (2 群 x 3 段階の一致度)
 cargo run -p px-calib --release -- tileset                  # タイル (3 モードの削減率 ・測れる割合)
 cargo run -p px-calib --release -- dither                   # ディザの位相 (設計書 4.3 の主張の確認)
+cargo run -p px-calib --release -- tween                    # 中割り (真値のある平行移動 ・余白 ・トポロジー)
 cargo run -p px-calib --release -- lint --shadow-hue 1 3 5  # ルール 6 の色相差 (正例と負例を同時に)
 cargo run -p px-calib --release -- lint --outline-interior 0.02 0.05 0.1   # ルール 4 の門
 cargo run -p px-calib --release -- lint --dir testdata/lint-cases/negative
