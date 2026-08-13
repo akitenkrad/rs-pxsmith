@@ -15,8 +15,12 @@
 //! 4 〜 6 なので許容誤差は $1/(2 \lvert R \rvert) \approx 8 \sim 12\%$ であり，
 //! 多点サンプリングの精度は丸めで消える．
 
+use crate::canvas::IndexedCanvas;
+use crate::color::Rgba8;
+use crate::error::Result;
 use crate::geom::{Field, Mask, curvature_field, normal_and_curvature, signed_distance};
 use crate::math::{IVec2, Rect, Vec2, ivec2, vec2};
+use crate::palette::Palette;
 use crate::ramp::{LightSource, LightingModel};
 
 /// どのランプを引くか (設計書 6.2)．
@@ -235,9 +239,28 @@ pub struct ShadeOptions {
     /// > **それでも完全には分かれない** — 円板の最小は $-0.294$ なので，閾値を
     /// > 下げるほど凸な形の縁も拾う．遮蔽は «少し乗る» 側で使う効果なので許容する．
     ///
-    /// > **閾値は暫定である．** 設計書は «`--ao` は G2 を使う» としか書いていない．
-    /// > 正例 ・負例で決めるのは M3 の lint 閾値と同じ枠でやる．
+    /// **4 群で測って 0.25 に決めた** (`px-calib ao`) ．lint と同じ作法である．
+    ///
+    /// | 群 | 遮蔽の割合 (中央 / 最大) | 望ましい向き |
+    /// | --- | --- | --- |
+    /// | 凸 (円板 ・箱) | **0.00% / 0.00%** | 乗らない |
+    /// | 浅い凹 (谷折り ・L 字) | 1.58% / 2.06% | 少し乗る |
+    /// | **深い凹 (十字 ・コの字)** | **4.69% / 6.46%** | 乗る |
+    /// | 実素材のスプライト (38 枚) | 2.51% / 12.90% | 少しだけ乗る |
+    /// | 画面いっぱいのタイル (26 枚) | **0.00% / 0.00%** | 乗らない (窪みが無い) |
+    ///
+    /// 深い凹み > 浅い凹み > 凸 の順に並ぶ．閾値を 0.40 まで上げると**深い凹みでも
+    /// 0% になる**ので，そこが上限である．
+    ///
+    /// > [!warning] **この数字は [`ao_curvature`] の余白を入れてからのものである．**
+    /// > 入れる前は画面いっぱいのタイル 26 枚が**判で押したように 25.0%** で，
+    /// > 実素材のスプライトも 16.8% だった (下記) ．
     pub ambient_occlusion: Option<f32>,
+    /// **環境遮蔽の曲率を測る前に距離場を均す回数**．
+    ///
+    /// 縁の階段は高周波なので，均さないと形の凹凸より階段が勝つ．
+    /// 閾値と**組で決める** — 片方だけ動かすと運転点を取り逃す．
+    pub ao_smooth_passes: usize,
 }
 
 impl Default for ShadeOptions {
@@ -251,6 +274,7 @@ impl Default for ShadeOptions {
             // 既定では掛けない — 遮蔽は «足すと絵が締まるが，掛けすぎると汚れる» 類の
             // 効果なので，利用者が明示的に頼んだときだけ働かせる
             ambient_occlusion: None,
+            ao_smooth_passes: DEFAULT_AO_SMOOTH_PASSES,
         }
     }
 }
@@ -327,11 +351,57 @@ fn nearest_settled(field: &Field<Option<Vec2>>, p: IVec2, radius: i32) -> Option
     None
 }
 
-/// 環境遮蔽の曲率を測る前に距離場を均す回数．
+/// 環境遮蔽の閾値の既定 (`px shade --ao`)．**4 群で測って決めた**
+/// ([`ShadeOptions::ambient_occlusion`] を読むこと)．
 ///
-/// **縁の階段を落とすために要る．** 3 回で 凸 (円板 5% 点 $-0.066$) と
-/// 凹 (谷折り 5% 点 $-0.289$) が分かれる — 均さないとどちらも $-1.333$ に張り付く．
-const AO_SMOOTH_PASSES: usize = 3;
+/// > **暫定である．** 均した曲率の分布 (円板の 5% 点 $-0.066$ ・谷折り $-0.289$) の
+/// > 間を取っただけで，正例 ・負例で決めていない — M3 の lint 閾値と同じ枠でやる．
+/// > **CLI はこの定数を引くこと** (数値を書き写すと黙って食い違う) ．
+pub const DEFAULT_AMBIENT_OCCLUSION: f32 = 0.25;
+
+/// 環境遮蔽の曲率を測る前に距離場を均す既定の回数．
+///
+/// **縁の階段を落とすために要る．** 均さないと 凸 ・凹 のどちらも $-1.333$ に張り付く．
+pub const DEFAULT_AO_SMOOTH_PASSES: usize = 3;
+
+/// **環境遮蔽のための曲率場．**
+///
+/// 距離場は «画像の外は空» とみなすので，**シルエットが画像の端まで届いている絵では
+/// 端がまるごと «窪み» になる**．画面いっぱいのタイルに掛けると外周 2 画素が額縁の
+/// ように暗くなり，実測では **26 枚すべてが判で押したように 25.0% (0.25 の閾値)**
+/// だった — 並べて使うタイルでは継ぎ目がそこだけ暗くなる明確な誤りである．
+///
+/// 画像の外は «空» ではなく **«分からない»** なので，マスクを外側へ複製して
+/// 余白を付けてから距離場を作る ([`box_blur`] が範囲外を縁の複製として扱うのと
+/// 同じ規約) ．余白の幅は平滑化の窓が届く範囲 + 1 とする．
+fn ao_curvature(mask: &Mask, opts: ShadeOptions) -> Field<f32> {
+    let margin = opts.ao_smooth_passes as i32 + 1;
+    let (w, h) = (mask.width() as i32, mask.height() as i32);
+    let mut padded = Mask::new((w + margin * 2) as u32, (h + margin * 2) as u32);
+    for p in padded.bounds().iter() {
+        // 端を複製する — 外側の «分からない» 部分はシルエットの続きとみなす
+        let q = ivec2(
+            (p.x - margin).clamp(0, w - 1),
+            (p.y - margin).clamp(0, h - 1),
+        );
+        padded.set(p, mask.get(q));
+    }
+
+    let mut smoothed = signed_distance(&padded);
+    for _ in 0..opts.ao_smooth_passes {
+        smoothed = box_blur(&smoothed);
+    }
+    let full = curvature_field(&smoothed);
+
+    // 元の窓へ切り戻す
+    let mut out = Field::filled(mask.width(), mask.height(), 0.0);
+    for p in mask.bounds().iter() {
+        if let Some(k) = full.copied(p + ivec2(margin, margin)) {
+            out.set(p, k);
+        }
+    }
+    out
+}
 
 /// 3x3 の箱平滑化．範囲外は縁を複製する ([`normal_and_curvature`] と同じ扱い)．
 fn box_blur(d: &Field<f32>) -> Field<f32> {
@@ -391,13 +461,7 @@ pub fn shade_mask(
     let bounce = bounce_distance_field(mask, opts.bounce_reach);
     let reach = opts.bounce_reach as f32;
     // 環境遮蔽は曲率から求める (G2)．掛けないなら場も作らない
-    let curvature = opts.ambient_occlusion.map(|_| {
-        let mut smoothed = d.clone();
-        for _ in 0..AO_SMOOTH_PASSES {
-            smoothed = box_blur(&smoothed);
-        }
-        curvature_field(&smoothed)
-    });
+    let curvature = opts.ambient_occlusion.map(|_| ao_curvature(mask, opts));
 
     let mut out = Field::filled(mask.width(), mask.height(), None);
     for p in mask.bounds().iter() {
@@ -436,6 +500,40 @@ pub fn shade_mask(
         out.set(p, Some(index));
     }
     out
+}
+
+/// **`px shade` の実体** — シルエットへ陰影を付け，キャンバスとパレットを返す．
+///
+/// [`shade_mask`] との違いはシルエットの外の扱いだけである．キャンバスは添字しか
+/// 持てないので，**透明を表す添字が要る**．
+///
+/// > [!warning] **透明色は末尾に足す．**
+/// > 先頭に入れると [`LightingModel`] の 3 ランプが指す添字が**全部 1 つずれる** —
+/// > 光ランプの添字で影の色を引くことになり，絵が静かに壊れる．パレットに既に
+/// > アルファ 0 の色があればそれを使う ([`crate::quantize`] と同じ «最初のアルファ 0
+/// > の色が透明» という約束) ．
+pub fn shade_to_canvas(
+    mask: &Mask,
+    source: LightSource,
+    model: &LightingModel,
+    palette: &Palette,
+    opts: ShadeOptions,
+) -> Result<(IndexedCanvas, Palette)> {
+    let mut palette = palette.clone();
+    let transparent = match palette.entries().iter().position(|c| c.a == 0) {
+        Some(i) => i as u8,
+        None => palette.push(Rgba8::TRANSPARENT)?,
+    };
+
+    let shaded = shade_mask(mask, source, model, opts);
+    let mut canvas = IndexedCanvas::filled(mask.width(), mask.height(), transparent)
+        .with_transparent(Some(transparent));
+    for p in mask.bounds().iter() {
+        if let Some(Some(index)) = shaded.copied(p) {
+            canvas.set_at(p, index);
+        }
+    }
+    Ok((canvas, palette))
 }
 
 #[cfg(test)]
@@ -713,6 +811,41 @@ mod tests {
         let (nmin, np5, nmed, nmax) = stats(&notch(16));
         println!("円板  最小 {dmin:.3} 5% {dp5:.3} 中央 {dmed:.3} 最大 {dmax:.3}");
         println!("谷折り 最小 {nmin:.3} 5% {np5:.3} 中央 {nmed:.3} 最大 {nmax:.3}");
+    }
+
+    /// **画面いっぱいのマスクには遮蔽が乗らない．**
+    ///
+    /// 全面が不透明なタイルには «外» が無いので窪みも無い．距離場は «画像の外は空»
+    /// とみなすため，素直に作ると**外周が窪みに見えて額縁のように暗くなる** —
+    /// 実測では 16x16 のタイル 26 枚すべてが判で押したように 25.0% だった．
+    /// 並べて使うタイルでは継ぎ目だけが暗くなる明確な誤りである．
+    #[test]
+    fn ambient_occlusion_does_not_frame_a_full_bleed_tile() {
+        let mut mask = Mask::new(16, 16);
+        for p in mask.bounds().iter() {
+            mask.set(p, true);
+        }
+        let (_, model) = lighting();
+        let out = shade_mask(
+            &mask,
+            LightSource::Directional {
+                dir: vec2(-0.6, 0.8),
+            },
+            &model,
+            ShadeOptions {
+                ambient_occlusion: Some(DEFAULT_AMBIENT_OCCLUSION),
+                ..ShadeOptions::default()
+            },
+        );
+        let dark = out
+            .data()
+            .iter()
+            .filter(|c| **c == Some(model.occlusion))
+            .count();
+        assert_eq!(
+            dark, 0,
+            "画面いっぱいのタイルに遮蔽が乗った ({dark} / 256 画素)"
+        );
     }
 
     /// **環境遮蔽は凹んだところにだけ乗る．** 凸な形 (円板) では 1 画素も落ちない．

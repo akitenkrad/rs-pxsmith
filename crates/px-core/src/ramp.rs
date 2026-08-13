@@ -64,7 +64,10 @@ const MIN_CHROMA: f32 = 0.015;
 /// 35 度としてあるのは，暗く彩度の低い色では **8 ビットへ丸めるだけで色相が
 /// 数度動く**ためである．20 度程度の分離だと，丸めた後に光と影がほとんど同じ
 /// 色相になってしまう．
-const MIN_HUE_SEPARATION: f32 = 35.0;
+///
+/// **lint ルール 6 はこの値を引いて使う** — 作る側と検査する側で数値がずれると，
+/// 自分で作ったランプが自分の検査に落ちる．
+pub const MIN_HUE_SEPARATION: f32 = 35.0;
 
 /// 影面が光面から空の色へ寄る割合．
 ///
@@ -183,7 +186,10 @@ pub fn generate_ramp(spec: &RampSpec) -> Vec<Rgba8> {
 }
 
 /// 光源の型 (設計書 3.3)．
-#[derive(Copy, Clone, Debug, PartialEq)]
+///
+/// `serde` を付けてあるのは，**lint の設定 ([`px_lint`] のルール 7) が光源を
+/// 宣言として受け取る**ためである．
+#[derive(Copy, Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum LightSource {
     Point {
         pos: Vec2,

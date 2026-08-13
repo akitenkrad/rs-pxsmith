@@ -13,7 +13,7 @@
 use std::collections::BTreeSet;
 
 use crate::canvas::IndexedCanvas;
-use crate::math::IVec2;
+use crate::math::{IVec2, ivec2};
 
 use super::contour::{Chain, split_monotone, trace_contours};
 use super::distance::{curvature_field, signed_distance};
@@ -36,6 +36,9 @@ pub struct Jaggy {
     pub within_limit: bool,
     /// 谷になっているランの画素．
     pub pixels: Vec<IVec2>,
+    /// ランが伸びている向き (単位ベクトル)．**1 画素のランでは画素からは決まらない**
+    /// ので，チェーンの主軸から取る — `smooth` が «どちらへ伸ばすか» に要る．
+    pub major: IVec2,
 }
 
 impl Jaggy {
@@ -170,6 +173,11 @@ fn analyze_chain(
     let groups = run_pixels(chain);
     let turns = turn_runs(chain, curvature);
 
+    let major = if chain.is_horizontal() {
+        ivec2(1, 0)
+    } else {
+        ivec2(0, 1)
+    };
     for i in jaggy_valleys(&runs, &turns) {
         let target = runs[i - 1].min(runs[i + 1]);
         let delta = target as i32 - runs[i] as i32;
@@ -180,6 +188,7 @@ fn analyze_chain(
             delta,
             within_limit: delta.unsigned_abs() <= max_move,
             pixels: groups.get(i).cloned().unwrap_or_default(),
+            major,
         });
     }
     report
@@ -188,7 +197,7 @@ fn analyze_chain(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::math::{IRect, ivec2};
+    use crate::math::IRect;
 
     /// 段の長さが揃った階段 — ジャギーは無いはず．
     fn clean_staircase() -> Mask {

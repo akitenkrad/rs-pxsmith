@@ -547,7 +547,7 @@ fn load_rgba(path: &Path) -> Result<RgbaCanvas> {
 }
 
 /// 入力をインデックスカラーとして読む．最初のインデックスカラーレイヤを採る．
-fn load_indexed(path: &Path) -> Result<(IndexedCanvas, Palette)> {
+pub(crate) fn load_indexed(path: &Path) -> Result<(IndexedCanvas, Palette)> {
     if is_png(path) {
         bail!(
             "{} は PNG なのでインデックスカラーとして読めない．\
@@ -565,14 +565,14 @@ fn load_indexed(path: &Path) -> Result<(IndexedCanvas, Palette)> {
     Ok((layer.clone(), frame.palette.clone()))
 }
 
-fn is_png(path: &Path) -> bool {
+pub(crate) fn is_png(path: &Path) -> bool {
     path.extension()
         .and_then(|e| e.to_str())
         .is_some_and(|e| e.eq_ignore_ascii_case("png"))
 }
 
 /// 出力の拡張子に合わせて書き出す．
-fn write_indexed(path: &Path, canvas: &IndexedCanvas, palette: &Palette) -> Result<()> {
+pub(crate) fn write_indexed(path: &Path, canvas: &IndexedCanvas, palette: &Palette) -> Result<()> {
     if is_png(path) {
         return png::write_indexed(path, canvas, palette)
             .with_context(|| format!("{} を書き出せない", path.display()));
@@ -629,6 +629,55 @@ pub fn lint(input: &Path, json: bool, grid: &GridArgs) -> Result<()> {
 
     if report.has_blocking() {
         bail!("blocking 違反がある");
+    }
+    Ok(())
+}
+
+/// `px validate` — **出力先の制約に照らす** (設計書 5 章)．
+///
+/// `--target` は組み込みの名前 (`gb` / `nes` / `snes` / `gba` / `pico8`) か，
+/// プロファイルの TOML へのパスを取る．**違反があれば非ゼロで終わる** — CI と
+/// レシピが同じ判定を使えるようにするためである (`px lint` と同じ作法) ．
+///
+/// > [!note] **PNG は受け取らない．**
+/// > 制約はパレットとタイルの色数で決まるので，**添字の面が要る**．PNG を
+/// > その場で添字化すると «こちらが選んだ量子化» を検査することになり，
+/// > 出力先に載るかどうかの答えが変わってしまう．
+pub fn validate(input: &Path, target: &str, json: bool) -> Result<()> {
+    use px_core::validate::{Target, validate_frames};
+
+    let target = match Target::builtin(target) {
+        Some(t) => t,
+        None => {
+            let path = Path::new(target);
+            if !path.exists() {
+                bail!(
+                    "出力先 {target} を知らない (組み込み: {}) ．\
+                     プロファイルの TOML を渡すこともできる",
+                    Target::BUILTIN.join(" / ")
+                );
+            }
+            let text = std::fs::read_to_string(path)
+                .with_context(|| format!("{} を読めない", path.display()))?;
+            toml::from_str(&text).with_context(|| format!("{} を読み取れない", path.display()))?
+        }
+    };
+
+    if is_png(input) {
+        bail!("PNG は検査できない — 添字の面 (.aseprite / .px.toml) を渡すこと");
+    }
+    let frames = crate::load_frames(input)?;
+    let report = validate_frames(&frames, &target);
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    } else {
+        print!("{report}");
+        println!("違反 {} 件", report.violations.len());
+    }
+
+    if !report.is_ok() {
+        bail!("{} の制約に違反している", report.target);
     }
     Ok(())
 }

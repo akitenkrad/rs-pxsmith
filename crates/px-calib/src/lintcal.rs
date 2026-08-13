@@ -61,6 +61,12 @@ fn is_blocking(id: u8) -> bool {
 
 /// PNG をそのまま添字の面にする．**色を減らさない** — 減らすとその時点で
 /// «良い絵» を壊してしまい，何を測っているのか分からなくなる．
+///
+/// > [!warning] **透明を «最も近い不透明色» で塗り潰さないこと．**
+/// > [`Palette::nearest`] は透明色を色距離の対象から外すので，アルファ 0 の画素に
+/// > 引くと**近くの不透明色が返る** — 背景が黙って «暗い面» になり，絵の 6 割が
+/// > 塗り潰されている状態で lint を掛けていた．透明はパレットの透明添字へ直に送り，
+/// > キャンバスにも透明添字を持たせる．
 pub fn index_exactly(img: &RgbaCanvas) -> Result<(IndexedCanvas, Palette)> {
     let mut colors: Vec<_> = img.pixels().to_vec();
     colors.sort_unstable_by_key(|c| c.sort_key());
@@ -69,12 +75,21 @@ pub fn index_exactly(img: &RgbaCanvas) -> Result<(IndexedCanvas, Palette)> {
         bail!("色数が {} で添字に収まらない", colors.len());
     }
     let palette = Palette::new(colors)?;
+    let transparent = palette
+        .entries()
+        .iter()
+        .position(|c| c.a == 0)
+        .map(|i| i as u8);
     let pixels: Vec<u8> = img
         .pixels()
         .iter()
-        .map(|c| palette.nearest(*c, 1.0).unwrap_or(0))
+        .map(|c| match (c.a, transparent) {
+            (0, Some(i)) => i,
+            _ => palette.nearest(*c, 1.0).unwrap_or(0),
+        })
         .collect();
-    let canvas = IndexedCanvas::from_pixels(img.width(), img.height(), pixels)?;
+    let canvas = IndexedCanvas::from_pixels(img.width(), img.height(), pixels)?
+        .with_transparent(transparent);
     Ok((canvas, palette))
 }
 

@@ -20,15 +20,18 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 
+mod aocal;
 mod bands;
 mod confidence;
 mod dataset;
 mod degrade;
 mod diagnose;
 mod ingest;
+mod jaggycal;
 mod lintcal;
 mod lintgen;
 mod metrics;
+mod pillow;
 mod real;
 mod recon;
 mod recover;
@@ -415,6 +418,85 @@ enum Command {
         /// ルール 11 の明度差の下限 (複数指定可．掃引する)
         #[arg(long, num_args = 1..)]
         min_lightness_delta: Vec<f32>,
+        /// ルール 6 の «同一色相とみなす色相差» (度．複数指定可．掃引する)
+        #[arg(long, num_args = 1..)]
+        shadow_hue: Vec<f32>,
+        /// ルール 4 の «縁取りの色に許す内側の割合» (複数指定可．掃引する)．
+        /// **正例と負例を同時に出す**
+        #[arg(long, num_args = 1..)]
+        outline_interior: Vec<f32>,
+        /// 掃引で並べて見る負例の置き場所
+        #[arg(long, default_value = "testdata/lint-cases/negative")]
+        negative: PathBuf,
+    },
+    /// **ルール 13 (pillow shading) の閾値を測る** — 良い絵 ・負例 ・`px shade` の出力
+    Pillow {
+        /// 良い絵 (正例)
+        #[arg(long, default_value = "testdata/grid-eval/seeds")]
+        seeds: PathBuf,
+        /// 負例の置き場所 (`lint-gen` が作る `pillow-*.png` だけを見る)
+        #[arg(long, default_value = "testdata/lint-cases/negative")]
+        negative: PathBuf,
+        /// `px shade` のランプ段数
+        #[arg(long, default_value_t = 5)]
+        steps: u8,
+        /// 掃く閾値
+        #[arg(long, num_args = 1..)]
+        threshold: Vec<f32>,
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
+    /// **ジャギー検出を良い絵に掛けて数える** (`px smooth` が動かす前に測る)
+    Jaggy {
+        #[arg(long, default_value = "testdata/grid-eval/seeds")]
+        dir: PathBuf,
+        /// 移動上限 (画素)
+        #[arg(long, default_value_t = jaggycal::DEFAULT_MOVE)]
+        max_move: u32,
+        #[arg(long)]
+        out: Option<PathBuf>,
+        /// 件数の多い絵を何枚並べるか
+        #[arg(long, default_value_t = 10)]
+        top: usize,
+        /// **`px smooth` を実際に掛けて，直った結果を測る**
+        #[arg(long)]
+        apply: bool,
+    },
+    /// **`px aa` を良い絵に掛けて壊れないか測る**
+    Aa {
+        #[arg(long, default_value = "testdata/grid-eval/seeds")]
+        dir: PathBuf,
+        /// 外郭にも付ける (D34 の既定は内部境界のみ)
+        #[arg(long)]
+        outline: bool,
+    },
+    /// **`px outline` を良い絵に掛けて壊れないか測る** (5 分類すべて)
+    Outline {
+        #[arg(long, default_value = "testdata/grid-eval/seeds")]
+        dir: PathBuf,
+        /// 外側に描く (既定は内側)
+        #[arg(long)]
+        outer: bool,
+    },
+    /// **環境遮蔽 (`px shade --ao`) の閾値を測る** — 凸な形 ・凹んだ形 ・実素材の 3 群
+    Ao {
+        #[arg(long, default_value = "testdata/grid-eval/seeds")]
+        seeds: PathBuf,
+        /// 掃く閾値
+        #[arg(long, num_args = 1.., default_values_t = [0.10f32, 0.15, 0.20, 0.25, 0.30, 0.40, 0.60])]
+        threshold: Vec<f32>,
+        /// 距離場を均す回数 (**閾値と組で掃く**)
+        #[arg(long, num_args = 1.., default_values_t = [px_core::shade::DEFAULT_AO_SMOOTH_PASSES])]
+        passes: Vec<usize>,
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
+    /// **ルール 7 (反転同値の陰影不整合) の閾値を測る** — `px shade` の出力と，その左右反転
+    Flip {
+        #[arg(long, default_value = "testdata/grid-eval/seeds")]
+        seeds: PathBuf,
+        #[arg(long, default_value_t = 5)]
+        steps: u8,
     },
     /// lint の負例を作る (良い絵に欠陥を 1 つだけ入れる)
     LintGen {
@@ -1021,6 +1103,63 @@ fn main() -> Result<()> {
 
         Command::Lint {
             dir,
+            shadow_hue,
+            negative,
+            ..
+        } if !shadow_hue.is_empty() => {
+            println!("  色相差 (度)   良い絵で鳴る    負例 mono-* で鳴る");
+            for gap in shadow_hue {
+                let cfg = px_lint::LintConfig {
+                    min_shadow_hue_gap: gap,
+                    ..px_lint::LintConfig::default()
+                };
+                let (good, _) = lintcal::run(&dir, &cfg)?;
+                let good_fired = good.iter().filter(|r| r.hits.contains_key(&6)).count();
+                let (bad, _) = lintcal::run(&negative, &cfg)?;
+                let mono: Vec<_> = bad.iter().filter(|r| r.file.starts_with("mono-")).collect();
+                let bad_fired = mono.iter().filter(|r| r.hits.contains_key(&6)).count();
+                println!(
+                    "  {gap:<10}   {good_fired:>3} / {:<3}       {bad_fired:>3} / {}",
+                    good.len(),
+                    mono.len()
+                );
+            }
+        }
+
+        Command::Lint {
+            dir,
+            outline_interior,
+            negative,
+            ..
+        } if !outline_interior.is_empty() => {
+            // **正例と負例を同時に出す** — 片方だけ見て決めない (D70)
+            println!("  内側の割合 x 重なりの占有 (下限)   良い絵で鳴る    負例 corner-* で鳴る");
+            for max in outline_interior {
+                for overlaps in [0.05f32, 0.06, 0.1] {
+                    let cfg = px_lint::LintConfig {
+                        max_outline_interior: max,
+                        min_outline_overlap_share: overlaps,
+                        ..px_lint::LintConfig::default()
+                    };
+                    let (good, _) = lintcal::run(&dir, &cfg)?;
+                    let good_fired = good.iter().filter(|r| r.hits.contains_key(&4)).count();
+                    let (bad, _) = lintcal::run(&negative, &cfg)?;
+                    let corner: Vec<_> = bad
+                        .iter()
+                        .filter(|r| r.file.starts_with("corner-"))
+                        .collect();
+                    let bad_fired = corner.iter().filter(|r| r.hits.contains_key(&4)).count();
+                    println!(
+                        "  {max:<6} x {overlaps:<3}        {good_fired:>3} / {:<3}       {bad_fired:>3} / {}",
+                        good.len(),
+                        corner.len()
+                    );
+                }
+            }
+        }
+
+        Command::Lint {
+            dir,
             grid_like_ratio,
             ..
         } if !grid_like_ratio.is_empty() => {
@@ -1118,6 +1257,571 @@ fn main() -> Result<()> {
             }
             px_io::atomic::write(&path, text.as_bytes())?;
             println!("  {} 行を {} へ書いた", records.len(), path.display());
+        }
+
+        Command::Pillow {
+            seeds,
+            negative,
+            steps,
+            threshold,
+            out,
+        } => {
+            let (good, bad, shaded) = pillow::run(&seeds, Some(&negative), steps)?;
+            println!("== ルール 13 の特徴量 rho = corr(距離場, 明度) ==");
+            println!("\n  群                 件数    最小    5%    中央    95%    最大");
+            for (name, set) in [
+                ("正例 (良い絵)", &good),
+                ("負例 (pillow)", &bad),
+                ("px shade の出力", &shaded),
+            ] {
+                match pillow::quantiles(set) {
+                    Some((lo, p5, med, p95, hi)) => println!(
+                        "  {name:<18} {:>4}  {lo:>6.3} {p5:>6.3} {med:>6.3} {p95:>6.3} {hi:>6.3}",
+                        set.len()
+                    ),
+                    None => println!("  {name:<18} {:>4}  (測れる件が無い)", set.len()),
+                }
+            }
+
+            // **`px shade` は光源プリセットごとに分けて見る** — 向きが変われば相関も動く
+            println!("\n  px shade の内訳 (プリセットごと)");
+            for preset in px_core::ramp::LightPreset::ALL {
+                let set: Vec<_> = shaded
+                    .iter()
+                    .filter(|r| r.preset == Some(preset.as_str()))
+                    .cloned()
+                    .collect();
+                if let Some((lo, p5, med, p95, hi)) = pillow::quantiles(&set) {
+                    println!(
+                        "  {:<18} {:>4}  {lo:>6.3} {p5:>6.3} {med:>6.3} {p95:>6.3} {hi:>6.3}",
+                        preset.as_str(),
+                        set.len()
+                    );
+                }
+            }
+
+            // **自己整合性** — 陰影を付けた 320 通りに lint を掛けて blocking を数える
+            let blocking: usize = shaded.iter().map(|r| r.blocking).sum();
+            println!(
+                "\n  自己整合性: px shade の出力 {} 件で blocking {} 件",
+                shaded.len(),
+                blocking
+            );
+            for (id, n) in pillow::rule_hits(&shaded) {
+                let r = px_lint::rule(id);
+                let name = r.map(|r| r.name).unwrap_or("?");
+                let sev = if r.is_some_and(|r| matches!(r.severity, px_lint::Severity::Blocking)) {
+                    "blocking"
+                } else {
+                    "advisory"
+                };
+                println!("    ルール {id:>2} {name} ({sev}) — {n} 件");
+            }
+
+            let grid = or_default(
+                threshold,
+                &[0.3, 0.4, 0.5, 0.6, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95],
+            );
+            println!("\n  閾値    正例で誤爆   負例を捕捉   **px shade が鳴る**");
+            for t in grid {
+                println!(
+                    "  {t:>5.2}   {:>7.1}%    {:>7.1}%    {:>10.1}%",
+                    pillow::rate_at(&good, t) * 100.0,
+                    pillow::rate_at(&bad, t) * 100.0,
+                    pillow::rate_at(&shaded, t) * 100.0
+                );
+            }
+
+            let path = out.unwrap_or_else(|| seeds.join("pillow.csv"));
+            let mut text = String::from(pillow::HEADER);
+            text.push('\n');
+            for (group, set) in [("good", &good), ("bad", &bad), ("shade", &shaded)] {
+                for r in set {
+                    text.push_str(&pillow::to_csv(group, r));
+                    text.push('\n');
+                }
+            }
+            px_io::atomic::write(&path, text.as_bytes())?;
+            println!(
+                "\n  {} 行を {} へ書いた",
+                good.len() + bad.len() + shaded.len(),
+                path.display()
+            );
+        }
+
+        Command::Jaggy {
+            dir,
+            max_move,
+            out,
+            top,
+            apply,
+        } => {
+            let (records, skipped) = jaggycal::run(&dir, max_move, apply)?;
+            let runs: usize = records.iter().map(|r| r.runs).sum();
+            let jaggies: usize = records.iter().map(|r| r.jaggies).sum();
+            let fixable: usize = records.iter().map(|r| r.fixable).sum();
+            let dirty = records.iter().filter(|r| r.jaggies > 0).count();
+            println!(
+                "== ジャギー検出を {} 枚に掛けた ({}) ==",
+                records.len(),
+                dir.display()
+            );
+            if !skipped.is_empty() {
+                println!("  測れなかった {} 枚 (例: {})", skipped.len(), skipped[0].1);
+            }
+            println!(
+                "\n  ラン {runs} 本中 {jaggies} 件 ({:.2}%) ・移動上限 {max_move} に収まる {fixable} 件",
+                if runs == 0 {
+                    0.0
+                } else {
+                    jaggies as f32 / runs as f32 * 100.0
+                }
+            );
+            println!("  **1 件でも鳴った絵 {dirty} / {} 枚**", records.len());
+
+            let mut by_delta: std::collections::BTreeMap<i32, usize> = Default::default();
+            for r in &records {
+                for (d, n) in &r.by_delta {
+                    *by_delta.entry(*d).or_default() += n;
+                }
+            }
+            println!("\n  δ (目標 − 長さ) ごとの件数");
+            for (d, n) in &by_delta {
+                println!("    δ = {d:>2}  {n:>5} 件");
+            }
+
+            let mut by_shape: std::collections::BTreeMap<&'static str, usize> = Default::default();
+            for r in &records {
+                for (k, n) in &r.by_shape {
+                    *by_shape.entry(k).or_default() += n;
+                }
+            }
+            println!("\n  谷の周りの形 (**理想の単谷形の底を «ジャギー» と呼んでいないか**)");
+            for (k, n) in &by_shape {
+                println!("    {k:<24} {n:>5} 件");
+            }
+
+            let mut worst = records.clone();
+            worst.sort_by_key(|r| (std::cmp::Reverse(r.jaggies), r.file.clone()));
+            println!("\n  件数の多い絵");
+            for r in worst.iter().take(top) {
+                println!(
+                    "    {:<34} ラン {:>5} 中 {:>4} 件 (直せる {})",
+                    r.file, r.runs, r.jaggies, r.fixable
+                );
+            }
+
+            if apply {
+                let applied: Vec<_> = records.iter().filter_map(|r| r.applied.as_ref()).collect();
+                let moved: usize = applied.iter().map(|a| a.moved).sum();
+                let remaining: usize = applied.iter().map(|a| a.remaining).sum();
+                let touched = applied.iter().filter(|a| a.moved > 0).count();
+                let not_converged = applied.iter().filter(|a| a.second_pass_moved > 0).count();
+                let area_over = applied
+                    .iter()
+                    .filter(|a| a.area_delta > a.moved as i64)
+                    .count();
+                let worse = applied
+                    .iter()
+                    .filter(|a| a.blocking_after > a.blocking_before)
+                    .count();
+                let max_passes = applied.iter().map(|a| a.passes).max().unwrap_or(0);
+                println!("\n  == px smooth を実際に掛けた ==");
+                println!(
+                    "    動かした画素 {moved} ・触った絵 {touched} / {} 枚",
+                    applied.len()
+                );
+                println!(
+                    "    残ったジャギー {remaining} (元 {})",
+                    records.iter().map(|r| r.jaggies).sum::<usize>()
+                );
+                println!("    最大の巡回数 {max_passes}");
+                println!("    **収束していない絵 {not_converged} 枚** (2 回目で動く)");
+                println!("    **面積が動かした画素数を超えて変わった絵 {area_over} 枚**");
+                println!("    **lint の blocking が増えた絵 {worse} 枚**");
+            }
+
+            let path = out.unwrap_or_else(|| dir.join("jaggy.csv"));
+            let mut text = String::from(jaggycal::HEADER);
+            text.push('\n');
+            for r in &records {
+                text.push_str(&r.to_csv());
+                text.push('\n');
+            }
+            px_io::atomic::write(&path, text.as_bytes())?;
+            println!("\n  {} 行を {} へ書いた", records.len(), path.display());
+        }
+
+        Command::Aa { dir, outline } => {
+            let opts = px_core::aa::AaAddOptions {
+                include_outline: outline,
+                ..px_core::aa::AaAddOptions::default()
+            };
+            let cfg = px_lint::LintConfig::default();
+            let mut files: Vec<PathBuf> = std::fs::read_dir(&dir)?
+                .filter_map(|e| e.ok().map(|e| e.path()))
+                .filter(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("png")))
+                .collect();
+            files.sort();
+
+            let (mut n, mut painted, mut added, mut touched) = (0usize, 0usize, 0usize, 0usize);
+            let (mut worse, mut not_idempotent, mut silhouette_moved) = (0usize, 0usize, 0usize);
+            let mut later: std::collections::BTreeMap<usize, usize> = Default::default();
+            let mut over_256 = 0usize;
+            // **ルール 14 (AA 過多) の分母**．中間色の画素 / 不透明画素を，掛ける前と
+            // 掛けた後の両方で取る — 閾値は «自分の出力が鳴らない» ところに置く
+            let (mut ratio_before, mut ratio_after) = (Vec::new(), Vec::new());
+            for path in &files {
+                let Ok(img) = px_io::png::read_rgba(path) else {
+                    continue;
+                };
+                let Ok((canvas, palette)) = lintcal::index_exactly(&img) else {
+                    continue;
+                };
+                n += 1;
+                ratio_before.push((name_of(path), aa_ratio(&canvas, &palette)));
+                let before_blocking = {
+                    let mut r = px_lint::rules::lint_palette(&palette, &cfg);
+                    r.extend(px_lint::lint_canvas(&canvas, &palette, &cfg));
+                    r.blocking().count()
+                };
+                let silhouette = canvas.mask_of(canvas.transparent().unwrap_or(255));
+
+                let (mut c, mut p) = (canvas.clone(), palette.clone());
+                let Ok(report) = px_core::aa::add_antialiasing(&mut c, &mut p, &opts) else {
+                    over_256 += 1;
+                    continue;
+                };
+                painted += report.painted;
+                added += report.added_colors;
+                if report.painted > 0 {
+                    touched += 1;
+                }
+                let after_blocking = {
+                    let mut r = px_lint::rules::lint_palette(&p, &cfg);
+                    r.extend(px_lint::lint_canvas(&c, &p, &cfg));
+                    r.blocking().count()
+                };
+                if after_blocking > before_blocking {
+                    worse += 1;
+                }
+                if c.mask_of(c.transparent().unwrap_or(255)) != silhouette {
+                    silhouette_moved += 1;
+                }
+                ratio_after.push((name_of(path), aa_ratio(&c, &p)));
+                let (mut again_c, mut again_p) = (c.clone(), p.clone());
+                for pass in 1..4usize {
+                    let Ok(again) =
+                        px_core::aa::add_antialiasing(&mut again_c, &mut again_p, &opts)
+                    else {
+                        break;
+                    };
+                    if again.painted == 0 {
+                        break;
+                    }
+                    if pass == 1 {
+                        not_idempotent += 1;
+                    }
+                    *later.entry(pass + 1).or_insert(0) += again.painted;
+                }
+            }
+            println!("== px aa を良い絵 {n} 枚に掛けた ==");
+            println!("  置いた画素 {painted} ・作った色 {added} ・触った絵 {touched} 枚");
+            println!("  **2 回目で塗る絵 {not_idempotent} 枚**");
+            for (pass, n) in &later {
+                println!("    {pass} 巡目に塗った画素 {n}");
+            }
+            println!("  **シルエットが動いた絵 {silhouette_moved} 枚**");
+            println!("  **lint の blocking が増えた絵 {worse} 枚**");
+            if over_256 > 0 {
+                println!("  色数が 256 を超えて掛けられなかった絵 {over_256} 枚");
+            }
+
+            // **`px shade` の出力も測る (第 3 群)．**
+            // 陰影の «段» は端の 2 色の間にあるので，そのまま中間色として数えられる —
+            // 自分の理論どおりの出力が自分の検査に落ちていないかを見る (D58 ・D77)
+            {
+                use px_core::palette::ChromaCurve;
+                use px_core::ramp::{LightPreset, build_lighting};
+                use px_core::shade::{ShadeOptions, shade_to_canvas};
+                let mut shaded: Vec<f32> = Vec::new();
+                for path in &files {
+                    let Ok(img) = px_io::png::read_rgba(path) else {
+                        continue;
+                    };
+                    let mut mask = px_core::geom::Mask::new(img.width(), img.height());
+                    for p in mask.bounds().iter() {
+                        if img.get(p.x, p.y).is_some_and(|c| c.a != 0) {
+                            mask.set(p, true);
+                        }
+                    }
+                    if mask.count() < 64 {
+                        continue;
+                    }
+                    let base = px_core::color::Rgba8::rgb(0x8a, 0x6a, 0x4a);
+                    for preset in LightPreset::ALL {
+                        let Ok((palette, model)) =
+                            build_lighting(base, preset, 5, ChromaCurve::PeakMiddle)
+                        else {
+                            continue;
+                        };
+                        if let Ok((canvas, palette)) = shade_to_canvas(
+                            &mask,
+                            preset.default_source(),
+                            &model,
+                            &palette,
+                            ShadeOptions::default(),
+                        ) {
+                            shaded.push(aa_ratio(&canvas, &palette).0);
+                        }
+                    }
+                }
+                shaded.sort_by(f32::total_cmp);
+                if !shaded.is_empty() {
+                    let at = |q: f32| shaded[((shaded.len() - 1) as f32 * q).round() as usize];
+                    println!(
+                        "\n  **px shade の出力** {} 件  中央 {:.4} ・90% {:.4} ・95% {:.4} ・最大 {:.4}",
+                        shaded.len(),
+                        at(0.5),
+                        at(0.9),
+                        at(0.95),
+                        shaded[shaded.len() - 1]
+                    );
+                }
+            }
+
+            // ルール 14 の閾値を決めるための分布
+            println!("\n  **中間色の割合 (不透明画素に対する)** — ルール 14 の特徴量");
+            for (label, v) in [("掛ける前", &ratio_before), ("掛けた後", &ratio_after)] {
+                let mut r: Vec<f32> = v.iter().map(|(_, x)| x.0).collect();
+                r.sort_by(f32::total_cmp);
+                if r.is_empty() {
+                    continue;
+                }
+                let at = |q: f32| r[((r.len() - 1) as f32 * q).round() as usize];
+                println!(
+                    "    {label}  中央 {:.4} ・90% {:.4} ・95% {:.4} ・最大 {:.4}",
+                    at(0.5),
+                    at(0.9),
+                    at(0.95),
+                    r[r.len() - 1]
+                );
+            }
+            let mut worst: Vec<&(String, (f32, usize))> = ratio_after.iter().collect();
+            worst.sort_by(|a, b| b.1.0.total_cmp(&a.1.0));
+            for (file, r) in worst.iter().take(200) {
+                println!(
+                    "      掛けた後の上位  {file}  割合 {:.4} ・中間色 {} 色",
+                    r.0, r.1
+                );
+            }
+            let mut cols: Vec<usize> = ratio_before.iter().map(|(_, r)| r.1).collect();
+            cols.sort_unstable();
+            if !cols.is_empty() {
+                let at = |q: f32| cols[((cols.len() - 1) as f32 * q).round() as usize];
+                println!(
+                    "    中間色の色数 (掛ける前)  中央 {} ・90% {} ・95% {} ・最大 {}",
+                    at(0.5),
+                    at(0.9),
+                    at(0.95),
+                    cols[cols.len() - 1]
+                );
+            }
+        }
+
+        Command::Ao {
+            seeds,
+            threshold,
+            passes,
+            out,
+        } => {
+            let records = aocal::run(&seeds, &threshold, &passes)?;
+            println!("== 環境遮蔽 (`px shade --ao`) を 3 群に掛けた ==");
+            println!("\n  均し  閾値    群      件数   遮蔽の割合 (中央 / 最大)   ひとりぼっち");
+            for (group, passes, t, n, median, max, scattered) in aocal::summarise(&records) {
+                println!(
+                    "  {passes:<4}  {t:<6}  {group:<6}  {n:>4}   {:>6.2}% / {:>6.2}%        {scattered:>5}",
+                    median * 100.0,
+                    max * 100.0
+                );
+            }
+            if let Some(path) = out {
+                let mut text = String::from(aocal::HEADER);
+                text.push('\n');
+                for r in &records {
+                    text.push_str(&aocal::to_csv(r));
+                    text.push('\n');
+                }
+                std::fs::write(&path, text)?;
+                println!("\n  {} 行を {} へ書いた", records.len(), path.display());
+            }
+        }
+
+        Command::Flip { seeds, steps } => {
+            use px_core::palette::ChromaCurve;
+            use px_core::ramp::{LightPreset, build_lighting};
+            use px_core::shade::{ShadeOptions, shade_to_canvas};
+
+            let mut files: Vec<PathBuf> = std::fs::read_dir(&seeds)?
+                .filter_map(|e| e.ok().map(|e| e.path()))
+                .filter(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("png")))
+                .collect();
+            files.sort();
+
+            let (mut upright, mut mirrored) = (Vec::new(), Vec::new());
+            let mut by_preset: std::collections::BTreeMap<&str, Vec<f32>> = Default::default();
+            for path in &files {
+                let Ok(img) = px_io::png::read_rgba(path) else {
+                    continue;
+                };
+                let mut mask = px_core::geom::Mask::new(img.width(), img.height());
+                for p in mask.bounds().iter() {
+                    if img.get(p.x, p.y).is_some_and(|c| c.a != 0) {
+                        mask.set(p, true);
+                    }
+                }
+                if mask.count() < 64 {
+                    continue;
+                }
+                let base = px_core::color::Rgba8::rgb(0x8a, 0x6a, 0x4a);
+                for preset in LightPreset::ALL {
+                    let Ok((palette, model)) =
+                        build_lighting(base, preset, steps, ChromaCurve::PeakMiddle)
+                    else {
+                        continue;
+                    };
+                    let source = preset.default_source();
+                    let Ok((canvas, palette)) =
+                        shade_to_canvas(&mask, source, &model, &palette, ShadeOptions::default())
+                    else {
+                        continue;
+                    };
+                    // **宣言した光源はそのまま．絵だけを左右反転する** (自動ミラー)
+                    let mut flipped = canvas.clone();
+                    for p in canvas.bounds().iter() {
+                        let q = px_core::math::ivec2(canvas.width() as i32 - 1 - p.x, p.y);
+                        if let Some(i) = canvas.get_at(q) {
+                            flipped.set_at(p, i);
+                        }
+                    }
+                    if let Some(a) = px_lint::rules::shading_agreement(&canvas, &palette, source) {
+                        upright.push(a);
+                        by_preset.entry(preset.as_str()).or_default().push(a);
+                    }
+                    if let Some(a) = px_lint::rules::shading_agreement(&flipped, &palette, source) {
+                        mirrored.push(a);
+                    }
+                }
+            }
+            let quant = |v: &mut Vec<f32>| {
+                v.sort_by(f32::total_cmp);
+                let at = |q: f32| v[((v.len() - 1) as f32 * q).round() as usize];
+                format!(
+                    "最小 {:.3} ・5% {:.3} ・中央 {:.3} ・95% {:.3} ・最大 {:.3}",
+                    v[0],
+                    at(0.05),
+                    at(0.5),
+                    at(0.95),
+                    v[v.len() - 1]
+                )
+            };
+            println!("== 明度勾配と光源方向の一致度 (px shade の出力) ==");
+            for (name, v) in &mut by_preset {
+                println!("  プリセット {name:<10} {}", quant(v));
+            }
+            println!("  そのまま  {} 件  {}", upright.len(), quant(&mut upright));
+            println!(
+                "  左右反転  {} 件  {}",
+                mirrored.len(),
+                quant(&mut mirrored)
+            );
+            for t in [-0.5f32, -0.3, -0.1, 0.0, 0.1, 0.3, 0.5] {
+                let good = upright.iter().filter(|a| **a < t).count();
+                let bad = mirrored.iter().filter(|a| **a < t).count();
+                println!(
+                    "  閾値 {t:>5}  正しい向きで鳴る {good:>3} / {}  ・反転を捕捉 {bad:>3} / {}",
+                    upright.len(),
+                    mirrored.len()
+                );
+            }
+        }
+
+        Command::Outline { dir, outer } => {
+            use px_core::outline::{OutlineOptions, OutlineStyle, outline};
+            let cfg = px_lint::LintConfig::default();
+            let mut files: Vec<PathBuf> = std::fs::read_dir(&dir)?
+                .filter_map(|e| e.ok().map(|e| e.path()))
+                .filter(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("png")))
+                .collect();
+            files.sort();
+
+            println!(
+                "== px outline を良い絵に掛けた ({} 側) ==",
+                if outer { "外" } else { "内" }
+            );
+            println!(
+                "\n  分類       描いた画素  作った色  触った絵  2 度目  シルエット移動  blocking 増"
+            );
+            for style in [
+                OutlineStyle::Black,
+                OutlineStyle::Tinted,
+                OutlineStyle::Contrast,
+                OutlineStyle::Shaded,
+            ] {
+                let opts = OutlineOptions {
+                    style,
+                    outer,
+                    ..OutlineOptions::default()
+                };
+                let (mut painted, mut added, mut touched) = (0usize, 0usize, 0usize);
+                let (mut again_n, mut moved, mut worse, mut n) = (0usize, 0usize, 0usize, 0usize);
+                for path in &files {
+                    let Ok(img) = px_io::png::read_rgba(path) else {
+                        continue;
+                    };
+                    let Ok((canvas, palette)) = lintcal::index_exactly(&img) else {
+                        continue;
+                    };
+                    n += 1;
+                    let transparent = canvas.transparent().unwrap_or(255);
+                    let before_silhouette = canvas.mask_of(transparent);
+                    let before_blocking = {
+                        let mut r = px_lint::rules::lint_palette(&palette, &cfg);
+                        r.extend(px_lint::lint_canvas(&canvas, &palette, &cfg));
+                        r.blocking().count()
+                    };
+                    let (mut c, mut p) = (canvas.clone(), palette.clone());
+                    let Ok(report) = outline(&mut c, &mut p, &opts) else {
+                        continue;
+                    };
+                    painted += report.painted;
+                    added += report.added_colors;
+                    if report.painted > 0 {
+                        touched += 1;
+                    }
+                    if !outer && c.mask_of(transparent) != before_silhouette {
+                        moved += 1;
+                    }
+                    let after = {
+                        let mut r = px_lint::rules::lint_palette(&p, &cfg);
+                        r.extend(px_lint::lint_canvas(&c, &p, &cfg));
+                        r.blocking().count()
+                    };
+                    if after > before_blocking {
+                        worse += 1;
+                    }
+                    let (mut c2, mut p2) = (c.clone(), p.clone());
+                    if let Ok(again) = outline(&mut c2, &mut p2, &opts)
+                        && again.painted > 0
+                    {
+                        again_n += 1;
+                    }
+                }
+                println!(
+                    "  {:<10} {painted:>10} {added:>9} {touched:>9} / {n} {again_n:>6} {moved:>14} {worse:>11}",
+                    style.as_str()
+                );
+            }
         }
 
         Command::LintGen {
@@ -2297,6 +3001,73 @@ fn report_confidence(records: &[confidence::Record]) {
             acc * 100.0
         );
     }
+}
+
+/// ファイル名だけを取り出す (表示用)．
+fn name_of(path: &std::path::Path) -> String {
+    path.file_name()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_default()
+}
+
+/// **中間色として置かれている画素の割合** (不透明画素に対する)．ルール 14 の特徴量．
+///
+/// 数え方は **`px clean --remove-aa` が外す画素**そのものである — 付ける側 ・
+/// 外す側 ・数える側で «中間色» の定義がずれると，付けた AA を自分の道具で外せなく
+/// なる (D83 で実際に壊れた) ．
+///
+/// > [!warning] [`px_core::aa::strip_aa`] では数えられない．
+/// > あちらは «8 近傍に現れる 2 色の間にあるか» を画素ごとに見るだけなので，
+/// > 密な質感では色の大半が誰かの «間» に入る — 良い絵 61 枚で**中央 17.5% ・
+/// > 最大 67.0%** になった．`px aa` が冪等性のために «元の角» を復元する用途では
+/// > それでよいが，**割合の分子には使えない**．
+fn aa_ratio(
+    canvas: &px_core::canvas::IndexedCanvas,
+    palette: &px_core::palette::Palette,
+) -> (f32, usize) {
+    let opaque = canvas
+        .pixels()
+        .iter()
+        .filter(|i| canvas.transparent() != Some(**i))
+        .count();
+    if opaque == 0 {
+        return (0.0, 0);
+    }
+    let mut areas: std::collections::BTreeMap<u8, u32> = Default::default();
+    for &i in canvas.pixels() {
+        if canvas.transparent() != Some(i) {
+            *areas.entry(i).or_default() += 1;
+        }
+    }
+    let tolerance = px_core::clean::AaOptions::default().tolerance;
+    let (mut count, mut colours) = (0u32, 0usize);
+    for (&i, &area) in &areas {
+        let Some(mid) = palette.lab_of(i) else {
+            continue;
+        };
+        let is_between = areas.iter().any(|(&a, &na)| {
+            na > area
+                && areas.iter().any(|(&b, &nb)| {
+                    if b <= a || b == i || a == i || nb <= area {
+                        return false;
+                    }
+                    let (Some(la), Some(lb)) = (palette.lab_of(a), palette.lab_of(b)) else {
+                        return false;
+                    };
+                    let midpoint = px_core::color::Oklab::new(
+                        (la.l + lb.l) * 0.5,
+                        (la.a + lb.a) * 0.5,
+                        (la.b + lb.b) * 0.5,
+                    );
+                    px_core::color::distance_sq(mid, midpoint, 1.0).sqrt() <= tolerance
+                })
+        });
+        if is_between {
+            count += area;
+            colours += 1;
+        }
+    }
+    (count as f32 / opaque as f32, colours)
 }
 
 #[cfg(test)]

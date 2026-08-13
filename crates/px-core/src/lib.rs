@@ -18,10 +18,15 @@
 //! | [`quantize`] | 色数削減とパレット強制 | 6.6 |
 //! | [`clean`] | 整形と脱ディザノイズ | 6.3 / 6.14 |
 //! | [`ramp`] | ランプ生成と照明モデル | 3.3 / D48 |
+//! | [`shade`] | 陰影導出 | 6.2 |
+//! | [`aa`] | アンチエイリアス | 6.5 |
+//! | [`outline`] | 縁取り | D36 |
+//! | [`smooth`] | ジャギー正規化 | 6.4 |
 //! | [`ink`] | 描画インクとブラシ | 3.4 |
 //! | [`edit`] | 編集操作とパッチ | 3.6 |
 //! | [`error`] | エラーモデル | 3.7 |
 
+pub mod aa;
 pub mod canvas;
 pub mod clean;
 pub mod color;
@@ -32,11 +37,15 @@ pub mod geom;
 pub mod grid;
 pub mod ink;
 pub mod math;
+pub mod outline;
 pub mod palette;
 pub mod quantize;
 pub mod ramp;
 pub mod shade;
+pub mod smooth;
+pub mod validate;
 
+pub use aa::{AaAddOptions, AaReport, add_antialiasing};
 pub use canvas::{IndexedCanvas, RgbaCanvas};
 pub use color::{Oklab, Rgba8};
 pub use edit::{EditOp, FrameId, LayerId, Patch};
@@ -48,8 +57,11 @@ pub use geom::{Chain, Contour, Field, Mask, Region, RegionMap};
 pub use grid::{GridError, GridEstimate, GridParams, estimate_grid, local_grid};
 pub use ink::{Brush, FillOpts, Ink, PatternMask};
 pub use math::{IRect, IVec2, Rect, UVec2, Vec2, clip_pair, ivec2, uvec2, vec2};
+pub use outline::{OutlineOptions, OutlineReport, OutlineStyle, outline};
 pub use palette::{ChromaCurve, Palette, Ramp};
 pub use ramp::{LightPreset, LightSource, LightingModel, RampSpec, generate_ramp};
 pub use shade::{
     Lamp, ShadeOptions, Shading, bounce_distance_field, incidence, normal_field, shade, shade_mask,
+    shade_to_canvas,
 };
+pub use smooth::{SmoothOptions, SmoothReport, smooth_canvas, smooth_mask};

@@ -183,22 +183,34 @@ pub fn trace_contours(mask: &Mask) -> Vec<Contour> {
 
 /// Moore 近傍追跡．`backtrack` は `start` に隣接する背景画素．
 ///
-/// Jacob の停止条件 (同じ画素へ同じ向きから入ったら終わり) を使う．単純に
-/// 「開始点へ戻ったら終わり」にすると，8 の字に接する形で 1 周目の途中で止まる．
+/// > [!warning] **停止条件は «開始点へ同じ背景側から入る» ではなく «最初の 2 点の
+/// > 並びがもう一度現れる» で見る．**
+/// > 前者は**幅 1 画素の部分を持つ形で永久に止まらない** — 最小の例は横に並んだ
+/// > 2 画素である．行きと帰りで背景側の画素が変わるので，開始点へ戻っても状態が
+/// > 一致しない．上限で打ち切られた輪郭がそのまま返っていた結果，**面積 11 の色が
+/// > 輪郭点 16393 になっていた** (32x32 の絵 1 枚でチェーンが 14 万本) ．
+/// >
+/// > 実測では 2 画素 ・斜めの線 ・市松 ・1 画素の橋 ・T 字の先が回っていた．
+/// > 厚みが 2 以上ある形 (四角 ・L 字 ・十字 ・穴あき) は正しく止まっていたので，
+/// > **単純な形しか無い素材では見えない**．
+///
+/// 幅 1 画素の «出っ張り» は行きと帰りで 2 度通る — これは Moore 追跡として正しく，
+/// 輪郭の長さが面積を超えることがある．
 fn trace_from(mask: &Mask, start: IVec2, backtrack: IVec2) -> Option<Vec<IVec2>> {
     if !mask.get(start) {
         return None;
     }
     let mut pts = vec![start];
     let (mut b, mut c) = (start, backtrack);
-    let (first_b, first_c) = (b, c);
 
     // 1 画素だけの成分は追跡の輪ができないので早く返す
     if DIRS8.iter().all(|&d| !mask.get(start + d)) {
         return Some(pts);
     }
 
-    // 上限は「全画素を 8 方向ぶん通る」で十分に余裕がある
+    // 2 点目．**これが停止条件の «同じ向き» の代わりになる**
+    let mut second: Option<IVec2> = None;
+    // 上限は安全網である (正しく止まるならここへは来ない)
     let limit = mask.size().area().saturating_mul(8).max(16);
     for _ in 0..limit {
         let d0 = dir_index(b, c)?;
@@ -213,8 +225,16 @@ fn trace_from(mask: &Mask, start: IVec2, backtrack: IVec2) -> Option<Vec<IVec2>>
             }
         }
         let (nb, nc) = next?;
-        if nb == first_b && nc == first_c {
-            return Some(pts);
+        match second {
+            None => second = Some(nb),
+            Some(p1) if b == start && nb == p1 => {
+                // 1 周した．戻ってきた開始点は重複なので落とす
+                if pts.len() > 1 && pts.last() == Some(&start) {
+                    pts.pop();
+                }
+                return Some(pts);
+            }
+            _ => {}
         }
         pts.push(nb);
         b = nb;

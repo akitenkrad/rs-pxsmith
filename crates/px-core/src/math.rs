@@ -19,14 +19,14 @@ pub struct UVec2 {
 }
 
 /// 実数ベクトル．法線・接線・光源方向に使う．
-#[derive(Copy, Clone, Debug, Default, PartialEq)]
+#[derive(Copy, Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Vec2 {
     pub x: f32,
     pub y: f32,
 }
 
 /// 実数矩形．面光源の範囲などに使う (設計書 3.3)．
-#[derive(Copy, Clone, Debug, Default, PartialEq)]
+#[derive(Copy, Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Rect {
     pub x: f32,
     pub y: f32,

@@ -30,7 +30,7 @@
 
 pub mod rules;
 
-pub use rules::{LintConfig, lint_canvas, lint_frame};
+pub use rules::{LintConfig, lint_canvas, lint_canvas_scoped, lint_frame};
 
 use px_core::math::{IRect, IVec2};
 use serde::{Deserialize, Serialize};
@@ -89,10 +89,45 @@ pub const RULES: &[Rule] = &[
         scope: Scope::Static,
     },
     Rule {
+        id: 4,
+        name: "アウトライン角の重なり",
+        severity: Severity::Blocking,
+        scope: Scope::Keyframe,
+    },
+    Rule {
         id: 5,
         name: "彩度カーブ異常",
         severity: Severity::Blocking,
         scope: Scope::Static,
+    },
+    // **advisory である (D86)．** 設計書 7.3 は blocking と定めるが，**実物の
+    // ドット絵は色相をずらさない陰影を普通に使う** — 色相差が 0.5 度未満 (丸めの
+    // 揺れより小さい，文字どおり同一色相) の光 / 影の組を持つ良い絵が 64 枚中
+    // 20 枚あり，35 度 (ランプ生成が狙う分離量) で切ると 41 枚が止まる．
+    // 7.2 の «偽陽性が避けられない主観寄りのルール» に当たる
+    Rule {
+        id: 6,
+        name: "単色影",
+        severity: Severity::Advisory,
+        scope: Scope::Static,
+    },
+    Rule {
+        id: 7,
+        name: "反転同値の陰影不整合",
+        severity: Severity::Blocking,
+        scope: Scope::Static,
+    },
+    // **advisory である (D85)．** 設計書 7.3 は blocking と定めるが，**この特徴量
+    // (ラン長列の谷) では良い絵と «ぎざぎざの縁» が分かれない**．CC0 の実物 61 枚は
+    // 谷を 146 件持ち **36 枚が 1 件以上**で，わざとぎざぎざに描いた負例 8 枚
+    // (0 〜 4 件) とどの切り方でも重なる (絵あたりの件数 ・ラン比 ・1 区間あたりの
+    // 密度 ・谷の深さ $\delta \ge 2$ をすべて測った) ．**分かれない検査で出力を
+    // 止めない** — 直す道具 (`px smooth`) はあるので，報告して人に渡す
+    Rule {
+        id: 8,
+        name: "ジャギー",
+        severity: Severity::Advisory,
+        scope: Scope::Keyframe,
     },
     Rule {
         id: 9,
@@ -111,6 +146,24 @@ pub const RULES: &[Rule] = &[
         name: "明度差不足",
         severity: Severity::Advisory,
         scope: Scope::Static,
+    },
+    Rule {
+        id: 12,
+        name: "バンディング",
+        severity: Severity::Advisory,
+        scope: Scope::Keyframe,
+    },
+    Rule {
+        id: 13,
+        name: "pillow shading",
+        severity: Severity::Advisory,
+        scope: Scope::Static,
+    },
+    Rule {
+        id: 14,
+        name: "AA 過多",
+        severity: Severity::Advisory,
+        scope: Scope::Keyframe,
     },
     Rule {
         id: 15,

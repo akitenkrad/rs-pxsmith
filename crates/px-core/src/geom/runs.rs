@@ -85,14 +85,58 @@ pub fn run_valleys(runs: &[u32]) -> Vec<usize> {
         .collect()
 }
 
-/// ジャギーとみなす谷 — 曲率符号の反転点を除いたもの (D32)．
+/// **理想の単谷形の底とみなす «続いた坂» の段数** (`sustained_valleys` の既定)．
 ///
-/// `turns` は反転しているランの添字．[`crate::geom::jaggy::turn_runs`] が
-/// 距離場の曲率から求める．
-pub fn jaggy_valleys(runs: &[u32], turns: &BTreeSet<usize>) -> Vec<usize> {
+/// **暫定値である．** 2 段にしたのは «平らな中の単発のくぼみ» (D60 が名指しした
+/// `[3, 3, 1, 3]`) を除外しない最小の値だからで，上げ下げの影響は測っていない．
+pub const SUSTAINED_SLOPE: usize = 2;
+
+/// **理想の単谷形の底** — 両側に厳密な坂が `min_slope` 段以上続く谷．
+///
+/// 設計書 6.4 の理想形は «端から中央へ単調非増加，中央から端へ単調非減少» なので，
+/// **その底は理想形にも必ず現れる**．`[4, 3, 2, 3, 4]` の底がこれである．
+///
+/// > [!warning] **D60 の «ラン長列の最小値» とは別物である．**
+/// > D60 が禁じたのは «内部の最小値を反転点とみなす» ことで，それだと
+/// > `[3, 3, 1, 3]` の谷が毎回除外され**最も普通のジャギーが丸ごと見逃される**．
+/// > ここは «両側に坂が続くか» を見るので，平らな中の単発のくぼみは除外しない
+/// > (`[3, 3, 1, 3]` は左が $3 = 3$ で坂が続かない) ．
+/// >
+/// > **曲率場からは取れないことを測って確かめた** (D80) ．単調区間の中では
+/// > 距離場の曲率はどのランでも正で，理想形 `[4, 3, 2, 3, 4]` とジャギー
+/// > `[3, 3, 2, 3]` の符号の並びが**同じ**である (均し 0 〜 5 回のいずれでも) ．
+/// > 単調区間は既に向きで切ってあるので，その中で符号が反転する場面がほとんど無い．
+pub fn sustained_valleys(runs: &[u32], min_slope: usize) -> BTreeSet<usize> {
     run_valleys(runs)
         .into_iter()
-        .filter(|i| !turns.contains(i))
+        .filter(|&i| {
+            let mut left = 0usize;
+            let mut j = i;
+            while j > 0 && runs[j - 1] > runs[j] {
+                left += 1;
+                j -= 1;
+            }
+            let mut right = 0usize;
+            let mut j = i;
+            while j + 1 < runs.len() && runs[j + 1] > runs[j] {
+                right += 1;
+                j += 1;
+            }
+            left >= min_slope && right >= min_slope
+        })
+        .collect()
+}
+
+/// ジャギーとみなす谷 — 理想形にも現れる谷を除いたもの (D32 ・D80)．
+///
+/// `turns` は曲率符号が反転しているランの添字 ([`crate::geom::jaggy::turn_runs`]) ．
+/// **それに加えて «続いた坂の底» を除く** — 実測では曲率がほとんど反転しないので，
+/// これが無いと理想の単谷形そのものを違反と判定する．
+pub fn jaggy_valleys(runs: &[u32], turns: &BTreeSet<usize>) -> Vec<usize> {
+    let sustained = sustained_valleys(runs, SUSTAINED_SLOPE);
+    run_valleys(runs)
+        .into_iter()
+        .filter(|i| !turns.contains(i) && !sustained.contains(i))
         .collect()
 }
 
@@ -128,6 +172,62 @@ mod tests {
     use crate::geom::contour::{split_monotone, trace_contours};
     use crate::geom::mask::Mask;
     use crate::math::{IRect, ivec2};
+
+    /// **理想の単谷形の底は違反にしない．** 谷は理想形にも必ず現れる (設計書 6.4)．
+    #[test]
+    fn the_bottom_of_an_ideal_single_valley_is_not_a_jaggy() {
+        let runs = [4, 3, 2, 3, 4];
+        assert_eq!(run_valleys(&runs), vec![2], "谷が取れていない");
+        assert!(
+            sustained_valleys(&runs, SUSTAINED_SLOPE).contains(&2),
+            "理想の単谷形の底を除外していない"
+        );
+        assert!(
+            jaggy_valleys(&runs, &BTreeSet::new()).is_empty(),
+            "理想形そのものをジャギーと呼んでいる"
+        );
+    }
+
+    /// **D60 の反例 — 単発のくぼみは «理想形» を名乗って逃げられない．**
+    ///
+    /// ラン長列の最小値を反転点にすると `[3, 3, 1, 3]` の谷が毎回除外され，
+    /// **最も普通のジャギーが丸ごと見逃される**．除外の条件は «両側に坂が続くか» で
+    /// あって «最小値か» ではない．
+    #[test]
+    fn a_lone_dip_in_a_flat_run_is_still_a_jaggy() {
+        for runs in [
+            vec![3u32, 3, 1, 3],
+            vec![3, 3, 2, 3],
+            vec![5, 5, 4, 5, 5],
+            vec![2, 2, 1, 2],
+        ] {
+            assert!(
+                sustained_valleys(&runs, SUSTAINED_SLOPE).is_empty(),
+                "{runs:?} の単発のくぼみを理想形として除外した"
+            );
+            assert_eq!(
+                jaggy_valleys(&runs, &BTreeSet::new()).len(),
+                1,
+                "{runs:?} のジャギーを見逃した"
+            );
+        }
+    }
+
+    /// **片側だけ坂が続く形は除外しない．** 理想形は両側に坂がある．
+    #[test]
+    fn a_valley_with_a_slope_on_only_one_side_is_still_a_jaggy() {
+        let runs = [5, 4, 3, 2, 3];
+        assert!(sustained_valleys(&runs, SUSTAINED_SLOPE).is_empty());
+        assert_eq!(jaggy_valleys(&runs, &BTreeSet::new()), vec![3]);
+    }
+
+    /// 曲率の反転点は今までどおり除外する (2 つの規則は足し算である)．
+    #[test]
+    fn a_curvature_turn_is_still_excluded() {
+        let runs = [3, 3, 1, 3];
+        let turns: BTreeSet<usize> = [2usize].into_iter().collect();
+        assert!(jaggy_valleys(&runs, &turns).is_empty());
+    }
 
     /// テスト用に，与えたラン長列そのものを持つチェーンを作るのは手間なので，
     /// ラン長列を直接扱う関数はそのまま試す．

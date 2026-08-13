@@ -1177,6 +1177,7 @@ dependencies = [
  "px-macro",
  "px-view",
  "serde_json",
+ "toml",
 ]
 
 [[package]]
@@ -1203,6 +1204,7 @@ dependencies = [
  "palette",
  "quantette",
  "serde",
+ "serde_json",
  "thiserror",
 ]
 

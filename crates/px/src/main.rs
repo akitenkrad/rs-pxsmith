@@ -13,6 +13,7 @@ use px_io::{Document, FrameId};
 use px_view::render::RenderOptions;
 
 mod color_cmds;
+mod shape_cmds;
 mod watch;
 
 #[derive(Parser)]
@@ -84,6 +85,26 @@ enum Command {
         #[arg(long, default_value_t = 0.8)]
         uniformity: f32,
     },
+    /// シルエットへ陰影を導出する (設計書 6.2)
+    Shade {
+        #[command(flatten)]
+        args: shape_cmds::ShadeArgs,
+    },
+    /// ジャギーを正規化する (設計書 6.4)
+    Smooth {
+        #[command(flatten)]
+        args: shape_cmds::SmoothArgs,
+    },
+    /// アンチエイリアスを付ける (設計書 6.5)
+    Aa {
+        #[command(flatten)]
+        args: shape_cmds::AaArgs,
+    },
+    /// 縁取りを描く (設計書 D36)
+    Outline {
+        #[command(flatten)]
+        args: shape_cmds::OutlineArgs,
+    },
     /// 端末に表示して確かめる
     View {
         path: PathBuf,
@@ -112,6 +133,16 @@ enum Command {
         json: bool,
         #[command(flatten)]
         grid: color_cmds::GridArgs,
+    },
+    /// 実機制約検証 (設計書 5 章)．**違反があれば非ゼロで終わる**
+    Validate {
+        input: PathBuf,
+        /// 出力先 — 組み込みの名前かプロファイルの TOML
+        #[arg(long)]
+        target: String,
+        /// JSON で出す
+        #[arg(long)]
+        json: bool,
     },
     /// 環境と保持層の診断
     Verify {
@@ -217,10 +248,19 @@ fn main() -> Result<()> {
             window,
             uniformity,
         ),
+        Command::Shade { args } => shape_cmds::shade(&args),
+        Command::Smooth { args } => shape_cmds::smooth(&args),
+        Command::Aa { args } => shape_cmds::aa(&args),
+        Command::Outline { args } => shape_cmds::outline_cmd(&args),
         Command::View { path, display } => view(&path, &display),
         Command::Watch { path, display } => watch::run(&path, &display.options(), display.frame),
         Command::Diff { a, b, limit } => diff(&a, &b, limit),
         Command::Lint { input, json, grid } => color_cmds::lint(&input, json, &grid),
+        Command::Validate {
+            input,
+            target,
+            json,
+        } => color_cmds::validate(&input, &target, json),
         Command::Verify { command } => verify(command),
     }
 }
