@@ -121,7 +121,8 @@ passes_epsilon,passes_phase,drift,bx2,by2,bx3,by3,bx4,by4,\
 sx2,sy2,sx3,sy3,sx4,sy4,split_gain,split_recon_gain,image_var,width,height,dx,dy,\
 agree_bands,jx,jy,mx,my,ax,ay,\
 e1nx,e1ny,e1cx,e1cy,e1rx,e1ry,e1sx,e1sy,\
-e2nx,e2ny,e2cx,e2cy,e2rx,e2ry,e2sx,e2sy";
+e2nx,e2ny,e2cx,e2cy,e2rx,e2ry,e2sx,e2sy,\
+e2mx,e2my,e2fx,e2fy";
 
 /// 帯ごとの位相を `|` でつなぐ (CSV の 1 欄に収めるため)．
 fn join(v: Option<&Vec<usize>>) -> String {
@@ -157,7 +158,7 @@ impl Record {
 {},{},{},{},{},{},{:.5},{:.5},{:.6},{},{},{},{},\
 {},{:.7},{:.7},{:.7},{:.7},{:.7},{:.7},\
 {},{},{:.4},{:.4},{},{},{},{},\
-{},{},{:.4},{:.4},{},{},{},{}",
+{},{},{:.4},{:.4},{},{},{},{},{},{},{},{}",
             self.file,
             self.item_id,
             self.scale,
@@ -233,6 +234,10 @@ impl Record {
             optf(self.edge2.residual[1]),
             optf(self.edge2.slope[0]),
             optf(self.edge2.slope[1]),
+            optf(self.edge2.residual_median[0]),
+            optf(self.edge2.residual_median[1]),
+            optf(self.edge2.residual_folded[0]),
+            optf(self.edge2.residual_folded[1]),
         )
     }
 
@@ -464,12 +469,16 @@ mod tests {
                 coverage: [1.0; 2],
                 residual: [Some(overall); 2],
                 slope: [Some(overall); 2],
+                residual_median: [Some(overall); 2],
+                residual_folded: [Some(overall); 2],
             },
             edge2: EdgeFit {
                 count: [0, 0],
                 coverage: [0.0; 2],
                 residual: [None; 2],
                 slope: [None; 2],
+                residual_median: [None; 2],
+                residual_folded: [None; 2],
             },
             stats: ReconStats {
                 overall,

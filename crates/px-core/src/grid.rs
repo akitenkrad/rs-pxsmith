@@ -1506,6 +1506,22 @@ pub struct EdgeFit {
     pub residual: [Option<f32>; 2],
     /// 当てはめた間隔と $s$ のずれ $(\hat{s}_{\mathrm{fit}} - s) / s$ (`[x, y]`)．
     pub slope: [Option<f32>; 2],
+    /// **残差の中央絶対値** ($s$ で正規化．`[x, y]`)．
+    ///
+    /// RMS は**外れの峰 1 本で跳ねる** — 絵の中身が作る偽の峰が 1 つ混じるだけで
+    /// 二乗が効く．実データの正例で残差が 0.9 まで伸びるのはこれが主因と見て，
+    /// 外れに鈍い形も測れるようにしておく．
+    pub residual_median: [Option<f32>; 2],
+    /// **峰を $s$ で畳んだときの散らばり** (円周上の中央絶対偏差．$s$ で正規化．`[x, y]`)．
+    ///
+    /// 直線を当てるには峰へ添字 $k$ を振る必要があり，間隔が $1.5 s$ 付近だと丸めが
+    /// 滑って**以降の添字がすべてずれる**．畳んでしまえば添字が要らない — 本物の
+    /// 格子なら峰は $s$ を法として 1 点に集まり，偽の峰は散る．
+    ///
+    /// > [!note] 折り畳み (`fold_profile`) とは別物である
+    /// > あれはエネルギーそのものを畳んで**位置情報を捨てて**いた．ここで畳むのは
+    /// > **拾った峰の位置**であり，散らばりを見るために畳んでいる．
+    pub residual_folded: [Option<f32>; 2],
 }
 
 /// 差分エネルギーの極大点を副画素で拾う．
@@ -1569,7 +1585,17 @@ fn refine_peak(energy: &[Option<f64>], i: usize) -> f32 {
 ///
 /// 間隔は最低 1 セルとする．非極大抑制の窓が $s/2$ なので峰は $s/2$ より近づかず，
 /// 0 セル (同じ境界を 2 度数える) は起こらない — 起きたとすれば絵の側の縞である．
-fn fit_spacing(peaks: &[f32], s: f32) -> Option<(f32, f32)> {
+/// 直線 $b_k = a + k s$ の当てはまり．
+struct SpacingFit {
+    /// 残差の RMS (画素)．
+    rms: f32,
+    /// 残差の中央絶対値 (画素)．**外れの峰 1 本で跳ねない．**
+    median: f32,
+    /// 当てはめた間隔 (画素)．
+    spacing: f32,
+}
+
+fn fit_spacing(peaks: &[f32], s: f32) -> Option<SpacingFit> {
     if peaks.len() < 3 {
         return None;
     }
@@ -1598,15 +1624,18 @@ fn fit_spacing(peaks: &[f32], s: f32) -> Option<(f32, f32)> {
         return None;
     }
     let a = mp - b * mk;
-    let rss: f32 = ks
+    let mut errors: Vec<f32> = ks
         .iter()
         .zip(peaks)
-        .map(|(k, p)| {
-            let e = p - (a + b * k);
-            e * e
-        })
-        .sum();
-    Some(((rss / n).sqrt(), b))
+        .map(|(k, p)| (p - (a + b * k)).abs())
+        .collect();
+    let rss: f32 = errors.iter().map(|e| e * e).sum();
+    errors.sort_by(f32::total_cmp);
+    Some(SpacingFit {
+        rms: (rss / n).sqrt(),
+        median: errors[errors.len() / 2],
+        spacing: b,
+    })
 }
 
 /// セル境界の位置に直線を当てて測る (診断用)．`order` は差分の階数 (1 か 2)．
@@ -1638,17 +1667,47 @@ fn edge_fit_of(energies: &[Vec<Option<f64>>; 2], s: u32) -> EdgeFit {
         coverage: [0.0; 2],
         residual: [None; 2],
         slope: [None; 2],
+        residual_median: [None; 2],
+        residual_folded: [None; 2],
     };
     for (axis, energy) in energies.iter().enumerate() {
         let peaks = energy_peaks(energy, su);
         out.count[axis] = peaks.len();
         out.coverage[axis] = peaks.len() as f32 / (energy.len() / su).max(1) as f32;
-        if let Some((rms, b)) = fit_spacing(&peaks, su as f32) {
-            out.residual[axis] = Some(rms / su as f32);
-            out.slope[axis] = Some((b - su as f32) / su as f32);
+        if let Some(fit) = fit_spacing(&peaks, su as f32) {
+            out.residual[axis] = Some(fit.rms / su as f32);
+            out.residual_median[axis] = Some(fit.median / su as f32);
+            out.slope[axis] = Some((fit.spacing - su as f32) / su as f32);
         }
+        out.residual_folded[axis] = folded_spread(&peaks, su as f32).map(|v| v / su as f32);
     }
     out
+}
+
+/// **峰を $s$ で畳んだときの円周上の散らばり (中央絶対偏差)．**
+///
+/// 添字を振らないので，間隔の丸めが滑っても壊れない．中央値で測るので外れの峰にも鈍い．
+fn folded_spread(peaks: &[f32], s: f32) -> Option<f32> {
+    if peaks.len() < 3 || s <= 0.0 {
+        return None;
+    }
+    let phases: Vec<f32> = peaks.iter().map(|p| p.rem_euclid(s)).collect();
+    // 円周上の中心は «どこを起点に測るか» で変わるので，峰そのものを起点に総当たりする
+    // (標本は数十なので費用は問題にならない)
+    let mut best = f32::INFINITY;
+    for &origin in &phases {
+        let mut d: Vec<f32> = phases
+            .iter()
+            .map(|p| {
+                let raw = (p - origin).rem_euclid(s);
+                raw.min(s - raw)
+            })
+            .collect();
+        d.sort_by(f32::total_cmp);
+        let mad = d[d.len() / 2];
+        best = best.min(mad);
+    }
+    best.is_finite().then_some(best)
 }
 
 /// **境界の当てはめが «真の $s$ である» と言えるか (D71)．**
@@ -2757,9 +2816,9 @@ mod tests {
     #[test]
     fn a_non_integer_period_shows_up_as_a_spacing_error() {
         let peaks: Vec<f32> = (0..20).map(|k| k as f32 * 5.3).collect();
-        let (rms, b) = fit_spacing(&peaks, 5.0).expect("当てはまらない");
-        assert!((b - 5.3).abs() < 0.01, "間隔 {b}");
-        assert!(rms < 0.01, "残差 {rms}");
+        let fit = fit_spacing(&peaks, 5.0).expect("当てはまらない");
+        assert!((fit.spacing - 5.3).abs() < 0.01, "間隔 {}", fit.spacing);
+        assert!(fit.rms < 0.01, "残差 {}", fit.rms);
     }
 
     /// 真の $s$ の約数は**そのまま直線に乗る**．止めるのは «閾値を満たす最大の $s$» の
@@ -2768,9 +2827,53 @@ mod tests {
     #[test]
     fn a_divisor_still_fits_the_line() {
         let peaks: Vec<f32> = (0..12).map(|k| k as f32 * 6.0).collect();
-        let (rms, b) = fit_spacing(&peaks, 3.0).expect("当てはまらない");
-        assert!(rms < 0.01, "残差 {rms}");
-        assert!((b - 3.0).abs() < 0.01, "間隔 {b}");
+        let fit = fit_spacing(&peaks, 3.0).expect("当てはまらない");
+        assert!(fit.rms < 0.01, "残差 {}", fit.rms);
+        assert!((fit.spacing - 3.0).abs() < 0.01, "間隔 {}", fit.spacing);
+    }
+
+    /// **外れの峰 1 本は «残差の測り方» では吸収できない — 畳むしかない．**
+    ///
+    /// 偽の峰が 1 本入るとそこで添字の積み上げが 1 つずれ，**以降の点がすべて直線から
+    /// 外れる**．だから RMS だけでなく中央絶対値も跳ねる (0 → 0.77) — 外れに鈍い統計を
+    /// 選んでも，**添字を振る限り直らない**．畳んだ散らばりは添字を要らないので動かない．
+    ///
+    /// 実データの正例で残差が 0.9 まで伸びるのはこの形であり，畳んだ形の裾が素材に
+    /// 依らない (合成 0.373 ・同梱 0.326 ・`local/` 0.311) 理由でもある．
+    #[test]
+    fn one_stray_peak_breaks_the_indexing_and_only_folding_survives() {
+        let mut peaks: Vec<f32> = (0..12).map(|k| k as f32 * 5.0).collect();
+        let clean = fit_spacing(&peaks, 5.0).expect("当てはまらない");
+        let clean_folded = folded_spread(&peaks, 5.0).expect("畳めない");
+        peaks.insert(6, 27.5); // セルの真ん中に偽の峰を 1 本
+        peaks.sort_by(f32::total_cmp);
+        let dirty = fit_spacing(&peaks, 5.0).expect("当てはまらない");
+        let dirty_folded = folded_spread(&peaks, 5.0).expect("畳めない");
+
+        assert!(
+            dirty.rms > clean.rms + 0.3,
+            "RMS {} → {}",
+            clean.rms,
+            dirty.rms
+        );
+        assert!(
+            dirty.median > clean.median + 0.3,
+            "中央絶対値も跳ねる {} → {}",
+            clean.median,
+            dirty.median
+        );
+        assert!(
+            dirty_folded < clean_folded + 0.1,
+            "畳んだ散らばりは動かない {clean_folded} → {dirty_folded}"
+        );
+    }
+
+    /// 畳んだ散らばりは**添字を振らない**ので，間隔の丸めが滑る並びでも壊れない．
+    #[test]
+    fn the_folded_spread_needs_no_indexing() {
+        // 5 画素周期だが途中で 2 本ぶん飛ぶ (丸めが滑る形)
+        let peaks: Vec<f32> = [0.0, 5.0, 10.0, 20.0, 25.0, 35.0, 40.0].into();
+        assert!(folded_spread(&peaks, 5.0).expect("畳めない") < 0.01);
     }
 
     /// 平坦な画像では境界が 1 本も立たない — **測れない候補**である．

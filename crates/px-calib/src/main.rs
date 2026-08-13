@@ -369,6 +369,9 @@ enum Command {
         /// 曲線の正規化 — 分母を $(A - M) + \lambda A$ にする ($\lambda = 0$ が現行)
         #[arg(long, num_args = 1.., default_values_t = [0.0f32])]
         curve_lambda: Vec<f32>,
+        /// **当てはまりの測り方** (`rms` = 現行 ・`median` ・`folded`)
+        #[arg(long, num_args = 1.., default_values_t = [String::from("rms")])]
+        edge_stat: Vec<String>,
         /// 曲線を軸ごとにまとめる形 (`mean` = 現行 ・`max`)
         #[arg(long, num_args = 1.., default_values_t = [String::from("mean")])]
         curve_axis: Vec<String>,
@@ -836,6 +839,7 @@ fn main() -> Result<()> {
             edge_drop_any_axis,
             curve_lambda,
             curve_axis,
+            edge_stat,
             top,
         } => {
             let manifest = dataset::read(&dir)?;
@@ -909,6 +913,14 @@ fn main() -> Result<()> {
             });
             grid = expand(&grid, &curve_lambda, |g, v| g.curve_lambda = v);
             grid = expand(&grid, &axes, |g, v| g.curve_axis = v);
+            let stats: Vec<replay::EdgeStat> = edge_stat
+                .iter()
+                .map(|a| {
+                    replay::EdgeStat::parse(a)
+                        .with_context(|| format!("測り方は rms / median / folded: {a}"))
+                })
+                .collect::<Result<_>>()?;
+            grid = expand(&grid, &stats, |g, v| g.edge_stat = v);
             report_replay_sweep(&cases, &grid, top);
         }
 
@@ -1743,7 +1755,7 @@ fn report_replay_sweep(cases: &[replay::Case], grid: &[replay::Gates], top: usiz
             g.edge_curve_min_count
         );
         println!(
-            "  ε {:<5} τ {:<5} θ {:<5} 曲線 {:<5} λ {:<4} 軸 {:<4} 比 {:<5} 信 {:<5} | 境界 {} {:<8} 傾き {:<6} 残差 {:<6} 本数 {:<3} 割合 {:<5} 肩代 {} | {}",
+            "  ε {:<5} τ {:<5} θ {:<5} 曲線 {:<5} λ {:<4} 軸 {:<4} 比 {:<5} 信 {:<5} | 境界 {} {:<8} {:<7} 傾き {:<6} 残差 {:<6} 本数 {:<3} 割合 {:<5} 肩代 {} | {}",
             g.epsilon,
             g.tau,
             g.phase_tolerance,
@@ -1754,6 +1766,7 @@ fn report_replay_sweep(cases: &[replay::Case], grid: &[replay::Gates], top: usiz
             g.min_confidence,
             g.edge_order,
             g.edge_mode.as_str(),
+            g.edge_stat.as_str(),
             g.edge_slope,
             g.edge_residual,
             g.edge_min_count,

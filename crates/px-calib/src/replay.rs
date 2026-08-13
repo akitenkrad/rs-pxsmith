@@ -152,6 +152,37 @@ impl CurveAxis {
     }
 }
 
+/// 当てはまりの «測り方»．**RMS は外れの峰 1 本で跳ね，添字の丸めが滑ると壊れる．**
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
+pub enum EdgeStat {
+    /// 残差の RMS (現行)．
+    #[default]
+    Rms,
+    /// 残差の中央絶対値．外れの峰に鈍い．
+    Median,
+    /// **峰を $s$ で畳んだときの散らばり．添字を振らないので丸めの滑りに壊されない．**
+    Folded,
+}
+
+impl EdgeStat {
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "rms" => Some(Self::Rms),
+            "median" => Some(Self::Median),
+            "folded" => Some(Self::Folded),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Rms => "rms",
+            Self::Median => "median",
+            Self::Folded => "folded",
+        }
+    }
+}
+
 /// 境界の当てはめ (階数 1 つ分)．
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Edge {
@@ -159,6 +190,21 @@ pub struct Edge {
     pub coverage: [f32; 2],
     pub residual: [Option<f32>; 2],
     pub slope: [Option<f32>; 2],
+    /// 残差の中央絶対値 (2 階のみ CSV にある)．
+    pub median: [Option<f32>; 2],
+    /// 畳んだ散らばり (2 階のみ CSV にある)．
+    pub folded: [Option<f32>; 2],
+}
+
+impl Edge {
+    /// 測り方を選んで軸ごとの値を返す．
+    fn stat(&self, axis: usize, stat: EdgeStat) -> Option<f32> {
+        match stat {
+            EdgeStat::Rms => self.residual[axis],
+            EdgeStat::Median => self.median[axis],
+            EdgeStat::Folded => self.folded[axis],
+        }
+    }
 }
 
 /// 候補 1 つ．CSV の 1 行から関門に要る列だけ取り出したもの．
@@ -269,6 +315,8 @@ pub struct Gates {
     pub curve_lambda: f32,
     /// 曲線の食い違いを軸ごとにまとめる形．
     pub curve_axis: CurveAxis,
+    /// 当てはまりの測り方 (肩代わり ・床の両方に効く)．
+    pub edge_stat: EdgeStat,
 }
 
 impl Default for Gates {
@@ -304,6 +352,7 @@ impl Default for Gates {
             edge_drop_both_axes: true,
             curve_lambda: 0.0,
             curve_axis: CurveAxis::Mean,
+            edge_stat: EdgeStat::Rms,
         }
     }
 }
@@ -399,7 +448,7 @@ impl Cand {
             if e.count[axis] < min || e.coverage[axis] < g.edge_min_coverage {
                 return false;
             }
-            let (Some(slope), Some(residual)) = (e.slope[axis], e.residual[axis]) else {
+            let (Some(slope), Some(residual)) = (e.slope[axis], e.stat(axis, g.edge_stat)) else {
                 return false;
             };
             worst_slope = worst_slope.max(slope.abs());
@@ -430,7 +479,7 @@ impl Cand {
             e.count[axis] >= g.edge_min_count
                 && e.coverage[axis] >= g.edge_min_coverage
                 && e.slope[axis].is_some()
-                && e.residual[axis].is_some()
+                && e.stat(axis, g.edge_stat).is_some()
         })
     }
 
@@ -490,9 +539,9 @@ impl Cand {
         // 絵の中身が一方向に強い縞を持つと，格子が正しくてもその軸の峰が乱れる —
         // **格子は等方でも当てはまりは等方ではない．**
         if g.edge_drop_both_axes {
-            !(0..2).all(|axis| e.residual[axis].is_some_and(|v| v > max))
+            !(0..2).all(|axis| e.stat(axis, g.edge_stat).is_some_and(|v| v > max))
         } else {
-            (0..2).all(|axis| e.residual[axis].is_some_and(|v| v <= max))
+            (0..2).all(|axis| e.stat(axis, g.edge_stat).is_some_and(|v| v <= max))
         }
     }
 
@@ -788,6 +837,10 @@ pub fn load(csv: &Path, manifest: &Manifest, only: Option<Split>) -> Result<Vec<
         "e2ry",
         "e2sx",
         "e2sy",
+        "e2mx",
+        "e2my",
+        "e2fx",
+        "e2fy",
     ]
     .into_iter()
     .map(|n| col(n).map(|i| (n, i)))
@@ -805,6 +858,10 @@ pub fn load(csv: &Path, manifest: &Manifest, only: Option<Split>) -> Result<Vec<
         let get = |name: &str| f[idx[name]];
         let num = |name: &str| -> f32 { get(name).parse().unwrap_or(0.0) };
         let opt = |name: &str| -> Option<f32> { get(name).parse().ok() };
+        // 頑健な測り方は 2 階の列しか無い．**無い列は «測れない» として読む** —
+        // 1 階を選んだときに落ちるより，肩代わりが働かない方が診断しやすい
+        let opt_if_present =
+            |name: &str| -> Option<f32> { idx.get(name).and_then(|i| f[*i].parse().ok()) };
 
         let item_id: u32 = get("item_id").parse().context("item_id を読めない")?;
         let Some(item) = by_id.get(&item_id) else {
@@ -822,6 +879,15 @@ pub fn load(csv: &Path, manifest: &Manifest, only: Option<Split>) -> Result<Vec<
             coverage: [num(&format!("{p}cx")), num(&format!("{p}cy"))],
             residual: [opt(&format!("{p}rx")), opt(&format!("{p}ry"))],
             slope: [opt(&format!("{p}sx")), opt(&format!("{p}sy"))],
+            // 頑健な測り方は 2 階だけ CSV にある (既定が 2 階なので足りる)
+            median: [
+                opt_if_present(&format!("{p}mx")),
+                opt_if_present(&format!("{p}my")),
+            ],
+            folded: [
+                opt_if_present(&format!("{p}fx")),
+                opt_if_present(&format!("{p}fy")),
+            ],
         };
 
         let cand = Cand {
@@ -931,6 +997,7 @@ mod tests {
             coverage: [1.0; 2],
             residual: [Some(0.0); 2],
             slope: [Some(0.2); 2],
+            ..Edge::default()
         };
         let g = Gates {
             edge_order: 1,
@@ -967,6 +1034,7 @@ mod tests {
             coverage: [1.0; 2],
             residual: [Some(0.0); 2],
             slope: [Some(0.0); 2],
+            ..Edge::default()
         };
         // 帯ずれは最大 (位相 0 と 2 で $s = 4$) ・曲線は完全に一致 ($J = M$)
         let mut c = cand(4, 0.0);
@@ -1003,6 +1071,7 @@ mod tests {
             coverage: [1.0; 2],
             residual: [Some(0.0); 2],
             slope: [Some(0.0); 2],
+            ..Edge::default()
         };
         let g = open();
         assert_eq!(case(vec![c.clone()]).outcome(&g), Outcome::Rejected);
@@ -1036,6 +1105,7 @@ mod tests {
             coverage: [1.0; 2],
             residual: [Some(0.08); 2],
             slope: [Some(0.0); 2],
+            ..Edge::default()
         };
         let g = Gates {
             phase_agreement: 0.18,
