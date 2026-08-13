@@ -17,6 +17,7 @@ mod compose_cmds;
 mod direction_cmds;
 mod export_cmds;
 mod shape_cmds;
+mod sheet_cmds;
 mod tileset_cmds;
 mod watch;
 
@@ -123,6 +124,11 @@ enum Command {
     Tileset {
         #[command(subcommand)]
         command: tileset_cmds::TilesetCommand,
+    },
+    /// スプライトシートへ梱包する (設計書 5 章 `sheet.pack`)
+    Sheet {
+        #[command(subcommand)]
+        command: sheet_cmds::SheetCommand,
     },
     /// 正規 JSON を出力先の形式へ変換する (設計書 4.4)
     Export {
@@ -279,6 +285,7 @@ fn main() -> Result<()> {
         Command::Compose { args } => compose_cmds::compose_cmd(&args),
         Command::Direction { args } => direction_cmds::direction_cmd(&args),
         Command::Tileset { command } => tileset_cmds::tileset(command),
+        Command::Sheet { command } => sheet_cmds::sheet(command),
         Command::Export { command } => export_cmds::export(command),
         Command::View { path, display } => view(&path, &display),
         Command::Watch { path, display } => watch::run(&path, &display.options(), display.frame),

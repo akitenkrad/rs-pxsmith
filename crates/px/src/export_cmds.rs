@@ -14,6 +14,7 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use clap::{Args, Subcommand};
 use px_core::export::{tiled_tmx, tiled_tsx};
+use px_core::sheet::SheetDoc;
 use px_core::tilejson::TilesetDoc;
 
 #[derive(Subcommand)]
@@ -35,12 +36,12 @@ pub struct TiledArgs {
     /// `.tmx` の出力先．**正規 JSON が `map` の節を持つときだけ書ける**
     #[arg(long)]
     pub tmx: Option<PathBuf>,
-    /// `.tsx` が指す画像．**並べ方はこちらで決めない** (`px sheet pack` は未実装)
-    #[arg(long, default_value = "tiles.png")]
-    pub image: String,
-    /// タイルを何列に並べた画像か
-    #[arg(long, default_value_t = 8)]
-    pub columns: u32,
+    /// `px sheet pack` が書いた並べ方 (JSON)．**`.tsx` を書くならこれが要る**
+    ///
+    /// 列数 ・升 ・隙間 ・画像の名前と寸法は**すべてここから引く**．
+    /// こちらで並べ方を決めたり，利用者に聞き直したりしない (D110) ．
+    #[arg(long)]
+    pub sheet: Option<PathBuf>,
     #[arg(long, default_value = "tileset")]
     pub name: String,
     /// `.tmx` が持つ先頭 GID (Tiled は 0 を «空の升» に使う)
@@ -75,9 +76,28 @@ fn tiled(args: &TiledArgs) -> Result<()> {
     );
 
     if let Some(path) = &args.tsx {
-        let out = tiled_tsx(&doc, &args.name, &args.image, args.columns)?;
+        // **並べ方は `px sheet pack` から引く．** 無いなら書かない —
+        // ここで «たぶん 8 列» と決めると，シートと `.tsx` が黙って食い違う
+        let Some(sheet_path) = &args.sheet else {
+            anyhow::bail!(
+                ".tsx を書くには --sheet が要る (px sheet pack が書いた JSON)．\n\
+                 並べ方を決めるのは sheet pack であって export ではない"
+            );
+        };
+        let text = std::fs::read_to_string(sheet_path)
+            .with_context(|| format!("{} を読めない", sheet_path.display()))?;
+        let sheet = SheetDoc::from_json(&text)?;
+        let out = tiled_tsx(&doc, &sheet, &args.name)?;
         std::fs::write(path, out).with_context(|| format!("{} を書き出せない", path.display()))?;
-        println!("  {} へ書き出した", path.display());
+        println!(
+            "  {} へ書き出した (並べ方は {} から引いた — {}x{} 列 ・{}x{} 画素)",
+            path.display(),
+            sheet_path.display(),
+            sheet.columns,
+            sheet.rows,
+            sheet.width,
+            sheet.height
+        );
     }
     if let Some(path) = &args.tmx {
         let source = args

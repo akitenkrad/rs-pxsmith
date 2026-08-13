@@ -179,6 +179,17 @@ pub enum CoreError {
     #[error("タイルセットの列数は 1 以上でなければならない")]
     ExportBadColumns,
 
+    /// シートの升の大きさがタイルの一辺と違う．
+    ///
+    /// **引くだけでなく突き合わせる** — 食い違ったまま `.tsx` を書くと，
+    /// Tiled が升をずらして読む．
+    #[error("シートの升 {cell_w}x{cell_h} がタイルの一辺 {tile} と違う")]
+    ExportCellMismatch { tile: u32, cell_w: u32, cell_h: u32 },
+
+    /// シートに載っている枚数より多くのタイルを指している．
+    #[error("タイルが {tiles} 枚あるが，シートには {cells} 枚しか載っていない")]
+    ExportSheetTooSmall { tiles: usize, cells: usize },
+
     /// 地図を持たない文書から地図を書こうとした．
     #[error("この文書は map の節を持たないので地図を書けない (terrain だけの文書である)")]
     ExportNoMap,
@@ -199,6 +210,52 @@ pub enum CoreError {
         state: String,
         mask: u8,
     },
+
+    /// シートの JSON を書けない．
+    #[error("シートのメタを書き出せない: {message}")]
+    SheetWrite { message: String },
+
+    /// シートの JSON を読めない．
+    #[error("シートのメタを読めない: {message}")]
+    SheetRead { message: String },
+
+    /// 版が違う．**黙って読まない** — 欄の意味が変わっている見込みがある．
+    #[error("シートのメタの format が {found} である (扱えるのは {expected})")]
+    SheetVersion { found: u32, expected: u32 },
+
+    /// 書いてある寸法と並びが食い違う．
+    ///
+    /// **`.tsx` は列数と寸法の両方を書く**ので，食い違ったまま流すと使う側が
+    /// 升をずらして読む．
+    #[error("シートの寸法 {width}x{height} が並びから出る {expected_w}x{expected_h} と違う")]
+    SheetSizeMismatch {
+        width: u32,
+        height: u32,
+        expected_w: u32,
+        expected_h: u32,
+    },
+
+    /// 升の数より多くの絵が載っている．
+    #[error("シートに {cells} 枚あるが，並びが持てるのは {capacity} 枚である")]
+    SheetTooManyCells { cells: usize, capacity: usize },
+
+    /// シートに載る色が 256 を超えた．
+    ///
+    /// **1 枚のシートは 1 つのパレットしか持てない** (添字は `u8`．D2) ．
+    /// 黙って減色すると «並べたら色が変わった» になるので落とす．
+    #[error(
+        "{items} 枚を並べると {colors} 色になり，1 枚のシートに載る 256 色を超える．\n\
+         先に px quantize で色数を揃えるか，シートを分けること"
+    )]
+    SheetTooManyColors { colors: usize, items: usize },
+
+    /// 梱包する絵が 1 枚も無い．
+    #[error("梱包する絵が 1 枚も無い")]
+    SheetNoItems,
+
+    /// 画素が指している添字がパレットに無い．**黙って透明にしない** (D93 と同じ)．
+    #[error("{name} の添字 {index} がパレット ({len} 色) の外を指している")]
+    SheetIndexOutOfPalette { name: String, index: u8, len: usize },
 }
 
 /// `px-core` の `Result` 別名．

@@ -21,6 +21,7 @@
 //! 使う側が壊れて初めて分かる (設計書 6.8 の «47 枚が静かに壊れる» と同じ) ．
 
 use crate::error::{CoreError, Result};
+use crate::sheet::SheetDoc;
 use crate::tilejson::{TileRefJson, TilesetDoc};
 
 /// Tiled が GID の上位ビットに載せる反転の旗．
@@ -50,23 +51,51 @@ pub fn tiled_gid(cell: TileRefJson, first_gid: u32) -> u32 {
 
 /// `.tsx` (タイルセット) を書く．
 ///
-/// **画像は 1 行に並べる前提である** — `px sheet pack` がまだ無いので，
-/// **並べ方をこちらで決めない**．`image` に渡された名前と寸法をそのまま書く．
-pub fn tiled_tsx(doc: &TilesetDoc, name: &str, image: &str, columns: u32) -> Result<String> {
-    if columns == 0 {
+/// **並べ方はこちらで決めない．** 決めるのは `px sheet pack` で，ここは
+/// [`SheetDoc`] から列数 ・升 ・隙間 ・画像の寸法を**引く**だけである
+/// (D110 と同じ理由 — 2 か所で決めると必ず食い違う) ．
+///
+/// 引くついでに**突き合わせる** — シートの升がタイルの一辺と違ったり，
+/// タイルの枚数がシートに載っている枚数を超えていたら，黙って書かずに落とす．
+pub fn tiled_tsx(doc: &TilesetDoc, sheet: &SheetDoc, name: &str) -> Result<String> {
+    if sheet.columns == 0 {
         return Err(CoreError::ExportBadColumns);
     }
-    let rows = doc.tiles.div_ceil(columns as usize) as u32;
+    if sheet.cell_w != doc.tile || sheet.cell_h != doc.tile {
+        return Err(CoreError::ExportCellMismatch {
+            tile: doc.tile,
+            cell_w: sheet.cell_w,
+            cell_h: sheet.cell_h,
+        });
+    }
+    if doc.tiles > sheet.cells.len() {
+        return Err(CoreError::ExportSheetTooSmall {
+            tiles: doc.tiles,
+            cells: sheet.cells.len(),
+        });
+    }
+    let spacing = if sheet.padding > 0 {
+        format!(" spacing=\"{}\"", sheet.padding)
+    } else {
+        String::new()
+    };
+    let margin = if sheet.margin > 0 {
+        format!(" margin=\"{}\"", sheet.margin)
+    } else {
+        String::new()
+    };
     Ok(format!(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
          <tileset version=\"1.10\" name=\"{name}\" tilewidth=\"{t}\" tileheight=\"{t}\" \
-         tilecount=\"{count}\" columns=\"{columns}\">\n \
+         tilecount=\"{count}\" columns=\"{columns}\"{spacing}{margin}>\n \
          <image source=\"{image}\" width=\"{w}\" height=\"{h}\"/>\n\
          </tileset>\n",
         t = doc.tile,
         count = doc.tiles,
-        w = columns * doc.tile,
-        h = rows * doc.tile,
+        columns = sheet.columns,
+        image = sheet.image,
+        w = sheet.width,
+        h = sheet.height,
     ))
 }
 
@@ -108,6 +137,32 @@ pub fn tiled_tmx(doc: &TilesetDoc, tileset_source: &str, first_gid: u32) -> Resu
 mod tests {
     use super::*;
     use crate::frame::{TileGrid, TileRef};
+
+    /// 試験用のシート — `px sheet pack` が実際に作るのと同じ並びにする．
+    fn packed(n: usize, cell: u32, padding: u32, margin: u32) -> SheetDoc {
+        use crate::color::Rgba8;
+        use crate::palette::Palette;
+        use crate::sheet::{PackOptions, SheetItem, pack};
+        let palette =
+            Palette::new(vec![Rgba8::TRANSPARENT, Rgba8::new(9, 9, 9, 255)]).expect("パレット");
+        let items: Vec<SheetItem> = (0..n)
+            .map(|i| SheetItem {
+                name: format!("t{i}"),
+                canvas: crate::canvas::IndexedCanvas::filled(cell, cell, 1)
+                    .with_transparent(Some(0)),
+                palette: palette.clone(),
+                duration_ms: 0,
+            })
+            .collect();
+        let opts = PackOptions {
+            columns: None,
+            padding,
+            margin,
+        };
+        let (_, _, mut sheet, _) = pack(&items, &opts).expect("梱包");
+        sheet.image = "sheet.png".to_string();
+        sheet
+    }
 
     fn doc() -> TilesetDoc {
         let grid = TileGrid::from_tiles(
@@ -177,14 +232,42 @@ mod tests {
         ));
     }
 
-    /// **壊れると: 画像の寸法が枚数と合わず，Tiled がタイルを読み違える．**
+    /// **壊れると: `.tsx` の並びが，シートの実際の並びと食い違う．**
+    ///
+    /// 数値は `px sheet pack` が決めたものを**引く**のであって，こちらで
+    /// 計算し直さない (D110 と同じ理由) ．
     #[test]
-    fn the_sheet_size_follows_from_the_tile_count_and_columns() {
+    fn the_tsx_takes_its_layout_from_the_pack_instead_of_computing_it() {
         let d = TilesetDoc::new(16, 47);
-        let text = tiled_tsx(&d, "grass", "grass.png", 8).expect("書ける");
-        // 47 枚を 8 列なら 6 行 (端数を切り上げる)
+        let sheet = packed(47, 16, 0, 0);
+        let text = tiled_tsx(&d, &sheet, "grass").expect("書ける");
+        // 47 枚は 8x6 に並ぶ (px_core::sheet::choose_columns)
+        assert!(text.contains("columns=\"8\""), "{text}");
         assert!(text.contains("width=\"128\" height=\"96\""), "{text}");
         assert!(text.contains("tilecount=\"47\""));
-        assert!(tiled_tsx(&d, "g", "g.png", 0).is_err());
+        assert!(text.contains("source=\"sheet.png\""), "{text}");
+        // 隙間と外周を頼んだらそのまま流れる
+        let spaced = packed(4, 16, 2, 3);
+        let text = tiled_tsx(&TilesetDoc::new(16, 4), &spaced, "g").expect("書ける");
+        assert!(text.contains("spacing=\"2\""), "{text}");
+        assert!(text.contains("margin=\"3\""), "{text}");
+    }
+
+    /// **壊れると: 升の大きさが違うシートを指す `.tsx` を書き，Tiled が升をずらす．**
+    ///
+    /// 引くだけでなく**突き合わせる** — 食い違いは «使う側が壊れて初めて分かる»
+    /// たぐいの誤りなので，書く前に落とす (D111 と同じ判断) ．
+    #[test]
+    fn a_sheet_whose_cells_do_not_match_the_tile_size_is_an_error() {
+        let d = TilesetDoc::new(16, 4);
+        assert!(matches!(
+            tiled_tsx(&d, &packed(4, 8, 0, 0), "g"),
+            Err(CoreError::ExportCellMismatch { .. })
+        ));
+        // シートに載っている枚数より多いタイルを指す文書も落とす
+        assert!(matches!(
+            tiled_tsx(&TilesetDoc::new(16, 9), &packed(4, 16, 0, 0), "g"),
+            Err(CoreError::ExportSheetTooSmall { .. })
+        ));
     }
 }

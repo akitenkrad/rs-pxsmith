@@ -52,6 +52,7 @@ pub mod palette;
 pub mod quantize;
 pub mod ramp;
 pub mod shade;
+pub mod sheet;
 pub mod smooth;
 pub mod tilejson;
 pub mod tileset;
@@ -89,6 +90,7 @@ pub use shade::{
     Lamp, ShadeOptions, Shading, bounce_distance_field, incidence, normal_field, shade, shade_mask,
     shade_to_canvas,
 };
+pub use sheet::{PackOptions, PackReport, SheetCell, SheetDoc, SheetItem, pack};
 pub use smooth::{SmoothOptions, SmoothReport, smooth_canvas, smooth_mask};
 pub use tilejson::{TerrainEntry, TileMapJson, TileRefJson, TilesetDoc};
 pub use tileset::{DedupeMode, ExtractOptions, ExtractReport, extract, rebuild};
