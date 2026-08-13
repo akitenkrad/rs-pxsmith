@@ -11,12 +11,31 @@
 
 | 項目 | 値 |
 | --- | --- |
-| フェーズ | M0 ・M1 ・M1a ・**M2 完了** (B は未達のまま閉じた) ・**M3 完了**．**M4 進行中** — **`px compose`** (D93 〜 D95) ・**`px direction`** (D96 〜 D98) ・**`px tileset extract`** (D99 〜 D101) ・**`px tileset autotile`** (D102 〜 D104) ・**ディザの位相** (D105 〜 D107) ・**象限インポータ** (D108 ・D109) ・**正規 JSON の統合** (D110) が済．**次は `px export godot` / `tiled` と `px sheet pack`** |
-| テスト | 637 件すべて通過 |
+| フェーズ | M0 ・M1 ・M1a ・**M2 完了** (B は未達のまま閉じた) ・**M3 完了**．**M4 進行中** — **`px compose`** (D93 〜 D95) ・**`px direction`** (D96 〜 D98) ・**`px tileset extract`** (D99 〜 D101) ・**`px tileset autotile`** (D102 〜 D104) ・**ディザの位相** (D105 〜 D107) ・**象限インポータ** (D108 ・D109) ・**正規 JSON の統合** (D110) ・**`px export tiled`** (D111) が済．**次は `px sheet pack`，そのあと `px anim`** |
+| テスト | 641 件すべて通過 |
 | 品質 | `cargo fmt --all --check` と `cargo clippy --workspace --all-targets -- -D warnings` がクリーン |
 | クレート | `px-core` / `px-io` / `px-view` / `px-macro` / `px-lint` / `px` / `px-calib` |
 | ブランチ | `main` |
-| **未コミット** | **M4 の `px compose` ・`px direction` ・`px tileset extract` ・`px tileset autotile` (`px-core` の 4 モジュール / CLI 4 本 / `px-calib` の測定の口 4 本 / 試験 4 本 / 文書) がまだコミットされていない** |
+| コミット | **M4 の 8 件をコミット済み** — `bb7b6dd` (合成 ・方向 ・タイル 4 件 ・正規 JSON) と `px export tiled` |
+
+> [!note] 2026-08-13 の変更 — **`px export tiled`．書ける方だけ書いた** (D111)
+> 設計書 4.4 のアダプタを正規 JSON からの変換として実装した．**元の絵は見ない**．
+>
+> | 出力先 | 反転の載せ方 | 判断 |
+> | --- | --- | --- |
+> | **Tiled `.tsx` / `.tmx`** | GID の上位 3 ビット (`0x8000_0000` / `0x4000_0000` / `0x2000_0000`) | **1 対 1 で確かめられる → 書いた** |
+> | Godot terrain set | peering bit | **8 近傍 bitmask との対応が未確認 → 書かない** |
+>
+> **書いていないものを黙らない** (D92) — `terrain` を持つ文書には «Tiled の Wang set
+> へ写していない» と併記する．
+>
+> > [!warning] **端から端まで通して 1 件出た** (今セッション 4 度目) ．
+> > `.tmx` の CSV の区切りを «値の前» に置いて行頭に落ち，`\n,2,2,2` となって
+> > **Tiled が読めない形式**になっていた．**区切りは行末に置く．**
+>
+> ```sh
+> cargo run -p px -- export tiled tiles.json --tsx t.tsx --tmx t.tmx --columns 8
+> ```
 
 > [!note] 2026-08-13 の変更 — **正規 JSON を 1 つに寄せた** (D110)
 > 設計書 4.4 の «独自 JSON がエンジン非依存の正規出力» に対し，**正規を名乗るものが
@@ -635,7 +654,8 @@ cargo test -p px-lint       # ルール 13 と合成した形の自己整合性
 | **ディザタイルの位相バリアント (D45)** | **済 (D105 〜 D107)** — **主張を反証して処方を採らず**，継ぎ目の破れを数える形にした |
 | **象限インポータ (`--from-template` の 3 レイアウト)** | **済 (D108 ・D109)** — 推測せず突き合わせる．往復を試験で固定 |
 | **正規 JSON (設計書 4.4)** | **済 (D110)** — `terrain` と `map` を 1 つの型に寄せた |
-| **`px export godot` / `tiled` ・`px sheet pack`** | **次はここ** |
+| **`px export tiled`** | **済 (D111)** — `.tsx` / `.tmx`．Godot は**仕様を引くまで書かない** |
+| **`px sheet pack`** | **次はここ** |
 | `px anim tween` / `ease --fps --hold` / `cycle` | 未 |
 
 > [!note] **export と sheet pack で先に見ること**

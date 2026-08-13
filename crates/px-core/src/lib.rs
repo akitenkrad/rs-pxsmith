@@ -27,6 +27,7 @@
 //! | [`tileset`] | タイル分割と同値判定 | 6.7 |
 //! | [`autotile`] | 象限合成による 47 枚生成 | 6.8 / 4.3 |
 //! | [`tilejson`] | タイルセットの正規出力 (JSON) | 4.4 |
+//! | [`export`] | 出力先アダプタ (Tiled) | 4.4 |
 //! | [`ink`] | 描画インクとブラシ | 3.4 |
 //! | [`edit`] | 編集操作とパッチ | 3.6 |
 //! | [`error`] | エラーモデル | 3.7 |
@@ -40,6 +41,7 @@ pub mod compose;
 pub mod direction;
 pub mod edit;
 pub mod error;
+pub mod export;
 pub mod frame;
 pub mod geom;
 pub mod grid;

@@ -175,6 +175,14 @@ pub enum CoreError {
     #[error("タイルセットの JSON を読めない: {message}")]
     TileJsonRead { message: String },
 
+    /// `.tsx` の列数が 0．
+    #[error("タイルセットの列数は 1 以上でなければならない")]
+    ExportBadColumns,
+
+    /// 地図を持たない文書から地図を書こうとした．
+    #[error("この文書は map の節を持たないので地図を書けない (terrain だけの文書である)")]
+    ExportNoMap,
+
     /// 版が違う．**黙って読まない** — 欄の意味が変わっている見込みがある．
     #[error("タイルセットの JSON の format が {found} である (扱えるのは {expected})")]
     TileJsonVersion { found: u32, expected: u32 },
