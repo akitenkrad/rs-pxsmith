@@ -16,10 +16,15 @@ px-core = { workspace = true }
 px-io = { workspace = true }
 px-lint = { workspace = true }
 px-macro = { workspace = true }
+px-recipe = { workspace = true }
 serde_json = { workspace = true }
 px-view = { workspace = true }
 notify = { workspace = true }
 toml = { workspace = true }
+
+[dev-dependencies]
+blake3 = { workspace = true }
+gif = { workspace = true }
 
 [lints]
 workspace = true

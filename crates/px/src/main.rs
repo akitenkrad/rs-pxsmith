@@ -19,6 +19,7 @@ mod color_cmds;
 mod compose_cmds;
 mod direction_cmds;
 mod export_cmds;
+mod run_cmds;
 mod shape_cmds;
 mod sheet_cmds;
 mod tileset_cmds;
@@ -26,13 +27,13 @@ mod watch;
 
 #[derive(Parser)]
 #[command(name = "px", version, about = "ドット絵アセットのためのパイプライン")]
-struct Cli {
+pub(crate) struct Cli {
     #[command(subcommand)]
-    command: Command,
+    pub(crate) command: Command,
 }
 
 #[derive(Subcommand)]
-enum Command {
+pub(crate) enum Command {
     /// `.aseprite` ⇄ L0 テキスト形式の相互変換 (設計書 4.1)
     Text {
         #[command(subcommand)]
@@ -182,6 +183,16 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// レシピを実行する (設計書 4.2 ・6.15)
+    Run {
+        #[command(flatten)]
+        args: run_cmds::RunArgs,
+    },
+    /// レシピの操作
+    Recipe {
+        #[command(subcommand)]
+        command: run_cmds::RecipeCommand,
+    },
     /// 環境と保持層の診断
     Verify {
         #[command(subcommand)]
@@ -253,7 +264,16 @@ enum VerifyCommand {
 }
 
 fn main() -> Result<()> {
-    match Cli::parse().command {
+    dispatch(Cli::parse().command)
+}
+
+/// サブコマンドを実行する．
+///
+/// **`main` から切り出してあるのは `px run` が同じ道を通るためである** —
+/// レシピからの実行が別のコードを通ると，`op` とサブコマンドが 1 対 1 で
+/// なくなる (設計書 4.2) ．
+pub(crate) fn dispatch(command: Command) -> Result<()> {
+    match command {
         Command::Text { command } => text(command),
         Command::Palette { command } => color_cmds::palette(command),
         Command::Quantize {
@@ -306,6 +326,8 @@ fn main() -> Result<()> {
             json,
         } => color_cmds::validate(&input, &target, json),
         Command::Verify { command } => verify(command),
+        Command::Run { args } => run_cmds::run(&args),
+        Command::Recipe { command } => run_cmds::recipe(command),
     }
 }
 
