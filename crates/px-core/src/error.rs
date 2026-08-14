@@ -319,6 +319,38 @@ pub enum CoreError {
     /// 余白の切り方が壊れている**．黙って切らずに落とす．
     #[error("中割りの結果が画布の外 ({x},{y}) へ出た (包含関係が破れている)")]
     TweenEscapedCanvas { x: i32, y: i32 },
+
+    /// おばけの標本が 0．**両端だけを静かに返さない**．
+    #[error("掃引の標本は 1 以上でなければならない (0 では両端しか出ない)")]
+    SmearNoSamples,
+
+    /// 外挿の振り幅が負か有限でない．**向きは `--kind` で決める**．
+    #[error("外挿の振り幅は 0 以上の有限値でなければならない ({amount})．向きは --kind で決める")]
+    ExtrapolateBadAmount { amount: f32 },
+
+    /// 潰しの倍率が 0 以下．
+    #[error("潰しの量は -1 より大きくなければならない ({amount}．縦の倍率が 0 以下になる)")]
+    SquashBadAmount { amount: f32 },
+
+    /// 潰す絵が無い．
+    #[error("潰す画布に不透明な画素が 1 つも無い")]
+    SquashEmptyCanvas,
+
+    /// 残像を作るフレームが足りない．
+    #[error("残像には 2 枚以上のフレームが要る ({frames} 枚)")]
+    AfterimageTooFewFrames { frames: usize },
+
+    /// 残像の長さが 0．
+    #[error("残像の長さは 1 コマ以上でなければならない")]
+    AfterimageNoTrail,
+
+    /// サブピクセルの移動率が $[0, 1]$ の外．
+    #[error("サブピクセルの移動率は 0 以上 1 以下でなければならない ({fraction})")]
+    SubpixelBadFraction { fraction: f32 },
+
+    /// 高速法の向きが 0．**接線を見ないので呼ぶ側が決める**．
+    #[error("高速法は形の向きを見ないので，動かす向きを指定しなければならない (--direction)")]
+    SubpixelNoDirection,
 }
 
 /// `px-core` の `Result` 別名．

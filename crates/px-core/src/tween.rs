@@ -173,7 +173,42 @@ pub fn tween_mask(a: &Mask, b: &Mask, t: f32, opts: &TweenOptions) -> Result<Twe
     if a.is_empty() || b.is_empty() {
         return Err(CoreError::TweenEmptyMask);
     }
+    // **画布の外へ出たら落とす．** $R \subseteq A \cup B$ は代数から出るので，
+    // 出たということは符号の規約か戻し方が壊れている
+    let (mask, shift, _) = blend(a, b, t, opts, Clip::Forbid)?;
 
+    Ok(Tweened {
+        components: (
+            count_components(a),
+            count_components(b),
+            count_components(&mask),
+        ),
+        holes: (count_holes(a), count_holes(b), count_holes(&mask)),
+        mask,
+        t,
+        shift,
+    })
+}
+
+/// 画布からはみ出した画素をどう扱うか．
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+enum Clip {
+    /// 落とす — 包含が代数から出る側 ([`tween_mask`])．
+    Forbid,
+    /// 数えて捨てる — 包含が成り立たない側 ([`extrapolate_mask`])．
+    Count,
+}
+
+/// $(1 - t)\,d_A + t\,d_B$ の 0 等高線を取る．**$t$ の範囲は見ない**．
+///
+/// 返すのは (画布に載せた形，取り除いた移動，画布の外へ落ちた画素の数) ．
+fn blend(
+    a: &Mask,
+    b: &Mask,
+    t: f32,
+    opts: &TweenOptions,
+    clip: Clip,
+) -> Result<(Mask, IVec2, usize)> {
     // **重心の差は «形の違い» ではないので，先に取り除く** (R11．モジュールの説明) ．
     // 取り除いた移動は最後に $t$ 倍して戻す — 場に解かせると痩せる
     let shift = match opts.align {
@@ -181,8 +216,10 @@ pub fn tween_mask(a: &Mask, b: &Mask, t: f32, opts: &TweenOptions) -> Result<Twe
         TweenAlign::Centroid => centroid(b) - centroid(a),
     };
     // **余白はずらし量から計算する．** 足りないと «ずらした先» が画布の外へ落ちて
-    // 黙って消える (実測で 66 枚中 5 枚 ・17 画素が消えていた)
-    let need = shift.x.unsigned_abs().max(shift.y.unsigned_abs());
+    // 黙って消える (実測で 66 枚中 5 枚 ・17 画素が消えていた) ．
+    // 外挿では戻す量が $\lvert t \rvert$ 倍になるので，そのぶん広げる
+    let reach = t.abs().max(1.0);
+    let need = ((shift.x.abs().max(shift.y.abs()) as f32) * reach).ceil() as u32;
     let (pa, mut pb, origin) = align_to_common_canvas(a, b, opts.margin.max(need));
 
     if shift != ivec2(0, 0) {
@@ -207,21 +244,126 @@ pub fn tween_mask(a: &Mask, b: &Mask, t: f32, opts: &TweenOptions) -> Result<Twe
         padded = translate(&padded, back);
     }
 
-    // **余白へは 1 画素も立たない．** `none` なら $R \subseteq A \cup B$ が代数から
-    // 出る．`centroid` は間の位置へ戻すだけなので，やはり 2 枚の外接矩形の間に入る．
-    // 外へ出たら包含か戻し方が壊れているということなので，黙って切らずに落とす
+    // **画布は 2 枚の大きい方．** アニメーションのフレームは寸法が揃っていなければ
+    // ならないので，外挿でどれだけ伸びても画布は広げない — 代わりに**切れた画素を
+    // 数える** (黙って消さない)
     let w = a.width().max(b.width());
     let h = a.height().max(b.height());
     let mut mask = Mask::new(w, h);
+    let mut clipped = 0usize;
     for p in padded.iter_set() {
         let q = p - origin;
         if q.x < 0 || q.y < 0 || q.x >= w as i32 || q.y >= h as i32 {
-            return Err(CoreError::TweenEscapedCanvas { x: q.x, y: q.y });
+            if clip == Clip::Forbid {
+                return Err(CoreError::TweenEscapedCanvas { x: q.x, y: q.y });
+            }
+            clipped += 1;
+            continue;
         }
         mask.set(q, true);
     }
+    Ok((mask, shift, clipped))
+}
 
-    Ok(Tweened {
+/// 予備動作かオーバーシュートか (設計書 6.11．`ExtrapolateKind`)．
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum ExtrapolateKind {
+    /// **予備動作** — 動き出す前に逆へ振る．$t = -\text{amount}$ で $A$ の手前に置く．
+    Anticipation,
+    /// **オーバーシュート** — 行き過ぎてから戻る．$t = 1 + \text{amount}$．
+    Overshoot,
+}
+
+impl ExtrapolateKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Anticipation => "anticipation",
+            Self::Overshoot => "overshoot",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "anticipation" => Some(Self::Anticipation),
+            "overshoot" => Some(Self::Overshoot),
+            _ => None,
+        }
+    }
+
+    /// 振り幅を $t$ に写す．**符号反転と超過は同じ式の両側である**．
+    pub fn t_for(self, amount: f32) -> f32 {
+        match self {
+            Self::Anticipation => -amount,
+            Self::Overshoot => 1.0 + amount,
+        }
+    }
+}
+
+/// 外挿した 1 枚．
+#[derive(Clone, Debug)]
+pub struct Extrapolated {
+    pub mask: Mask,
+    pub t: f32,
+    pub kind: ExtrapolateKind,
+    /// 4 連結の成分数 ($A$ ・$B$ ・結果) ．
+    pub components: (usize, usize, usize),
+    /// 穴の数 ($A$ ・$B$ ・結果) ．
+    pub holes: (usize, usize, usize),
+    /// 取り除いた平行移動．
+    pub shift: IVec2,
+    /// **画布の外へ出て切れた画素の数**．外挿では包含が成り立たないので起こりうる．
+    pub clipped: usize,
+}
+
+/// 2 枚のキーフレームの外側へ形を外挿する (設計書 6.11)．
+///
+/// > [!warning] **包含定理は成り立たない．**
+/// > $t \in (0, 1)$ の中割りは $A \cap B \subseteq R \subseteq A \cup B$ が
+/// > 代数から出るが (6.9 の説明) ，**外挿では係数の片方が負になる**ので符号の
+/// > 議論が丸ごと崩れる．したがって
+/// >
+/// > - 結果が 2 枚の外接矩形の外へ出ることがある → **切れた画素を数えて返す**
+/// > - トポロジーも面積も保証しない → **成分数と穴の数を返す**
+///
+/// `amount` の既定は決め打ちにしない — 何画素動くかは 2 枚の変位で決まるので，
+/// 呼ぶ側が測って決める．
+///
+/// # 平行移動なら真値があるので測れる (`px-calib extrapolate`)
+///
+/// $A$ を $d$ 動かした $B$ に対し，$t$ の外挿の真値は «$A$ を $t d$ 動かした絵» で
+/// ある．実素材 64 枚 x ずらし 2 通りで測った (真値との IoU の中央値) ．
+///
+/// | 種類 | 振り幅 | 場のまま | **重心を取り除く** | 端のキーをそのまま (対照) |
+/// | --- | --- | --- | --- | --- |
+/// | 予備動作 | 0.25 | 0.803 | **1.000** | 0.725 |
+/// | 予備動作 | 0.50 | 0.681 | **1.000** | 0.533 |
+/// | 予備動作 | 1.00 | 0.475 | **1.000** | 0.271 |
+/// | オーバーシュート | 0.50 | 0.684 | **1.000** | 0.533 |
+/// | オーバーシュート | 1.00 | 0.483 | **1.000** | 0.271 |
+///
+/// **重心を取り除けば 768 件すべてで真値と画素単位一致する** (D114 と同じ結果) ．
+/// 心配していた «係数が負になるので暴れる» は起きなかった — **切れた件数 0 ・
+/// トポロジーが変わった件数 0**．平行移動だけの動きでは $d_A = d_B$ なので，
+/// 係数が何であれ場が変わらないからである (これも代数) ．
+///
+/// **形が違う 2 枚では保証は無い．** その場合に暴れるかどうかは測っていない —
+/// 真値の作りようが無いためで，`clipped` と成分数を返して呼ぶ側に渡す．
+pub fn extrapolate_mask(
+    a: &Mask,
+    b: &Mask,
+    kind: ExtrapolateKind,
+    amount: f32,
+    opts: &TweenOptions,
+) -> Result<Extrapolated> {
+    if !amount.is_finite() || amount < 0.0 {
+        return Err(CoreError::ExtrapolateBadAmount { amount });
+    }
+    if a.is_empty() || b.is_empty() {
+        return Err(CoreError::TweenEmptyMask);
+    }
+    let t = kind.t_for(amount);
+    let (mask, shift, clipped) = blend(a, b, t, opts, Clip::Count)?;
+    Ok(Extrapolated {
         components: (
             count_components(a),
             count_components(b),
@@ -230,7 +372,9 @@ pub fn tween_mask(a: &Mask, b: &Mask, t: f32, opts: &TweenOptions) -> Result<Twe
         holes: (count_holes(a), count_holes(b), count_holes(&mask)),
         mask,
         t,
+        kind,
         shift,
+        clipped,
     })
 }
 
@@ -239,7 +383,10 @@ pub fn tween_mask(a: &Mask, b: &Mask, t: f32, opts: &TweenOptions) -> Result<Twe
 /// **画素は動かせないので整数で持つ．** 半端なぶんは «動かない» 側に倒れるが，
 /// 中割りは 1 画素の位置ではなく形を作る道具なので，そこを副画素で追うのは
 /// `px anim subpixel` の仕事である．
-fn centroid(mask: &Mask) -> IVec2 {
+///
+/// `smear` ・`extrapolate` も同じ重心を使う — **重心の取り方を 2 か所に
+/// 書かない** (D110 と同じ理由) ．
+pub fn centroid(mask: &Mask) -> IVec2 {
     let n = mask.count().max(1) as f32;
     let (mut sx, mut sy) = (0.0f32, 0.0f32);
     for p in mask.iter_set() {

@@ -33,12 +33,14 @@
 //! | [`error`] | エラーモデル | 3.7 |
 
 pub mod aa;
+pub mod afterimage;
 pub mod anim;
 pub mod autotile;
 pub mod canvas;
 pub mod clean;
 pub mod color;
 pub mod compose;
+pub mod deform;
 pub mod direction;
 pub mod edit;
 pub mod error;
@@ -54,7 +56,9 @@ pub mod quantize;
 pub mod ramp;
 pub mod shade;
 pub mod sheet;
+pub mod smear;
 pub mod smooth;
+pub mod subpixel;
 pub mod tilejson;
 pub mod tileset;
 pub mod tween;
