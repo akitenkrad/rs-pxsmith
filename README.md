@@ -7,9 +7,11 @@ assets as a declarative pipeline. It has no interactive drawing UI: humans (or
 generative models) produce the original artwork, and everything downstream —
 derivation, reconciliation, and verification — runs as code.
 
-> Status: **early development**. Milestones M0 (foundations), M1 (feedback loop),
-> and M1a (geometry foundations) are complete.
-> See `docs/status.md` for what works today.
+> Status: **in development**. M0 (foundations), M1 (feedback loop), M1a (geometry),
+> M2 (color and palette), M3 (cleanup and validation), and and M5 (pipeline) are complete;
+> M4 (composition, tilesets, animation) is 18 of its 20 completion criteria — the
+> sequence lint rules and `px atmos` remain. See `docs/status.md` for the details,
+> including every claim that was measured rather than assumed.
 
 ## Design
 
@@ -33,9 +35,12 @@ author's Obsidian vault (`設計書/ドット絵CLI-Rust/`). Key decisions:
 | `px-io` | Retained layer (`Document`), `.aseprite`, palette, and L0 text I/O |
 | `px-view` | Terminal preview and diffing. Inspection only, by construction |
 | `px-macro` | The `pixels!` proc-macro for embedding sprites in Rust |
+| `px-lint` | The 18 implemented quality rules and their thresholds |
+| `px-recipe` | The restricted expression language, dependency graph, step keys, and cache |
 | `px` | The `px` command-line binary |
+| `px-calib` | Measurement mouths. Every threshold in the tool was chosen with one of these |
 
-Crates planned for later milestones: `px-export`, `px-lint`, `px-gen`, `px-recipe`.
+Crates planned for later milestones: `px-export`, `px-gen`.
 
 ## Build
 
@@ -77,6 +82,81 @@ cargo run -p px -- palette convert input.gpl output.hex
 cargo run -p px -- verify roundtrip sprite.aseprite --via-frame
 ```
 
+### Deriving artwork
+
+```sh
+# Derive shading from a silhouette (the source colors are discarded)
+cargo run -p px -- shade hero.png hero.px.toml --base 8A6A4A --light dir:-0.6,0.8
+
+# Normalize jaggies, add antialiasing, draw an outline
+cargo run -p px -- smooth hero.px.toml smoothed.px.toml
+cargo run -p px -- aa smoothed.px.toml aa.px.toml
+cargo run -p px -- outline aa.px.toml outlined.px.toml --style tinted
+
+# Animation: inbetweens, timing, cycles, smears, squash, subpixel, afterimages
+cargo run -p px -- anim tween out.px.toml --from a.px.toml --to b.px.toml --base 8A6A4A
+cargo run -p px -- anim ease walk.px.toml eased.px.toml --fps 30 --hold 2,1,1,1,2
+cargo run -p px -- anim smear out.px.toml --from a.px.toml --to b.px.toml --base 8A6A4A
+cargo run -p px -- anim squash in.px.toml out.px.toml --amount -0.3
+cargo run -p px -- anim subpixel in.px.toml out.px.toml --method tangent
+
+# Check the result against hardware constraints (non-zero exit on violation)
+cargo run -p px -- lint out.px.toml
+cargo run -p px -- validate out.px.toml --target gb
+```
+
+### Recipes
+
+A recipe is a TOML file. It has variables, a restricted expression language, and
+a cartesian `for_each`; it has no loops, no function definitions, and no I/O, so
+step keys resolve incrementally and builds stay deterministic.
+
+```toml
+[project]
+format = 1
+
+[vars]
+seeds = ["hero", "slime"]
+
+[[step]]
+op = "shade"
+input = "src/${s}.png"
+output = "out/${s}.px.toml"
+base = "8A6A4A"
+light = "dir:-0.6,0.8"
+for_each = { s = "${seeds}" }
+
+[[step]]
+op = "anim.squash"
+input = "out/hero.px.toml"
+output = "out/squashed.px.toml"
+amount = -0.3
+```
+
+`op` maps one-to-one onto the CLI: `op = "anim.squash"` is `px anim squash`, and
+the argument names and their order are read out of the command-line parser rather
+than from a hand-written table.
+
+```sh
+cargo run -p px -- run build.toml --dry-run   # show the order, run nothing
+cargo run -p px -- run build.toml --explain   # show each step key and its argv
+cargo run -p px -- run build.toml --gc        # drop cache entries this recipe no longer uses
+
+# Animated GIF of how one artefact came to be (its ancestry, in build order)
+cargo run -p px -- run build.toml --progress how.gif --progress-of out/hero.px.toml
+
+# Generate a recipe from external data (one [[step]] per row, so pairings survive)
+cargo run -p px -- recipe expand template.toml build.toml --data rows.csv
+```
+
+The progress GIF is written with one local colour table per frame, so the colours
+come out exactly as they went in — indices are `u8` and alpha is binary, which is
+precisely what a GIF frame can hold, so no requantisation is needed.
+
+Re-running an unchanged recipe restores everything from `.pxcache/`. On 128 steps
+over 64 sprites this is 2.66 s cold against 0.09 s warm, and changing one input
+rebuilds exactly the two steps that depend on it.
+
 Sprites can also be embedded in Rust at compile time:
 
 ```rust
@@ -90,4 +170,4 @@ palette triggers a rebuild.
 
 ## License
 
-Undecided (milestone M5). Until then this repository is not published.
+Undecided. Until then this repository is not published.
