@@ -543,19 +543,6 @@ fn blocking_of(canvas: &IndexedCanvas, palette: &Palette) -> usize {
     r.blocking().count()
 }
 
-fn silhouette_diff(a: &IndexedCanvas, b: &IndexedCanvas) -> usize {
-    let mut n = 0usize;
-    for y in 0..a.height() as i32 {
-        for x in 0..a.width() as i32 {
-            let p = ivec2(x, y);
-            if a.is_transparent_at(p) != b.is_transparent_at(p) {
-                n += 1;
-            }
-        }
-    }
-    n
-}
-
 pub fn subpixel_rows(dir: &Path, fractions: &[f32]) -> Result<Vec<SubpixelRow>> {
     let mut out = Vec::new();
     for path in png_files(dir)? {
@@ -600,7 +587,9 @@ pub fn subpixel_rows(dir: &Path, fractions: &[f32]) -> Result<Vec<SubpixelRow>> 
                     candidates: r.candidates,
                     changed: r.changed,
                     no_colour: r.no_colour,
-                    silhouette_moved: silhouette_diff(&canvas, &got),
+                    // **道具が数えた値をそのまま使う** — 取り方が 2 か所に
+                    // あってはいけない (D110)
+                    silhouette_moved: r.silhouette_moved,
                     added_colors: r.colors.1 as i64 - r.colors.0 as i64,
                     intermediate_rate: rate,
                     blocking_delta: blocking_of(&got, &palette) as i64 - before_blocking,

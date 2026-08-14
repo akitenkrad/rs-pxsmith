@@ -786,6 +786,8 @@ fn subpixel_cmd(args: &SubpixelArgs) -> Result<()> {
     let mut frames = crate::load_frames(&args.input)?;
     let (mut changed, mut no_colour, mut candidates) = (0usize, 0usize, 0usize);
     let (mut isolated, mut skipped, mut added) = (0usize, 0usize, 0i64);
+    // **輪郭が動いたら中間フレームではない** (付録 C #5)
+    let (mut silhouette, mut silhouette_layers) = (0usize, 0usize);
     for frame in &mut frames {
         let palette = frame.palette.clone();
         for layer in &mut frame.layers {
@@ -815,6 +817,10 @@ fn subpixel_cmd(args: &SubpixelArgs) -> Result<()> {
             candidates += r.candidates;
             isolated += r.isolated_fixed;
             added = added.max(r.colors.1 as i64 - r.colors.0 as i64);
+            if r.silhouette_moved > 0 {
+                silhouette += r.silhouette_moved;
+                silhouette_layers += 1;
+            }
             *layer = Layer::new(layer.meta.clone(), Surface::Indexed(out));
         }
     }
@@ -844,6 +850,29 @@ fn subpixel_cmd(args: &SubpixelArgs) -> Result<()> {
     if changed == 0 {
         println!("  ** 1 画素も動いていない ** — 接線方向に色が変わっている画素が無い");
     }
+    // **確率ではなく «この 1 回がどちらだったか» を言う** (付録 C #5) ．
+    // 高速法が使えるかは絵ごとに変わり事前には読めないが，**事後には確実に読める**．
+    // 輪郭がずれた絵は «壊れた絵» ではなく «正しく描かれた別の絵» なので
+    // lint には掛からない — だから処方せず報告する (D101 ・D107 ・D138) ．
+    if silhouette > 0 {
+        println!(
+            "  ** 輪郭が {silhouette} 画素動いた ({silhouette_layers} レイヤ) ** — \
+             これは中間フレームではない\n\
+             (設計書 6.10 は単位ステップ分のシフトを «サブピクセルではなく通常の移動» と\
+             定めている．lint はこの形を見ない)"
+        );
+        if method == SubpixelMethod::Fast {
+            println!(
+                "  高速法は実素材 61 枚中 32 枚で輪郭を動かす (動かなかったのは 47.5%)．\
+                 中間フレームが要るなら --method tangent にすること (付録 C #5)"
+            );
+        }
+    } else if method == SubpixelMethod::Fast {
+        println!(
+            "  輪郭は動かなかった — 高速法が中間フレームとして通る 47.5% の側である\n\
+             (実素材 61 枚中 29 枚．どちらに落ちるかは絵ごとに変わるので，毎回ここを見ること)"
+        );
+    }
     if added > 0 {
         // **これは警告ではない** — 中間色を置くとは «パレットの中の，まだ使って
         // いない色を使い始める» ことなので，増えるのが正しい
@@ -858,12 +887,6 @@ fn subpixel_cmd(args: &SubpixelArgs) -> Result<()> {
         );
     } else {
         println!("  除外レイヤ {skipped} 枚は触っていない");
-    }
-    if method == SubpixelMethod::Fast {
-        println!(
-            "  ** 高速法はシルエットを動かす ** — 実素材 61 枚のうち 32 枚で動いた．\n\
-             パレット強制で滲みは消えるが (D39) ，形が半画素動くことは残る"
-        );
     }
     Ok(())
 }

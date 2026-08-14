@@ -190,7 +190,12 @@ impl Generator for AnthropicGenerator {
         }
         let body = build_body(req, &self.palette_ref, feedback);
 
+        // **状態番号をエラーにしない** — 既定では 4xx が `Err(StatusCode)` になり，
+        // **本文が落ちる**．理由が入っているのは本文の方である (下の実測を見よ)．
         let mut request = ureq::post(&req.backend.endpoint)
+            .config()
+            .http_status_as_error(false)
+            .build()
             .header("content-type", "application/json")
             .header("x-api-key", &self.key)
             .header("anthropic-version", API_VERSION);
@@ -200,12 +205,6 @@ impl Generator for AnthropicGenerator {
 
         let mut response = match request.send_json(&body) {
             Ok(r) => r,
-            // **エラー応答でも本文に理由が入っている** — 読めるなら読む
-            Err(ureq::Error::StatusCode(code)) => {
-                return Err(GenError::Backend {
-                    message: format!("HTTP {code}"),
-                });
-            }
             Err(e) => {
                 return Err(GenError::Backend {
                     message: e.to_string(),
@@ -213,6 +212,7 @@ impl Generator for AnthropicGenerator {
             }
         };
 
+        let status = response.status().as_u16();
         let text = response
             .body_mut()
             .read_to_string()
@@ -220,11 +220,44 @@ impl Generator for AnthropicGenerator {
                 message: e.to_string(),
             })?;
 
+        if !(200..300).contains(&status) {
+            return Err(error_from_status(status, &text));
+        }
+
         parse_response(&text)
     }
 
     fn describe(&self) -> String {
         format!("anthropic (鍵は ${KEY_VAR})")
+    }
+}
+
+/// エラー応答から理由を取り出す．**本文を捨てない．**
+///
+/// > [!warning] **実測で 1 件出た．状態番号だけでは何も読めない．**
+/// > 期限切れの鍵で叩いたとき，道具は «HTTP 401» としか言わなかったが，
+/// > 同じ応答の本文には «API key is invalid.» と書いてあった．
+/// > `output_config` や `fallbacks` が弾かれたときも同じで，**弾かれた欄の
+/// > 名前は本文にしか無い**．状態番号は残しつつ本文を併記する．
+fn error_from_status(status: u16, text: &str) -> GenError {
+    let reason = serde_json::from_str::<serde_json::Value>(text)
+        .ok()
+        .and_then(|v| {
+            v.pointer("/error/message")
+                .and_then(|m| m.as_str())
+                .map(str::to_string)
+        })
+        .unwrap_or_else(|| {
+            let body = text.trim();
+            if body.is_empty() {
+                "本文が空".to_string()
+            } else {
+                // JSON でない本文 (串の HTML など) もそのまま見せる
+                body.chars().take(400).collect()
+            }
+        });
+    GenError::Backend {
+        message: format!("HTTP {status}: {reason}"),
     }
 }
 
@@ -245,6 +278,15 @@ fn parse_response(text: &str) -> Result<String> {
             .unwrap_or("理由の記載が無い");
         return Err(GenError::Backend {
             message: message.to_string(),
+        });
+    }
+
+    // **上限に当たったのも本文より先に見る** — 構造化出力は途中で切れると
+    // JSON にならないので，見ないと «JSON になっていない» と誤診する．
+    // 原因は «壊れた応答» ではなく «こちらが要求した上限» である．
+    if v.get("stop_reason").and_then(|s| s.as_str()) == Some("max_tokens") {
+        return Err(GenError::Truncated {
+            max_tokens: MAX_TOKENS,
         });
     }
 
@@ -366,6 +408,73 @@ mod tests {
             Err(GenError::Backend { message }) => assert!(message.contains("max_tokens")),
             other => panic!("理由が残っていない: {other:?}"),
         }
+    }
+
+    /// **壊れると: «HTTP 401» としか言わず，何が弾かれたのか読めない．**
+    ///
+    /// 実測でここを 1 度踏んでいる — 本文には «API key is invalid.» と
+    /// 書いてあったのに，道具は状態番号しか出さなかった．
+    #[test]
+    fn an_error_status_carries_the_body_not_just_the_number() {
+        let body = r#"{"type":"error","error":{"type":"authentication_error","message":"API key is invalid."}}"#;
+        match error_from_status(401, body) {
+            GenError::Backend { message } => {
+                assert!(message.contains("401"), "状態番号が消えている: {message}");
+                assert!(
+                    message.contains("API key is invalid."),
+                    "本文が消えている: {message}"
+                );
+            }
+            other => panic!("エラーとして読めていない: {other:?}"),
+        }
+    }
+
+    /// **壊れると: JSON でない本文 (串の HTML など) を黙って捨てる．**
+    #[test]
+    fn a_non_json_error_body_is_still_shown() {
+        match error_from_status(502, "<html>Bad Gateway</html>") {
+            GenError::Backend { message } => {
+                assert!(message.contains("502"));
+                assert!(
+                    message.contains("Bad Gateway"),
+                    "本文が消えている: {message}"
+                );
+            }
+            other => panic!("エラーとして読めていない: {other:?}"),
+        }
+    }
+
+    /// **壊れると: 空の本文で «本文が空» ではなく状態番号だけになる．**
+    #[test]
+    fn an_empty_error_body_says_so() {
+        match error_from_status(500, "   ") {
+            GenError::Backend { message } => assert!(message.contains("本文が空")),
+            other => panic!("エラーとして読めていない: {other:?}"),
+        }
+    }
+
+    /// **壊れると: 途中で切れた応答を «JSON になっていない» と誤診する．**
+    ///
+    /// `max_tokens` は思考と本文の合算に掛かるので，構造化出力は途中で
+    /// 切れる．原因はこちらが要求した上限であって «壊れた応答» ではない．
+    #[test]
+    fn a_truncated_response_is_reported_as_truncation_not_as_broken_json() {
+        // 上限に当たった構造化出力 — JSON が閉じていない
+        let body = r#"{"stop_reason":"max_tokens","content":[{"type":"text","text":"{\"l0\": \"[meta]\nformat = 1\n"}]}"#;
+        match parse_response(body) {
+            Err(GenError::Truncated { max_tokens }) => assert_eq!(max_tokens, MAX_TOKENS),
+            other => panic!("上限として読めていない: {other:?}"),
+        }
+    }
+
+    /// **壊れると: 上限の判定を本文より後に置いて，先に JSON で落ちる．**
+    #[test]
+    fn truncation_is_detected_before_the_content_is_read() {
+        let body = r#"{"stop_reason":"max_tokens","content":[]}"#;
+        assert!(matches!(
+            parse_response(body),
+            Err(GenError::Truncated { .. })
+        ));
     }
 
     /// **壊れると: 温度や種を送って 400 になる** (D157)．

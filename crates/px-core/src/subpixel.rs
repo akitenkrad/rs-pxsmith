@@ -211,6 +211,19 @@ pub struct SubpixelReport {
     /// > 守るべき不変条件は «パレットの外の添字を出さないこと» の方で，
     /// > それは [`SubpixelReport::escapes_palette`] で見る．
     pub colors: (usize, usize),
+    /// **シルエットが動いた画素の数** (透明 / 不透明が入れ替わった画素)．
+    ///
+    /// > [!warning] **0 でないなら «サブピクセル» ではない** (付録 C #5 を閉じた)．
+    /// > 設計書 6.10 の表は $f = 1$ を «単位ステップ分シフト
+    /// > (**サブピクセルではなく通常の移動**)» と定めている．シルエットが動くとは
+    /// > 輪郭が丸ごと 1 画素ずれることなので，それは中間フレームではなく
+    /// > **次のコマ**である．
+    /// >
+    /// > **lint はこの欠陥を見ない** — 実素材 61 枚で高速法を測ると，
+    /// > **28 枚がシルエットを動かしながら blocking を 1 件も増やさない**．
+    /// > 輪郭がずれた絵は «壊れた絵» ではなく **«正しく描かれた別の絵»** だから
+    /// > である．だから検査ではなく**この欄で報告する** (D101 ・D107 と同じ側)．
+    pub silhouette_moved: usize,
 }
 
 impl SubpixelReport {
@@ -245,7 +258,26 @@ pub fn subpixel(
     };
     report.isolated_fixed = fix_isolated_columns(&mut out, canvas, opts.min_run);
     report.colors = (before.len(), used_indices(&out).len());
+    // **孤立列を直した «後» で数える** — 直す前に数えると，道具が自分で戻した
+    // ぶんまで «動いた» と報告してしまう
+    report.silhouette_moved = silhouette_diff(canvas, &out);
     Ok((out, report))
+}
+
+/// シルエットが動いた画素を数える (透明 / 不透明が入れ替わった画素)．
+///
+/// **取り方は 1 か所にしか置かない** (D110) — `px-calib` は自前で持たずここを呼ぶ．
+fn silhouette_diff(a: &IndexedCanvas, b: &IndexedCanvas) -> usize {
+    let mut n = 0usize;
+    for y in 0..a.height() as i32 {
+        for x in 0..a.width() as i32 {
+            let p = ivec2(x, y);
+            if a.is_transparent_at(p) != b.is_transparent_at(p) {
+                n += 1;
+            }
+        }
+    }
+    n
 }
 
 /// 接線法 (D38)．
@@ -647,6 +679,66 @@ mod tests {
         assert!(
             !(0..p.len() as u8).any(|i| p.get(i) == Some(raw)),
             "混色がたまたまパレットにある — 試験が意味を失っている"
+        );
+    }
+
+    /// **壊れると: 輪郭が動いたことを黙る — 中間フレームでない絵を返してしまう．**
+    ///
+    /// 付録 C #5．設計書 6.10 の表は $f = 1$ を «サブピクセルではなく通常の移動»
+    /// と定めているので，**輪郭が動いた時点で中間フレームではない**．
+    /// lint はこの形を見ない (壊れた絵ではなく «別の絵» だから) ので，
+    /// 数えて報告する側にしか居場所が無い．
+    #[test]
+    fn a_moved_silhouette_is_counted_so_the_caller_can_see_it() {
+        let p = palette();
+        let mut c = IndexedCanvas::filled(16, 16, 0).with_transparent(Some(0));
+        for y in 4..12i32 {
+            for x in 4..12i32 {
+                c.set(x, y, if x < 8 { 1 } else { 5 });
+            }
+        }
+        // 接線法は**輪郭を動かさない** — 実素材 61 枚でも 0 / 61 である
+        let (out, r) = subpixel(
+            &c,
+            &p,
+            &SubpixelOptions {
+                method: SubpixelMethod::Tangent,
+                ..Default::default()
+            },
+        )
+        .expect("接線法");
+        assert_eq!(r.silhouette_moved, 0, "接線法が輪郭を動かした");
+
+        // 数え方そのものも縛る — 透明を 1 画素足せば 1 と数えるはずである
+        let mut moved = out.clone();
+        moved.set(4, 4, 0);
+        assert_eq!(silhouette_diff(&c, &moved), 1, "数え方が壊れている");
+    }
+
+    /// **壊れると: 孤立列を直した «前» で数えて，道具が自分で戻した分まで報告する．**
+    #[test]
+    fn the_silhouette_is_counted_after_the_isolated_columns_are_fixed() {
+        let p = palette();
+        let mut c = IndexedCanvas::filled(16, 16, 0).with_transparent(Some(0));
+        for y in 4..12i32 {
+            for x in 4..12i32 {
+                c.set(x, y, if x < 8 { 1 } else { 5 });
+            }
+        }
+        let (out, r) = subpixel(
+            &c,
+            &p,
+            &SubpixelOptions {
+                method: SubpixelMethod::Fast,
+                ..Default::default()
+            },
+        )
+        .expect("高速法");
+        // 報告された数は «返した絵» と «元の絵» の差でなければならない
+        assert_eq!(
+            r.silhouette_moved,
+            silhouette_diff(&c, &out),
+            "報告と返した絵が食い違っている"
         );
     }
 
