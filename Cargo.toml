@@ -6,6 +6,7 @@ members = [
   "crates/px-io",
   "crates/px-lint",
   "crates/px-macro",
+  "crates/px-recipe",
   "crates/px-view",
 ]
 resolver = "3"
@@ -18,9 +19,11 @@ version = "0.1.0"
 
 [workspace.dependencies]
 anyhow = "1.0.100"
+blake3 = "1.5"
 aseprite-io = "0.2.0"
 clap = { version = "4.5", features = ["derive"] }
 flate2 = "1.1"
+gif = "0.14"
 image = "0.25.10"
 palette = "0.7.7"
 px-core = { path = "crates/px-core" }
@@ -28,6 +31,7 @@ quantette = { version = "0.6", default-features = false, features = ["kmeans", "
 px-io = { path = "crates/px-io" }
 px-lint = { path = "crates/px-lint" }
 px-macro = { path = "crates/px-macro" }
+px-recipe = { path = "crates/px-recipe" }
 px-view = { path = "crates/px-view" }
 rayon = "1.11"
 serde = { version = "1.0.228", features = ["derive"] }
