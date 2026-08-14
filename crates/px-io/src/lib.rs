@@ -11,6 +11,7 @@
 pub mod atomic;
 pub mod document;
 pub mod error;
+pub mod gif;
 pub mod hex;
 pub mod l0;
 pub mod png;

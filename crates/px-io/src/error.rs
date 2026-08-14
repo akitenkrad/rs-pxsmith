@@ -31,6 +31,13 @@ pub enum IoError {
     #[error("パレットの色数 {0} が上限 256 を超えている")]
     PaletteTooLarge(usize),
 
+    /// GIF に 1 コマも無い．**空の GIF を «成功» として書かない**．
+    #[error("GIF に書くコマが 1 つも無い")]
+    GifNoFrames,
+
+    #[error("GIF を書けない: {detail}")]
+    GifEncode { detail: String },
+
     #[error(
         "パレット添字 {index} のアルファ {alpha} が 2 値でない．\
          binarize_alpha を有効にすると 128 を境に丸めて読み込める"
