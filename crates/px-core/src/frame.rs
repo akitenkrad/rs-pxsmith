@@ -26,6 +26,11 @@ pub enum FrameKind {
 }
 
 impl FrameKind {
+    /// 中間フレームか．**ルール 26 を外す判定に使う** (7.1 ・D47)．
+    pub fn is_inbetween(self) -> bool {
+        matches!(self, Self::Inbetween)
+    }
+
     /// 静止画 lint (`keyframe` スコープ) の対象かどうか (設計書 7.1)．
     pub fn is_keyframe(self) -> bool {
         matches!(self, Self::Key | Self::Breakdown)
@@ -50,7 +55,10 @@ impl FrameKind {
 }
 
 /// 奥行き．`px atmos` の入力になる．
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+///
+/// 並びは**手前から奥へ**である — `px atmos` の «奥へ行くほど霞む» はこの順に
+/// 単調であることを要求する．
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Depth {
     Foreground,
     Midground,

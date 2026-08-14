@@ -22,6 +22,7 @@ use clap::{Parser, Subcommand};
 
 mod animcal;
 mod aocal;
+mod atmoscal;
 mod bands;
 mod composecal;
 mod confidence;
@@ -41,7 +42,10 @@ mod recover;
 mod render;
 mod replay;
 mod rng;
+mod rotcal;
 mod scene;
+mod seqcal;
+mod shapecal;
 mod sprite;
 mod sweep;
 mod tilecal;
@@ -579,6 +583,37 @@ enum Command {
     Afterimage {
         #[arg(long, default_value = "testdata/grid-eval/seeds")]
         seeds: PathBuf,
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
+    /// **`px rotate` / `px scale` の品質を測る** — 往復の真値 ・対照 nearest ・ジャギー
+    Rotate {
+        #[arg(long, default_value = "testdata/grid-eval/seeds")]
+        seeds: PathBuf,
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
+    /// **ルール 19 ・20 ・21 の閾値を測る** — 付録 C 要調査事項 #2 を閉じる
+    LintShape {
+        #[arg(long, default_value = "testdata/grid-eval/seeds")]
+        seeds: PathBuf,
+        #[arg(long, default_value_t = 8)]
+        min_area: u32,
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
+    /// **フレーム間ルール (22 〜 27) の適用範囲と閾値を測る** — 正例 3 群 ・負例 6 種
+    LintSeq {
+        #[arg(long, default_value = "testdata/grid-eval/seeds")]
+        seeds: PathBuf,
+    },
+    /// **空気遠近法が «効く» のかを測る** — 寄せた先がパレットに在る割合 ・真値 ・段の数
+    Atmos {
+        #[arg(long, default_value = "testdata/grid-eval/seeds")]
+        seeds: PathBuf,
+        /// $t$ を細かく掃いて «パレットが表せる段の数» を数えるときの刻み数
+        #[arg(long, default_value_t = 50)]
+        level_steps: usize,
         #[arg(long)]
         out: Option<PathBuf>,
     },
@@ -2212,6 +2247,397 @@ fn main() -> Result<()> {
                 text.push('\n');
                 for r in &rows {
                     text.push_str(&animcal::afterimage_csv(r));
+                    text.push('\n');
+                }
+                std::fs::write(&path, text)
+                    .with_context(|| format!("{} を書き出せない", path.display()))?;
+                println!("\n{} に書き出した", path.display());
+            }
+        }
+
+        Command::Rotate { seeds, out } => {
+            let angles = [15.0f32, 30.0, 45.0, 60.0];
+            let (rows, skipped) = rotcal::build(&seeds, &angles)?;
+            println!("== 拡縮 ・回転の品質 ==");
+            println!("  {} 件 (飛ばした {skipped})", rows.len());
+            for (algo, ok, total) in rotcal::integer_scale_is_exact(&seeds)? {
+                println!("  3 倍拡大が厳密だった ({algo}): {ok} / {total}");
+            }
+            println!("\n  流儀        角度   件数   往復一致   影の一致  ジャギー(平均)  作った色");
+            for (algo, deg, n, rt, sil, jag, created) in rotcal::summarise(&rows) {
+                println!(
+                    "  {algo:<10} {deg:>5.1} {n:>6} {:>9.1}% {:>9.1}% {jag:>13.1} {created:>9}",
+                    rt * 100.0,
+                    sil * 100.0
+                );
+            }
+            println!("\n  拡大を伴う場面 (cleanEdge の本来の使い方)");
+            println!("    流儀        場面            件数  ジャギー(平均)  作った色");
+            for (algo, scene, n, jag, created) in rotcal::upscaled(&seeds)? {
+                println!("    {algo:<10} {scene:<14} {n:>5} {jag:>13.1} {created:>9}");
+            }
+
+            if let Some(path) = out {
+                let mut text = String::from(rotcal::ROT_HEADER);
+                text.push('\n');
+                for r in &rows {
+                    text.push_str(&rotcal::rot_csv(r));
+                    text.push('\n');
+                }
+                std::fs::write(&path, text)
+                    .with_context(|| format!("{} を書き出せない", path.display()))?;
+                println!("\n{} に書き出した", path.display());
+            }
+            return Ok(());
+        }
+
+        Command::LintShape {
+            seeds,
+            min_area,
+            out,
+        } => {
+            let (rows, skipped) = shapecal::build(&seeds, min_area)?;
+            println!("== 形の乱雑さ (ルール 19) の量を 2 通りで測る ==");
+            println!(
+                "  領域 {} 件 (面積 {min_area} 以上) ．飛ばした件 {skipped}",
+                rows.len()
+            );
+            for (name, use_excess) in [
+                ("P^2 / A (設計書のまま)", false),
+                ("P / 外接矩形の周囲長", true),
+            ] {
+                println!("\n  -- {name} --");
+                for g in ["good", "rough", "sil-good", "sil-rough"] {
+                    let (med, p90, p99, n) = shapecal::quantiles(&rows, g, use_excess);
+                    println!(
+                        "    {:<6} {n:>5} 件  中央 {med:>7.2}  90% {p90:>7.2}  99% {p99:>7.2}",
+                        match g {
+                            "good" => "領域:良",
+                            "rough" => "領域:荒",
+                            "sil-good" => "影:良",
+                            _ => "影:荒",
+                        }
+                    );
+                }
+                let values: Vec<f32> = if use_excess {
+                    vec![1.2, 1.5, 2.0, 2.5, 3.0, 4.0]
+                } else {
+                    vec![16.0, 25.0, 40.0, 60.0, 100.0, 200.0]
+                };
+                for (good, bad, label) in [
+                    ("good", "rough", "領域ごと"),
+                    ("sil-good", "sil-rough", "シルエット"),
+                ] {
+                    println!("    [{label}] 値      良い絵で鳴る        荒らした絵で鳴る");
+                    for (v, gf, gn, rf, rn) in
+                        shapecal::sweep(&rows, &values, use_excess, good, bad)
+                    {
+                        println!(
+                            "      {v:>6.2} {gf:>6} / {gn:<5} ({:>5.1}%) {rf:>6} / {rn:<5} ({:>5.1}%)",
+                            gf as f32 / gn.max(1) as f32 * 100.0,
+                            rf as f32 / rn.max(1) as f32 * 100.0
+                        );
+                    }
+                }
+            }
+            // --- ルール 20 ・21 の面積の下限を掃く
+            {
+                use px_lint::rules::LintConfig;
+                println!("\n  ルール 20 ・21 — 接触を見る «面積の下限» を掃く");
+                println!(
+                    "    下限   20:良い絵      20:角を付けた     21:良い絵      21:同化させた"
+                );
+                for min_touch in [1u32, 2, 4, 8, 16, 32] {
+                    let cfg = LintConfig {
+                        min_touch_area: min_touch,
+                        ..Default::default()
+                    };
+                    let (mut g20, mut b20, mut g21, mut b21) = (0, 0, 0, 0);
+                    let (mut n, mut nb20, mut nb21) = (0, 0, 0);
+                    for path in crate::animcal::png_files(&seeds)? {
+                        let Some((canvas, palette)) = crate::animcal::indexed(&path) else {
+                            continue;
+                        };
+                        n += 1;
+                        let fired = |c: &px_core::canvas::IndexedCanvas, id: u8| -> bool {
+                            px_lint::lint_canvas(c, &palette, &cfg)
+                                .violations
+                                .iter()
+                                .any(|v| v.rule == id)
+                        };
+                        if fired(&canvas, 20) {
+                            g20 += 1;
+                        }
+                        if fired(&canvas, 21) {
+                            g21 += 1;
+                        }
+                        if let Some(bad) = shapecal::add_tangent(&canvas, &palette, 4) {
+                            nb20 += 1;
+                            if fired(&bad, 20) {
+                                b20 += 1;
+                            }
+                        }
+                        // **負例は下限と無関係に固定する** — 下限ごとに作り直すと，
+                        // 高い下限では «易しい部分集合» を見ることになる
+                        if let Some(bad) = shapecal::merge_colours(&canvas, 16) {
+                            nb21 += 1;
+                            if fired(&bad, 21) {
+                                b21 += 1;
+                            }
+                        }
+                    }
+                    println!(
+                        "    {min_touch:>4} {g20:>4} / {n:<4} ({:>5.1}%) {b20:>4} / {nb20:<4} ({:>5.1}%) {g21:>4} / {n:<4} ({:>5.1}%) {b21:>4} / {nb21:<4} ({:>5.1}%)",
+                        g20 as f32 / n.max(1) as f32 * 100.0,
+                        b20 as f32 / nb20.max(1) as f32 * 100.0,
+                        g21 as f32 / n.max(1) as f32 * 100.0,
+                        b21 as f32 / nb21.max(1) as f32 * 100.0
+                    );
+                }
+            }
+
+            if let Some(path) = out {
+                let mut text = String::from(shapecal::SHAPE_HEADER);
+                text.push('\n');
+                for r in &rows {
+                    text.push_str(&shapecal::shape_csv(r));
+                    text.push('\n');
+                }
+                std::fs::write(&path, text)
+                    .with_context(|| format!("{} を書き出せない", path.display()))?;
+                println!("\n{} に書き出した", path.display());
+            }
+            return Ok(());
+        }
+
+        Command::LintSeq { seeds } => {
+            let (sequences, _, skipped) = seqcal::build(&seeds)?;
+            let cfg = px_lint::rules::LintConfig::default();
+            println!("== フレーム間ルール (22 〜 27) ==");
+            println!(
+                "  列 {} 本．飛ばした件: 添字にできない {} ・空 {} ・欠陥を入れられない {} ・中割りを作れない {}",
+                sequences.len(),
+                skipped.not_indexable,
+                skipped.empty,
+                skipped.not_corrupted,
+                skipped.no_tween
+            );
+            println!(
+                "  既定の閾値: 揺れ {:.3} ・ディザの位相 {:.3} ・新しい列の下限 {} ・体積 {:.3}",
+                cfg.wobble_ratio, cfg.moving_dither_ratio, cfg.min_new_run, cfg.volume_error
+            );
+
+            println!("\n  群            本数    22    23    24    25    26    27");
+            for (group, n, counts) in seqcal::measure(&sequences, &cfg) {
+                println!(
+                    "  {group:<12} {n:>5} {:>5} {:>5} {:>5} {:>5} {:>5} {:>5}",
+                    counts[0], counts[1], counts[2], counts[3], counts[4], counts[5]
+                );
+            }
+
+            {
+                println!("\n  ルール 24 — ディザ領域を探す窓の一辺を変える");
+                println!("    一辺    正例で鳴る        負例で捕捉");
+                for w in [4u32, 6, 8, 12] {
+                    let (mut fp, mut np, mut tp, mut nn) = (0, 0, 0, 0);
+                    let cfg = px_lint::rules::LintConfig {
+                        moving_dither_window: w,
+                        ..Default::default()
+                    };
+                    for s in &sequences {
+                        let hit = {
+                            let (report, _) = px_lint::lint_sequence(&s.frames, &cfg);
+                            report.violations.iter().any(|x| x.rule == 24)
+                        };
+                        if seqcal::positive_groups().contains(&s.group) {
+                            np += 1;
+                            if hit {
+                                fp += 1;
+                            }
+                        } else if s.group == "ditherstuck" {
+                            nn += 1;
+                            if hit {
+                                tp += 1;
+                            }
+                        }
+                    }
+                    println!(
+                        "    {w:>4} {fp:>6} / {np:<5} ({:>5.1}%) {tp:>6} / {nn:<5} ({:>5.1}%)",
+                        fp as f32 / np.max(1) as f32 * 100.0,
+                        tp as f32 / nn.max(1) as f32 * 100.0
+                    );
+                }
+            }
+
+            for (rule, name, values) in [
+                (
+                    23u8,
+                    "揺れ (面積比)",
+                    vec![0.005f32, 0.01, 0.02, 0.05, 0.10, 0.20, 0.40],
+                ),
+                (
+                    24,
+                    "ディザの位相 (入れ替わり比)",
+                    vec![0.02, 0.05, 0.10, 0.20, 0.35, 0.50],
+                ),
+                (27, "体積の誤差", vec![0.02, 0.05, 0.08, 0.12, 0.20, 0.30]),
+            ] {
+                println!("\n  ルール {rule} の掃引 — {name}");
+                println!("    値      正例で鳴る        負例で捕捉");
+                for (v, fp, np, tp, nn) in
+                    seqcal::sweep(&sequences, rule, &values, |c, v| match rule {
+                        23 => c.wobble_ratio = v,
+                        24 => c.moving_dither_ratio = v,
+                        _ => c.volume_error = v,
+                    })
+                {
+                    println!(
+                        "    {v:>5.3} {fp:>6} / {np:<5} ({:>5.1}%) {tp:>6} / {nn:<5} ({:>5.1}%)",
+                        fp as f32 / np.max(1) as f32 * 100.0,
+                        tp as f32 / nn.max(1) as f32 * 100.0
+                    );
+                }
+            }
+
+            println!("\n  検査できなかったもの (群ごとの列数)");
+            let mut unchecked: std::collections::BTreeMap<(String, u8), usize> =
+                std::collections::BTreeMap::new();
+            let mut totals: std::collections::BTreeMap<String, usize> =
+                std::collections::BTreeMap::new();
+            for (group, cov) in seqcal::coverage(&sequences, &cfg) {
+                *totals.entry(group.clone()).or_default() += 1;
+                for id in cov.unchecked() {
+                    *unchecked.entry((group.clone(), id)).or_default() += 1;
+                }
+            }
+            for (group, total) in &totals {
+                let list: Vec<String> = (22..=27u8)
+                    .filter_map(|id| {
+                        unchecked
+                            .get(&(group.clone(), id))
+                            .map(|n| format!("{id}: {n}"))
+                    })
+                    .collect();
+                println!(
+                    "  {group:<12} {total:>5} 本中 — {}",
+                    if list.is_empty() {
+                        "全部検査した".to_string()
+                    } else {
+                        list.join(" ・")
+                    }
+                );
+            }
+            return Ok(());
+        }
+
+        Command::Atmos {
+            seeds,
+            level_steps,
+            out,
+        } => {
+            // 3 値の `Depth` に合わせた 3 点 + 端 (**寄せ具合そのものは宣言である**)
+            let amounts = [0.0f32, 0.15, 0.3, 0.45, 0.6, 0.75, 1.0];
+            let (rows, skipped) = atmoscal::atmos_rows(&seeds, &amounts)?;
+            println!(
+                "== 空気遠近法 (実素材 ・空の色 {} 通り ・寄せ具合 {} 通り) ==",
+                atmoscal::SKIES.len(),
+                amounts.len()
+            );
+            println!(
+                "  飛ばした件: 添字にできない {} ・不透明画素が無い {} ・真値を作れない (絵, 空) {}",
+                skipped.not_indexable, skipped.empty, skipped.extended_overflow
+            );
+
+            for group in ["own", "extended"] {
+                println!(
+                    "\n-- パレット: {} --",
+                    if group == "own" {
+                        "絵のまま"
+                    } else {
+                        "霞ませた先を足した真値"
+                    }
+                );
+                println!(
+                    "  寄せ  件数    色数  動いた(nearest)  動いた(between)  逆走  色差:対照  nearest  between  残った色N  逆転  明度幅N  外れ(中央)  外れ>許容  残った色B  明度幅B"
+                );
+                for (
+                    t,
+                    n,
+                    colors,
+                    mn,
+                    mb,
+                    wrong,
+                    dc,
+                    dn,
+                    db,
+                    kept,
+                    non_mono,
+                    spread,
+                    detour,
+                    off,
+                    kept_b,
+                    spread_b,
+                ) in atmoscal::summarise(&rows, group)
+                {
+                    println!(
+                        "  {t:>4.2} {n:>5} {colors:>7} {:>15.1}% {:>15.1}% {:>5.1}% {dc:>10.4} {dn:>8.4} {db:>8.4} {:>9.1}% {non_mono:>5} {:>7.2} {detour:>11.4} {:>10.1}% {:>10.1}% {:>7.2}",
+                        mn * 100.0,
+                        mb * 100.0,
+                        wrong * 100.0,
+                        kept * 100.0,
+                        spread,
+                        off * 100.0,
+                        kept_b * 100.0,
+                        spread_b
+                    );
+                }
+            }
+
+            let (en, eb, colors) = atmoscal::exact_rates(&rows);
+            println!(
+                "\n  真値との一致 ({colors} 色 x 段): nearest {:.1}% ・between {:.1}%",
+                en * 100.0,
+                eb * 100.0
+            );
+
+            println!(
+                "\n  «線の上» と認める許容を変える (存在は $t$ に依らない．既定は px aa と同じ {:.2})",
+                atmoscal::SEGMENT_TOLERANCE
+            );
+            for (tol, rate, total) in
+                atmoscal::tolerance_sweep(&seeds, &[0.01, 0.02, 0.04, 0.08, 0.16, 0.32])?
+            {
+                println!(
+                    "    許容 {tol:>4.2}: 置き換え先が在った {:>5.1}% ({total} 色 x 空)",
+                    rate * 100.0
+                );
+            }
+
+            for segment in [false, true] {
+                let mut all = atmoscal::levels(&seeds, level_steps, segment)?;
+                all.sort_unstable();
+                let hist = |k: usize| all.iter().filter(|v| **v == k).count();
+                println!(
+                    "\n  パレットが表せる段の数 — 規則 {} ($t$ を {level_steps} 分割．{} 色 x 空)",
+                    if segment { "between" } else { "nearest" },
+                    all.len()
+                );
+                println!(
+                    "    1 段 (効かない) {} ・2 段 {} ・3 段 {} ・4 段以上 {} ・中央 {} ・最大 {}",
+                    hist(1),
+                    hist(2),
+                    hist(3),
+                    all.iter().filter(|v| **v >= 4).count(),
+                    all.get(all.len() / 2).copied().unwrap_or(0),
+                    all.last().copied().unwrap_or(0)
+                );
+            }
+
+            if let Some(path) = out {
+                let mut text = String::from(atmoscal::ATMOS_HEADER);
+                text.push('\n');
+                for r in &rows {
+                    text.push_str(&atmoscal::atmos_csv(r));
                     text.push('\n');
                 }
                 std::fs::write(&path, text)

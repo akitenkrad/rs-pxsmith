@@ -25,12 +25,15 @@
 //! # 実装済みのルール
 //!
 //! M2 で実装するのは**色・格子・ディザ系の 11 ルール**である
-//! (1 ・2 ・3 ・5 ・9 ・10 ・11 ・15 ・16 ・17 ・18)．形・陰影系は M3，
-//! G5 依存の 3 件は M7，フレーム間は M4 で足す．
+//! (1 ・2 ・3 ・5 ・9 ・10 ・11 ・15 ・16 ・17 ・18)．形・陰影系は M3 で足した
+//! (4 ・6 ・7 ・8 ・12 ・13 ・14)．**フレーム間の 6 件 (22 〜 27) は M4** —
+//! [`sequence`] にある．G5 依存の 3 件 (19 ・20 ・21) は M7．
 
 pub mod rules;
+pub mod sequence;
 
 pub use rules::{LintConfig, lint_canvas, lint_canvas_scoped, lint_frame};
+pub use sequence::{SequenceCoverage, lint_sequence};
 
 use px_core::math::{IRect, IVec2};
 use serde::{Deserialize, Serialize};
@@ -188,6 +191,60 @@ pub const RULES: &[Rule] = &[
         name: "純黒の使用",
         severity: Severity::Advisory,
         scope: Scope::Static,
+    },
+    Rule {
+        id: 19,
+        name: "形の乱雑さ",
+        severity: Severity::Advisory,
+        scope: Scope::Keyframe,
+    },
+    Rule {
+        id: 20,
+        name: "接線",
+        severity: Severity::Advisory,
+        scope: Scope::Keyframe,
+    },
+    Rule {
+        id: 21,
+        name: "隣接領域の同色",
+        severity: Severity::Advisory,
+        scope: Scope::Static,
+    },
+    Rule {
+        id: 22,
+        name: "トポロジー変化",
+        severity: Severity::Blocking,
+        scope: Scope::Sequence,
+    },
+    Rule {
+        id: 23,
+        name: "揺れる線",
+        severity: Severity::Blocking,
+        scope: Scope::Sequence,
+    },
+    Rule {
+        id: 24,
+        name: "アニメ領域のディザ",
+        severity: Severity::Blocking,
+        scope: Scope::Sequence,
+    },
+    Rule {
+        id: 25,
+        name: "孤立列の残留",
+        severity: Severity::Blocking,
+        scope: Scope::Sequence,
+    },
+    Rule {
+        id: 26,
+        name: "除外マスク侵犯",
+        severity: Severity::Blocking,
+        scope: Scope::Sequence,
+    },
+    Rule {
+        id: 27,
+        name: "体積不保存",
+        severity: Severity::Advisory,
+        scope: Scope::Sequence,
     },
 ];
 

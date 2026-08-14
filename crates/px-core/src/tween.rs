@@ -66,7 +66,7 @@
 //! 校正するものではなく[**重心の差から計算する**](TweenOptions::margin)．
 
 use crate::error::{CoreError, Result};
-use crate::geom::{Mask, label_mask, signed_distance};
+use crate::geom::{Mask, signed_distance};
 use crate::math::{IVec2, ivec2};
 
 /// 補間する前に位置を揃えるか．
@@ -414,26 +414,9 @@ pub fn tween_series(a: &Mask, b: &Mask, steps: u32, opts: &TweenOptions) -> Resu
         .collect()
 }
 
-fn count_components(mask: &Mask) -> usize {
-    label_mask(mask, false).len()
-}
-
-/// 穴の数．**背景を 8 連結で数え，外側の 1 つを引く**．
-///
-/// 前景を 4 連結で数えるなら背景は 8 連結で数える (両方を同じ連結性で数えると
-/// 市松模様でオイラー標数が破綻する) ．画布の縁に接する背景成分が «外側» である．
-fn count_holes(mask: &Mask) -> usize {
-    let bg = mask.inverted();
-    let (w, h) = (mask.width() as i32, mask.height() as i32);
-    label_mask(&bg, true)
-        .components()
-        .iter()
-        .filter(|pts| {
-            !pts.iter()
-                .any(|p| p.x == 0 || p.y == 0 || p.x == w - 1 || p.y == h - 1)
-        })
-        .count()
-}
+// 数え方は `geom::topology` に 1 つだけ置く (D110) — `px lint` のルール 22 が
+// 同じ量を見るためである
+use crate::geom::topology::{components as count_components, holes as count_holes};
 
 #[cfg(test)]
 mod tests {

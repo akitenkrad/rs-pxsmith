@@ -604,16 +604,24 @@ pub fn lint(input: &Path, json: bool, grid: &GridArgs) -> Result<()> {
     cfg.grid_window = if grid.max_scale >= 2 { 32 } else { 0 };
 
     let mut report = px_lint::Report::default();
+    let mut coverage = None;
     if is_png(input) {
         let img = png::read_rgba(input)?;
         report.extend(px_lint::rules::lint_grid(&img, &cfg));
     } else {
-        for (i, frame) in crate::load_frames(input)?.iter().enumerate() {
+        let frames = crate::load_frames(input)?;
+        for (i, frame) in frames.iter().enumerate() {
             let mut r = px_lint::lint_frame(frame, &cfg);
             for v in &mut r.violations {
                 v.message = format!("フレーム {i}: {}", v.message);
             }
             report.extend(r);
+        }
+        // **列があればフレーム間のルールも掛ける** (設計書 7.1 の `sequence`)
+        if frames.len() >= 2 {
+            let (r, cov) = px_lint::lint_sequence(&frames, &cfg);
+            report.extend(r);
+            coverage = Some(cov);
         }
     }
 
@@ -626,6 +634,29 @@ pub fn lint(input: &Path, json: bool, grid: &GridArgs) -> Result<()> {
             report.blocking().count(),
             report.advisory().count()
         );
+        // **«鳴らなかった» と «検査していない» を分ける** (D77 ・D92 ・D104)
+        if let Some(cov) = &coverage {
+            let unchecked = cov.unchecked();
+            if !unchecked.is_empty() {
+                let names: Vec<String> = unchecked
+                    .iter()
+                    .map(|id| {
+                        let why = match id {
+                            22 => "kind = inbetween のフレームが無い",
+                            26 => "subpixel_exclude のレイヤが無い",
+                            _ => "伸び縮みしているコマ対が無い",
+                        };
+                        format!("{id} ({why})")
+                    })
+                    .collect();
+                println!(
+                    "** 掛からなかったフレーム間ルール: {} **\n\
+                     \u{3000}\u{3000}欄を持てるのは L0 (.px.toml) だけである — .aseprite で\n\
+                     \u{3000}\u{3000}書き出すと kind と subpixel_exclude が落ちる (D119)",
+                    names.join(" ・")
+                );
+            }
+        }
     }
 
     if report.has_blocking() {

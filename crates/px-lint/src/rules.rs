@@ -24,6 +24,45 @@ use crate::{Report, Violation, rule};
 pub struct LintConfig {
     /// ルール 3 — この画素数未満の連結成分を孤立とみなす．
     pub isolated_max_area: u32,
+    /// **ルール 19** — 周囲長を外接矩形の周囲長で割った値の上限．
+    ///
+    /// **$P^2 / A$ ではない** — あちらは細さを測ってしまい，良い絵の 93.8% が鳴る．
+    pub max_boundary_excess: f32,
+    /// **ルール 19** — この画素数未満の領域は見ない．
+    pub shape_noise_min_area: u32,
+    /// **ルール 20 ・21** — 接触を見るときに両方の領域に求める画素数の下限．
+    ///
+    /// **市松のディザは 1 画素の領域が斜めに接し続けている**ので，下限が無いと
+    /// ディザの絵で鳴りっぱなしになる (下限 1 なら良い絵の 83.6% が鳴る) ．
+    ///
+    /// 掃引して 16 (= 4x4) を採った．**これより小さいものは «部品» ではなく
+    /// 質感である**．負例は «角に四角を置く» (ルール 20) と «斜めに接する 2 領域を
+    /// 同じ色にする» (ルール 21．書籍の «髪とヘッドバンドの同化») ．
+    ///
+    /// | 下限 | 20 良い絵 | 20 捕捉 | 21 良い絵 | 21 捕捉 |
+    /// | --- | --- | --- | --- | --- |
+    /// | 8 | 34.4% | 7 / 7 | 37.7% | 6 / 6 |
+    /// | **16** | **9.8%** | **6 / 7** | **18.0%** | **6 / 6** |
+    /// | 32 | 1.6% | 1 / 7 | 4.9% | 0 / 6 |
+    ///
+    /// **負例は 7 件と 6 件しかない** — 捕捉率はその程度の根拠しかないと読むこと．
+    pub min_touch_area: u32,
+    /// **ルール 23** — 重心を揃えて 2 度以上出入りした画素の，面積に対する割合の上限．
+    pub wobble_ratio: f32,
+    /// **ルール 24** — 重心を戻したときにディザ領域で入れ替わってよい画素の割合．
+    pub moving_dither_ratio: f32,
+    /// **ルール 24** — ディザ領域を探す窓の一辺．
+    pub moving_dither_window: u32,
+    /// **ルール 25** — 新しくできた列に残っていてよいドット数の下限．
+    ///
+    /// **`px anim subpixel` の下限から引く** — 直す側と検査する側で別の数を持つと
+    /// 自分の出力が自分の検査に落ちる (D110) ．
+    pub min_new_run: u32,
+    /// **ルール 27** — 伸び縮みで許す体積の誤差．
+    ///
+    /// **`px anim squash` の実測から引く** — 画素が整数なので体積は保存しきれない
+    /// (D123) ．
+    pub volume_error: f32,
     /// ルール 2 — «この絵は格子を名乗っているか» の判定．セル内平均分散が画像分散の
     /// この割合以下なら格子らしいとみなす．
     ///
@@ -310,6 +349,21 @@ impl Default for LintConfig {
     fn default() -> Self {
         Self {
             isolated_max_area: 2,
+            // **暫定値．`px-calib lintseq` で掃いて決める**
+            // 掃引で決めた (誤爆 21.3% ・捕捉 100%．付録 C 要調査事項 #2)
+            max_boundary_excess: 1.20,
+            shape_noise_min_area: 8,
+            // 掃引で決めた．**16 は 4x4** — これより小さいものは «部品» ではなく
+            // 質感である (ルール 20: 誤爆 9.8% ・捕捉 6/7．ルール 21: 18.0% ・6/6)
+            min_touch_area: 16,
+            wobble_ratio: 0.01,
+            moving_dither_ratio: 0.10,
+            // **静止画のルール 10 ・15 より小さい．** 8 画素の窓は 16 〜 32 画素の
+            // スプライトの内側にほとんど収まらず，捕捉が 8.6% しか出ない (窓 4 なら 80.0%)
+            moving_dither_window: 4,
+            // **直す側から引く** (書き写さない)
+            min_new_run: px_core::subpixel::DEFAULT_MIN_RUN,
+            volume_error: 0.05,
             grid_like_ratio: 0.05,
             grid: GridParams::default(),
             uniformity: 0.8,
@@ -400,11 +454,14 @@ pub fn lint_canvas_scoped(
     rule_15_dither_ratio(canvas, cfg, &mut report);
     rule_16_large_saturated(&regions, palette, canvas, cfg, &mut report);
     rule_17_high_contrast_dither(canvas, palette, cfg, &mut report);
+    rule_21_same_colour_neighbours(&regions, canvas, cfg, &mut report);
     if keyframe {
         rule_4_outline_corners(canvas, cfg, &mut report);
         rule_8_jaggies(canvas, cfg, &mut report);
         rule_12_banding(canvas, cfg, &mut report);
         rule_14_too_much_aa(canvas, palette, cfg, &mut report);
+        rule_19_shape_noise(canvas, cfg, &mut report);
+        rule_20_tangent(&regions, canvas, cfg, &mut report);
     }
     report.sorted()
 }
@@ -1332,6 +1389,24 @@ fn rule_10_dither_clumping(canvas: &IndexedCanvas, cfg: &LintConfig, report: &mu
     }
 }
 
+/// ディザとみなせる窓を既定の設定で求める．
+///
+/// **«ディザとは何か» の定義はここ 1 つである** — ルール 10 ・15 ・24 が同じ口を
+/// 使う (D110) ．
+/// 窓の一辺だけを変えて同じ検出器を掛ける．
+///
+/// **静止画のルール 10 ・15 は既定の窓 (8) を使い，ルール 24 は 4 を使う** —
+/// «ディザとは何か» の定義は 1 つのままで，見る大きさだけが違う (D110)．
+pub(crate) fn dither_areas_windowed(canvas: &IndexedCanvas, window: u32) -> Vec<IRect> {
+    dither_areas(
+        canvas,
+        &DenoiseOptions {
+            window,
+            ..DenoiseOptions::default()
+        },
+    )
+}
+
 /// ディザとみなせる窓．規則的かどうかは問わない — 塊化はどちらでも問題になる．
 fn dither_areas(canvas: &IndexedCanvas, opts: &DenoiseOptions) -> Vec<IRect> {
     let loose = DenoiseOptions {
@@ -1677,6 +1752,190 @@ fn lab(c: px_core::Rgba8) -> Oklab {
     oklab_of(c)
 }
 
+// --- ルール 19: 形の乱雑さ / 20: 接線 / 21: 隣接領域の同色 (M7) ---
+
+/// ルール 19 — **シルエットの縁がその広がりに対して長すぎる**．
+///
+/// # 何の «連結成分» か
+///
+/// 設計書 7.3 は «連結成分の周囲長/面積比の異常» とだけ書く．**色の領域ごとに
+/// 掛けると良い絵の 93.8% が鳴る** — ドット絵の陰影の帯は 1 画素幅が普通なので，
+/// 乱れていなくても比が大きくなるからである (D70 と同じ «適用範囲» の誤り) ．
+///
+/// 書籍が可読性の章で問うているのは**シルエットが読めるか**である [^pl5]．
+/// そこで**不透明な画素の連結成分**に掛ける — «連結成分» の読み方としても
+/// 素直であり，色の塗り分けではなく形を見ることになる．
+///
+/// # 何を測るか
+///
+/// $P^2 / A$ ([`px_core::geom::Region::compactness`]) は**細さ**を測ってしまう．
+/// 代わりに $P / P_{\mathrm{bbox}}$ ([`px_core::geom::Region::boundary_excess`]) を
+/// 使う — 矩形も対角線も 1 に近く，でこぼこだけが大きくなる．
+///
+/// | 量 | 閾値 | 良い絵で鳴る | 荒らした絵で捕捉 |
+/// | --- | --- | --- | --- |
+/// | $P^2/A$ | 25 | 29.5% | 100% |
+/// | $P^2/A$ | 40 | 19.7% | 97.1% |
+/// | **$P / P_{\mathrm{bbox}}$** | **1.20** | **21.3%** | **100%** |
+/// | $P / P_{\mathrm{bbox}}$ | 1.50 | 8.2% | 65.7% |
+///
+/// **同じ捕捉なら誤爆が小さい方を採る** (付録 C 要調査事項 #2 を閉じた) ．
+/// advisory なので 21.3% は許容範囲である (ルール 6 は 39.1% ・18 は 31.2%) ．
+///
+/// [^pl5]: Pixel Logic 第四章 可読性 «シルエット» (PAGE:103)．
+fn rule_19_shape_noise(canvas: &IndexedCanvas, cfg: &LintConfig, report: &mut Report) {
+    use px_core::geom::{Mask, regions::label_mask};
+    let r = rule(19).expect("ルール 19 は定義済み");
+
+    let Some(transparent) = canvas.transparent() else {
+        // **透明の宣言が無い絵は «全部が絵»** なので，シルエットに乱れは無い
+        return;
+    };
+    let mut mask = Mask::new(canvas.width(), canvas.height());
+    for y in 0..canvas.height() as i32 {
+        for x in 0..canvas.width() as i32 {
+            if canvas.get(x, y).is_some_and(|i| i != transparent) {
+                mask.set(ivec2(x, y), true);
+            }
+        }
+    }
+
+    for component in label_mask(&mask, false).components() {
+        if component.len() < cfg.shape_noise_min_area as usize {
+            continue;
+        }
+        let mut only = Mask::new(mask.width(), mask.height());
+        for p in component {
+            only.set(*p, true);
+        }
+        let Some(bbox) = only.bbox() else { continue };
+        let perimeter: u32 = only
+            .iter_set()
+            .map(|p| {
+                [(1, 0), (-1, 0), (0, 1), (0, -1)]
+                    .iter()
+                    .filter(|(dx, dy)| !only.get(ivec2(p.x + dx, p.y + dy)))
+                    .count() as u32
+            })
+            .sum();
+        let box_perimeter = 2 * (bbox.w + bbox.h);
+        if box_perimeter == 0 {
+            continue;
+        }
+        let excess = perimeter as f32 / box_perimeter as f32;
+        if excess > cfg.max_boundary_excess {
+            report.push(
+                Violation::new(
+                    r,
+                    format!(
+                        "シルエットの成分 (面積 {}) の縁が広がりに対して長い \
+                         (周囲長 {perimeter} / 外接矩形 {box_perimeter} = {excess:.2}．\
+                         上限 {:.2}) — 形が読み取りにくい",
+                        component.len(),
+                        cfg.max_boundary_excess
+                    ),
+                )
+                .area(bbox),
+            );
+        }
+    }
+}
+
+/// ルール 20 — **異なる領域が角で 1 点だけ触れている** (接線)．
+///
+/// 書籍は «パーツ同士が隣接してしまうと，見る人には何が描かれているのか
+/// わからなくなります» とする [^pl4]．**辺で接していれば «並んでいる» のであって
+/// 接線ではない** — 角だけで触れている組を数える
+/// ([`px_core::geom::RegionMap::corner_touching`])．
+///
+/// **閾値は面積の下限だけである** (数え上げ．D92) — ディザの 1 画素どうしは
+/// いくらでも角で触れるので，**両方が一定の面積を持つ組**に限る．
+///
+/// > [!warning] **触れている点の «脇» を見ないと `px shade` の出力が 75% 鳴る．**
+/// > 陰影の帯どうしは，中間の帯がくびれた場所で角が出会う (実測で面積 240 と
+/// > 196 の帯が «接線» と報告された) ．それは **1 つの面の階調**であって
+/// > 部品どうしの接触ではない．書籍が問うているのは «何も挟まずに出会って
+/// > いる» 場合なので，**脇が両方とも背景の組**に限る (D58 — 道具を正として
+/// > ルールの適用範囲を直す) ．
+///
+/// [^pl4]: Pixel Logic 第四章 可読性 «空間を空ける» (PAGE:106)．
+fn rule_20_tangent(
+    regions: &RegionMap,
+    canvas: &IndexedCanvas,
+    cfg: &LintConfig,
+    report: &mut Report,
+) {
+    let r = rule(20).expect("ルール 20 は定義済み");
+    for (a, b) in regions.corner_touching_across(canvas.transparent()) {
+        let (ra, rb) = (
+            &regions.regions()[a as usize],
+            &regions.regions()[b as usize],
+        );
+        if ra.index == rb.index {
+            // 同じ色なら «接線» ではなく «同化» — ルール 21 の持ち場である
+            continue;
+        }
+        if ra.area < cfg.min_touch_area || rb.area < cfg.min_touch_area {
+            continue;
+        }
+        if canvas.transparent() == Some(ra.index) || canvas.transparent() == Some(rb.index) {
+            continue;
+        }
+        report.push(
+            Violation::new(
+                r,
+                format!(
+                    "添字 {} (面積 {}) と添字 {} (面積 {}) が角で 1 点だけ触れている — \
+                     どちらが手前か読み取れない",
+                    ra.index, ra.area, rb.index, rb.area
+                ),
+            )
+            .area(ra.bbox),
+        );
+    }
+}
+
+/// ルール 21 — **隣り合う別領域が同じ添字である**．
+///
+/// 書籍の «後ろ姿は髪が紺色でヘッドバンドと同化しており，そこからも判断でき
+/// ませんでした» がこの状態である [^pl4]．同じ色で隣り合えば境目が消える．
+///
+/// > [!warning] **4 近傍で探すと構造的に空になる** (D80 と同じ形) ．
+/// > 同じ添字で辺を接する 2 領域は塗りつぶしの時点で 1 つに併合されているので，
+/// > 別領域のまま隣り合うとは**斜めに接している**ということである．
+/// > ただし**市松のディザはまさにそれ**なので，**両方が一定の面積を持つ組**に限る．
+fn rule_21_same_colour_neighbours(
+    regions: &RegionMap,
+    canvas: &IndexedCanvas,
+    cfg: &LintConfig,
+    report: &mut Report,
+) {
+    let r = rule(21).expect("ルール 21 は定義済み");
+    for (a, b) in regions.same_index_neighbors() {
+        let (ra, rb) = (
+            &regions.regions()[a as usize],
+            &regions.regions()[b as usize],
+        );
+        if ra.area < cfg.min_touch_area || rb.area < cfg.min_touch_area {
+            continue;
+        }
+        if canvas.transparent() == Some(ra.index) {
+            continue;
+        }
+        report.push(
+            Violation::new(
+                r,
+                format!(
+                    "添字 {} の 2 つの領域 (面積 {} と {}) が斜めに接している — \
+                     同じ色なので境目が消える",
+                    ra.index, ra.area, rb.area
+                ),
+            )
+            .area(ra.bbox),
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1950,12 +2209,164 @@ mod tests {
         let mut unique = ids.clone();
         unique.dedup();
         assert_eq!(ids, unique);
-        // M2 の 11 ルール + M3 のルール 13 (pillow shading)．**残りの陰影系
-        // (4 ・6 ・7 ・8 ・12 ・14) を足すたびにここを上げる**
-        assert_eq!(
-            ids.len(),
-            18,
-            "M2 の 11 ルール + M3 の 6 ルール (4 ・6 ・7 ・8 ・12 ・14) + 13"
+        // **足すたびにここを上げる．** 設計書 7.3 は 27 ルールで，残っているのは
+        // G5 依存の 3 件 (19 形の乱雑さ ・20 接線 ・21 隣接領域の同色) だけである
+        assert_eq!(ids.len(), 27, "設計書 7.3 の 27 ルールがすべて入っている");
+        let missing: Vec<u8> = (1..=27u8).filter(|id| !ids.contains(id)).collect();
+        assert!(missing.is_empty(), "実装していないルール: {missing:?}");
+    }
+
+    /// **壊れると: 陰影の帯のような «細いだけの» 領域を «乱雑» と呼ぶ．**
+    ///
+    /// 設計書の «周囲長/面積比» を $P^2/A$ で取ると良い絵の 93.8% が鳴る．
+    /// **シルエットの広がりに対する縁の長さ**で見る．
+    #[test]
+    fn a_thin_but_smooth_shape_is_not_ragged() {
+        let palette = Palette::new(vec![Rgba8::TRANSPARENT, Rgba8::rgb(0x1a, 0x1c, 0x2c)]).unwrap();
+        // 1 画素幅 x 20 の帯 — P^2/A は 88 だが乱れてはいない
+        let mut c = IndexedCanvas::filled(24, 4, 0);
+        c.set_transparent(Some(0));
+        for x in 2..22 {
+            c.set(x, 1, 1);
+        }
+        let report = lint_canvas(&c, &palette, &LintConfig::default());
+        assert!(
+            !report.violations.iter().any(|v| v.rule == 19),
+            "{:?}",
+            report.violations
+        );
+    }
+
+    /// **壊れると: でこぼこしたシルエットを見逃す．**
+    #[test]
+    fn a_ragged_silhouette_is_reported() {
+        let palette = Palette::new(vec![Rgba8::TRANSPARENT, Rgba8::rgb(0x1a, 0x1c, 0x2c)]).unwrap();
+        let mut c = IndexedCanvas::filled(16, 16, 0);
+        c.set_transparent(Some(0));
+        for y in 4..12 {
+            for x in 4..12 {
+                c.set(x, y, 1);
+            }
+        }
+        // 縁に櫛歯を生やす
+        for x in (4..12).step_by(2) {
+            c.set(x, 3, 1);
+            c.set(x, 12, 1);
+        }
+        for y in (4..12).step_by(2) {
+            c.set(3, y, 1);
+            c.set(12, y, 1);
+        }
+        let report = lint_canvas(&c, &palette, &LintConfig::default());
+        assert!(
+            report.violations.iter().any(|v| v.rule == 19),
+            "{:?}",
+            report.violations
+        );
+    }
+
+    /// **壊れると: 角で 1 点だけ触れている 2 つの部品を見逃す (ルール 20)．**
+    #[test]
+    fn two_parts_touching_only_at_a_corner_are_reported() {
+        let palette = Palette::new(vec![
+            Rgba8::TRANSPARENT,
+            Rgba8::rgb(0x1a, 0x1c, 0x2c),
+            Rgba8::rgb(0xb1, 0x3e, 0x53),
+        ])
+        .unwrap();
+        let mut c = IndexedCanvas::filled(16, 16, 0);
+        c.set_transparent(Some(0));
+        for y in 2..7 {
+            for x in 2..7 {
+                c.set(x, y, 1);
+            }
+        }
+        for y in 7..12 {
+            for x in 7..12 {
+                c.set(x, y, 2);
+            }
+        }
+        let report = lint_canvas(&c, &palette, &LintConfig::default());
+        assert!(
+            report.violations.iter().any(|v| v.rule == 20),
+            "{:?}",
+            report.violations
+        );
+    }
+
+    /// **壊れると: 辺で接しているだけの 2 面を «接線» と呼ぶ．**
+    #[test]
+    fn two_parts_sharing_an_edge_are_not_tangent() {
+        let palette = Palette::new(vec![
+            Rgba8::TRANSPARENT,
+            Rgba8::rgb(0x1a, 0x1c, 0x2c),
+            Rgba8::rgb(0xb1, 0x3e, 0x53),
+        ])
+        .unwrap();
+        let mut c = IndexedCanvas::filled(16, 16, 0);
+        c.set_transparent(Some(0));
+        for y in 2..7 {
+            for x in 2..7 {
+                c.set(x, y, 1);
+                c.set(x + 5, y, 2);
+            }
+        }
+        let report = lint_canvas(&c, &palette, &LintConfig::default());
+        assert!(
+            !report.violations.iter().any(|v| v.rule == 20),
+            "{:?}",
+            report.violations
+        );
+    }
+
+    /// **壊れると: 同じ色で隣り合う 2 つの部品を見逃す (ルール 21)．**
+    ///
+    /// 書籍の «後ろ姿は髪が紺色でヘッドバンドと同化しており判断できなかった»．
+    #[test]
+    fn two_parts_of_the_same_colour_touching_diagonally_are_reported() {
+        let palette = Palette::new(vec![Rgba8::TRANSPARENT, Rgba8::rgb(0x1a, 0x1c, 0x2c)]).unwrap();
+        let mut c = IndexedCanvas::filled(16, 16, 0);
+        c.set_transparent(Some(0));
+        for y in 2..7 {
+            for x in 2..7 {
+                c.set(x, y, 1);
+            }
+        }
+        for y in 7..12 {
+            for x in 7..12 {
+                c.set(x, y, 1);
+            }
+        }
+        let report = lint_canvas(&c, &palette, &LintConfig::default());
+        assert!(
+            report.violations.iter().any(|v| v.rule == 21),
+            "{:?}",
+            report.violations
+        );
+    }
+
+    /// **壊れると: 市松のディザで鳴りっぱなしになる．**
+    #[test]
+    fn a_checkerboard_does_not_trip_the_touching_rules() {
+        let palette = Palette::new(vec![
+            Rgba8::rgb(0x1a, 0x1c, 0x2c),
+            Rgba8::rgb(0xb1, 0x3e, 0x53),
+        ])
+        .unwrap();
+        let mut c = IndexedCanvas::filled(16, 16, 0);
+        for y in 0..16 {
+            for x in 0..16 {
+                c.set(x, y, ((x + y) % 2) as u8);
+            }
+        }
+        let report = lint_canvas(&c, &palette, &LintConfig::default());
+        assert!(
+            !report
+                .violations
+                .iter()
+                .any(|v| v.rule == 20 || v.rule == 21),
+            "{:?}",
+            report.violations
         );
     }
 

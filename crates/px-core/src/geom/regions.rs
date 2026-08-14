@@ -39,6 +39,20 @@ impl Region {
         }
         (self.perimeter as f32).powi(2) / self.area as f32
     }
+
+    /// 周囲長を**外接矩形の周囲長**で割った値 (形の乱雑さ，lint 19)．
+    ///
+    /// $P^2/A$ は**細さ**を測ってしまう — ドット絵の陰影の帯は 1 画素幅が普通
+    /// なので，乱れていなくても大きな値になる (実測で良い絵の 93.8% が鳴った) ．
+    /// こちらは «その広がりに対して縁がどれだけ長いか» なので，
+    /// **矩形も対角線も 1 に近く**，でこぼこした形だけが大きくなる．
+    pub fn boundary_excess(&self) -> f32 {
+        let p = 2 * (self.bbox.w + self.bbox.h);
+        if p == 0 {
+            return 0.0;
+        }
+        self.perimeter as f32 / p as f32
+    }
 }
 
 /// ラベリングの結果．
@@ -80,18 +94,103 @@ impl RegionMap {
     /// 同じ添字で隣接している領域の組 (lint 21)．
     ///
     /// 別々の領域なのに同じ色というのは，境界が見えなくなっている状態である．
+    /// 同じ添字を持つ別領域で，**隣り合っている**もの (lint 21)．
+    ///
+    /// > [!warning] **4 近傍で探しては決して鳴らない．**
+    /// > 同じ添字で 4 近傍に接する 2 領域は，塗りつぶしの時点で 1 つに併合されて
+    /// > いる — つまり «4 近傍の隣人のうち同じ添字のもの» は**構造的に空**である
+    /// > (D80 «`Turn(chain)` が常に空だった» と同じ形の穴で，M1a から入っていた) ．
+    /// >
+    /// > 別領域でありながら同じ添字で隣り合うとは，**斜めに接している**という
+    /// > ことである．書籍が «後ろ姿は髪が紺色でヘッドバンドと同化しており判断
+    /// > できなかった» と言う状態がこれで，読み取れなくなるのは色が同じだから
+    /// > である [^pl3]．
+    ///
+    /// [^pl3]: Pixel Logic 第四章 可読性 (PAGE:106-108)．
     pub fn same_index_neighbors(&self) -> Vec<(RegionId, RegionId)> {
-        let mut out = Vec::new();
-        for r in &self.regions {
-            for &n in &r.neighbors {
-                if n > r.id && self.regions[n as usize].index == r.index {
-                    out.push((r.id, n));
+        self.diagonal_pairs()
+            .into_iter()
+            .filter(|(a, b)| self.regions[*a as usize].index == self.regions[*b as usize].index)
+            .collect()
+    }
+
+    /// **斜めにだけ接している**領域の組 (lint 20 «接線») ．
+    ///
+    /// 8 近傍では隣り合うが 4 近傍では接しない — つまり**角で 1 点だけ触れて
+    /// いる**．辺で接していれば «並んでいる» のであって接線ではない．
+    pub fn corner_touching(&self) -> Vec<(RegionId, RegionId)> {
+        self.diagonal_pairs()
+            .into_iter()
+            .filter(|(a, b)| !self.regions[*a as usize].neighbors.contains(b))
+            .collect()
+    }
+
+    /// 角で触れている組のうち，**触れている点の «脇» が指定の添字であるもの**．
+    ///
+    /// 陰影の帯どうしは，中間の帯がくびれた場所で角が出会う — そのとき脇には
+    /// **中間の帯**がいる．書籍が言う «部品どうしが隣接して読めなくなる» のは
+    /// 脇が背景のときで，2 つの物が**何も挟まずに**出会っている場合である．
+    pub fn corner_touching_across(&self, background: Option<u8>) -> Vec<(RegionId, RegionId)> {
+        let mut out = std::collections::BTreeSet::new();
+        let (w, h) = (self.labels.width() as i32, self.labels.height() as i32);
+        for y in 0..h {
+            for x in 0..w {
+                let p = ivec2(x, y);
+                let Some(Some(a)) = self.labels.copied(p) else {
+                    continue;
+                };
+                for d in DIRS_DIAG {
+                    let q = p + d;
+                    let Some(Some(b)) = self.labels.copied(q) else {
+                        continue;
+                    };
+                    if a == b || self.regions[a as usize].neighbors.contains(&b) {
+                        continue;
+                    }
+                    // 触れている点の «脇» 2 つ
+                    let sides = [ivec2(q.x, p.y), ivec2(p.x, q.y)];
+                    let both_background = sides.iter().all(|s| {
+                        self.labels
+                            .copied(*s)
+                            .flatten()
+                            .map(|id| Some(self.regions[id as usize].index) == background)
+                            .unwrap_or(true)
+                    });
+                    if both_background {
+                        out.insert((a.min(b), a.max(b)));
+                    }
                 }
             }
         }
-        out
+        out.into_iter().collect()
+    }
+
+    /// 8 近傍で隣り合う領域の組 (昇順，重複なし)．
+    pub fn diagonal_pairs(&self) -> Vec<(RegionId, RegionId)> {
+        let mut out = std::collections::BTreeSet::new();
+        let (w, h) = (self.labels.width() as i32, self.labels.height() as i32);
+        for y in 0..h {
+            for x in 0..w {
+                let p = ivec2(x, y);
+                let Some(Some(a)) = self.labels.copied(p) else {
+                    continue;
+                };
+                for d in DIRS_DIAG {
+                    let Some(Some(b)) = self.labels.copied(p + d) else {
+                        continue;
+                    };
+                    if a != b {
+                        out.insert((a.min(b), a.max(b)));
+                    }
+                }
+            }
+        }
+        out.into_iter().collect()
     }
 }
+
+/// 斜め 4 方向．
+const DIRS_DIAG: [IVec2; 4] = [ivec2(1, 1), ivec2(-1, 1), ivec2(1, -1), ivec2(-1, -1)];
 
 /// 4 近傍の向き．
 const DIRS4: [IVec2; 4] = [ivec2(1, 0), ivec2(-1, 0), ivec2(0, 1), ivec2(0, -1)];
@@ -269,17 +368,27 @@ mod tests {
         assert_eq!(
             m.same_index_neighbors(),
             vec![],
-            "接していないので隣接ではない"
+            "斜めにも接していないので隣接ではない"
         );
     }
 
+    /// **市松は «斜めに接する同色» そのものである．**
+    ///
+    /// M1a はこれを «隣接ではない» と定めていたが，その定めのままだと
+    /// [`RegionMap::same_index_neighbors`] が構造的に空になり，lint 21 が
+    /// 1 度も鳴らない．**斜めを隣接とみなし，ディザ避けは lint の側で
+    /// «両方の領域が一定の面積を持つこと» で行う** — 市松の 1 画素は
+    /// その下限に届かない．
     #[test]
-    fn diagonally_touching_same_colours_stay_apart() {
-        // 4 連結なので斜めに触れるだけの同色は別領域のまま，かつ隣接でもない
+    fn a_checkerboard_is_diagonally_adjacent_and_must_be_excluded_by_area() {
         let c = IndexedCanvas::from_pixels(2, 2, vec![1, 0, 0, 1]).unwrap();
         let m = label_regions(&c);
         assert_eq!(m.len(), 4, "市松の 4 画素はそれぞれ別領域");
-        assert!(m.same_index_neighbors().is_empty());
+        assert_eq!(m.same_index_neighbors().len(), 2, "斜めの同色が 2 組");
+        assert!(
+            m.regions().iter().all(|r| r.area == 1),
+            "面積 1 なので lint 側の下限で落ちる"
+        );
     }
 
     #[test]
@@ -366,5 +475,47 @@ mod tests {
         }
         let c = label_mask(&m, true);
         assert_eq!(c.components()[0].first(), Some(&ivec2(1, 1)));
+    }
+}
+
+#[cfg(test)]
+mod probe {
+    use super::*;
+    use crate::canvas::IndexedCanvas;
+
+    /// **壊れると: ルール 21 が 1 度も鳴らなくなる．**
+    ///
+    /// 同じ添字で 4 近傍に接する 2 領域は塗りつぶしの時点で併合されているので，
+    /// «4 近傍の隣人のうち同じ添字» を探す実装は**構造的に空を返す**
+    /// (D80 と同じ形の穴．M1a から入っていた) ．**斜めで探す．**
+    #[test]
+    fn same_index_neighbours_are_found_through_the_diagonal() {
+        // 同じ添字 1 の 2 つの塊が斜めにだけ接する
+        let mut c = IndexedCanvas::filled(4, 4, 0);
+        c.set(0, 0, 1);
+        c.set(1, 1, 1);
+        let map = label_regions(&c);
+        assert_eq!(map.len(), 3, "添字 1 が 2 領域 ・添字 0 が 1 領域");
+        assert_eq!(
+            map.same_index_neighbors().len(),
+            1,
+            "斜めに接する同色の 2 領域を見つけられていない"
+        );
+        // 4 近傍では接していないので «接線» でもある
+        assert_eq!(map.corner_touching().len(), 1);
+    }
+
+    /// **壊れると: 辺で接しているだけの領域を «接線» と呼ぶ．**
+    #[test]
+    fn regions_that_share_an_edge_are_not_tangent() {
+        let mut c = IndexedCanvas::filled(4, 4, 0);
+        c.set(0, 0, 1);
+        c.set(1, 0, 1);
+        c.set(1, 1, 1);
+        let map = label_regions(&c);
+        assert!(
+            map.corner_touching().is_empty(),
+            "辺で接していれば «並んでいる» のであって接線ではない"
+        );
     }
 }

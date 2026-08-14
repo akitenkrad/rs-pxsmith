@@ -215,6 +215,50 @@ pub enum CoreError {
     #[error("シートのメタを書き出せない: {message}")]
     SheetWrite { message: String },
 
+    /// 回転の角度が有限でない．
+    #[error("回転の角度が {degrees} である")]
+    ResampleBadAngle { degrees: f32 },
+
+    /// 拡縮の倍率が正の有限値でない．
+    #[error("拡縮の倍率が {factor} である (正の有限値のはず)")]
+    ResampleBadFactor { factor: f32 },
+
+    /// 空気遠近法を掛けるフレームが無い．
+    #[error("空気遠近法を掛けるフレームが無い")]
+    AtmosNoFrames,
+
+    /// 寄せ具合が 0 〜 1 の外にある．
+    #[error("寄せ具合が {amount} である (0.0 〜 1.0 のはず)")]
+    AtmosAmountOutOfRange { amount: f32 },
+
+    /// 手前ほど濃い霞は空気遠近法ではない．
+    #[error(
+        "奥へ行くほど霞まない宣言である (前景 {foreground} ・中景 {midground} ・遠景 {background})"
+    )]
+    AtmosNotMonotone {
+        foreground: f32,
+        midground: f32,
+        background: f32,
+    },
+
+    /// 多重スクロールメタを書けない．
+    #[error("多重スクロールメタを書けない: {message}")]
+    ScrollWrite { message: String },
+
+    /// 多重スクロールメタを読めない．
+    #[error("多重スクロールメタを読めない: {message}")]
+    ScrollRead { message: String },
+
+    /// 版が違う．**黙って読まない**．
+    #[error("多重スクロールメタの format が {found} である (扱えるのは {expected})")]
+    ScrollVersion { found: u32, expected: u32 },
+
+    /// 知らない奥行きの綴り．**既定へ倒さない**．
+    #[error(
+        "多重スクロールメタの depth = '{depth}' を解釈できない (foreground / midground / background)"
+    )]
+    ScrollUnknownDepth { depth: String },
+
     /// シートの JSON を読めない．
     #[error("シートのメタを読めない: {message}")]
     SheetRead { message: String },

@@ -10,9 +10,11 @@ use anyhow::{Context, Result, bail};
 use clap::{Args, ValueEnum};
 use px_core::Rgba8;
 use px_core::aa::{AaAddOptions, add_antialiasing};
+use px_core::frame::Surface;
 use px_core::geom::Mask;
 use px_core::outline::{OutlineOptions, OutlineStyle, outline};
 use px_core::ramp::{LightSource, build_lighting};
+use px_core::resample::{ResampleAlgo, ResampleOptions};
 use px_core::shade::{DEFAULT_AMBIENT_OCCLUSION, ShadeOptions, shade_to_canvas};
 use px_core::smooth::{SmoothOptions, smooth_canvas};
 use px_io::hex;
@@ -551,4 +553,144 @@ mod tests {
             assert_eq!(parse_light(&describe(source)).unwrap(), source);
         }
     }
+}
+
+// --------------------------------------------------------- px scale / px rotate
+
+/// `px scale` — 拡縮する (設計書 5 章 ・D18)．
+#[derive(Args, Clone)]
+pub struct ScaleArgs {
+    pub input: PathBuf,
+    pub output: PathBuf,
+    /// 倍率．**整数倍なら厳密である**
+    #[arg(long)]
+    pub factor: f32,
+    /// 流儀
+    #[arg(long, default_value = "nearest", value_parser = ["nearest", "cleanedge"])]
+    pub algo: String,
+}
+
+/// `px rotate` — 回転する (設計書 5 章 ・D18)．
+#[derive(Args, Clone)]
+pub struct RotateArgs {
+    pub input: PathBuf,
+    pub output: PathBuf,
+    /// 角度 (度)．**90 度の倍数は厳密である**
+    #[arg(long)]
+    pub degrees: f32,
+    /// 流儀
+    #[arg(long, default_value = "nearest", value_parser = ["nearest", "cleanedge"])]
+    pub algo: String,
+    /// 画布を広げない．**回転すると外接矩形は必ず伸びるので切れる**
+    #[arg(long)]
+    pub no_grow: bool,
+}
+
+fn resample_options(algo: &str, grow: bool) -> Result<ResampleOptions> {
+    Ok(ResampleOptions {
+        algo: ResampleAlgo::parse(algo)
+            .with_context(|| format!("流儀 '{algo}' を知らない (nearest / cleanedge)"))?,
+        grow,
+    })
+}
+
+fn report_resample(r: &px_core::resample::ResampleReport, input: &Path, output: &Path) {
+    println!(
+        "  {} -> {} ({}x{} -> {}x{}．流儀 {})",
+        input.display(),
+        output.display(),
+        r.size.0.0,
+        r.size.0.1,
+        r.size.1.0,
+        r.size.1.1,
+        r.algo_name
+    );
+    println!(
+        "    不透明な画素 {} -> {} ・切れた画素 {}",
+        r.opaque.0, r.opaque.1, r.clipped
+    );
+    if r.clipped > 0 {
+        println!(
+            "    ** {} 画素が画布からはみ出て切れた ** — --no-grow を外すこと",
+            r.clipped
+        );
+    }
+    println!("    ** 下地である ** — 設計書 1.3 のとおり，最後は手で直すことが前提である");
+    if r.algo_name == "cleanedge" {
+        // **回転は必ず画布が伸びるので «広がったか» では解像度を測れない．**
+        // 等倍かどうかは呼ぶ側しか知らないので，助言として毎回言う
+        println!(
+            "    ** cleanedge は «拡大してから回す» と効く ** — 実測で 4 倍 + 30 度なら\n\
+             \u{3000}\u{3000}ジャギーが 138.0 -> 122.4 に減る．**等倍では nearest とほぼ同じで**\n\
+             \u{3000}\u{3000}往復の差は +1 ポイント程度，ジャギーはむしろ 0.5 〜 1.1 多い"
+        );
+    }
+}
+
+pub fn scale_cmd(args: &ScaleArgs) -> Result<()> {
+    let frames = crate::load_frames(&args.input)?;
+    if args.algo == "cleanedge" && (args.factor - args.factor.round()).abs() < 1e-4 {
+        println!(
+            "  ** 整数倍なら nearest が厳密である ** — cleanedge は縁を作り直すので\n\
+             \u{3000}\u{3000}1 画素が k x k にならない (実測で 61 枚すべてが厳密でない)．\n\
+             \u{3000}\u{3000}拡大だけが目的なら --algo nearest を使うこと"
+        );
+    }
+    let opts = resample_options(&args.algo, true)?;
+    let mut out = Vec::with_capacity(frames.len());
+    let mut last = None;
+    for frame in &frames {
+        let mut next = frame.clone();
+        for layer in &mut next.layers {
+            if let Surface::Indexed(c) = &layer.surface {
+                let (n, r) = px_core::resample::scale(c, &frame.palette, args.factor, &opts)?;
+                next.size = px_core::math::uvec2(n.width(), n.height());
+                layer.surface = Surface::Indexed(n);
+                last = Some(r);
+            }
+        }
+        out.push(next);
+    }
+    let name = resample_stem(&args.output);
+    crate::save_frames(&args.output, &out, &name)?;
+    if let Some(r) = &last {
+        report_resample(r, &args.input, &args.output);
+    }
+    Ok(())
+}
+
+pub fn rotate_cmd(args: &RotateArgs) -> Result<()> {
+    let frames = crate::load_frames(&args.input)?;
+    let opts = resample_options(&args.algo, !args.no_grow)?;
+    let mut out = Vec::with_capacity(frames.len());
+    let mut last = None;
+    for frame in &frames {
+        let mut next = frame.clone();
+        for layer in &mut next.layers {
+            if let Surface::Indexed(c) = &layer.surface {
+                let (n, r) = px_core::resample::rotate(c, &frame.palette, args.degrees, &opts)?;
+                next.size = px_core::math::uvec2(n.width(), n.height());
+                layer.surface = Surface::Indexed(n);
+                last = Some(r);
+            }
+        }
+        out.push(next);
+    }
+    let name = resample_stem(&args.output);
+    crate::save_frames(&args.output, &out, &name)?;
+    if let Some(r) = &last {
+        report_resample(r, &args.input, &args.output);
+    }
+    Ok(())
+}
+
+fn resample_stem(path: &Path) -> String {
+    path.file_name()
+        .map(|s| s.to_string_lossy().replace(".px.toml", ""))
+        .map(|s| {
+            s.trim_end_matches(".aseprite")
+                .trim_end_matches(".toml")
+                .to_string()
+        })
+        .unwrap_or_default()
 }

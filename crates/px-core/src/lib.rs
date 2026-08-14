@@ -28,6 +28,9 @@
 //! | [`autotile`] | 象限合成による 47 枚生成 | 6.8 / 4.3 |
 //! | [`tilejson`] | タイルセットの正規出力 (JSON) | 4.4 |
 //! | [`export`] | 出力先アダプタ (Tiled) | 4.4 |
+//! | [`atmos`] | 空気遠近法と多重スクロールメタ | 4.4 / 5 章 |
+//! | [`resample`] | 拡縮と回転 | 5 章 / D18 |
+//! | [`cleanedge`] | cleanEdge の移植 (MIT) | D18 |
 //! | [`ink`] | 描画インクとブラシ | 3.4 |
 //! | [`edit`] | 編集操作とパッチ | 3.6 |
 //! | [`error`] | エラーモデル | 3.7 |
@@ -35,9 +38,11 @@
 pub mod aa;
 pub mod afterimage;
 pub mod anim;
+pub mod atmos;
 pub mod autotile;
 pub mod canvas;
 pub mod clean;
+pub mod cleanedge;
 pub mod color;
 pub mod compose;
 pub mod deform;
@@ -54,6 +59,7 @@ pub mod outline;
 pub mod palette;
 pub mod quantize;
 pub mod ramp;
+pub mod resample;
 pub mod shade;
 pub mod sheet;
 pub mod smear;

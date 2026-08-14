@@ -15,6 +15,7 @@ use px_io::{Document, FrameId};
 use px_view::render::RenderOptions;
 
 mod anim_cmds;
+mod atmos_cmds;
 mod color_cmds;
 mod compose_cmds;
 mod direction_cmds;
@@ -109,6 +110,16 @@ pub(crate) enum Command {
         #[command(flatten)]
         args: shape_cmds::AaArgs,
     },
+    /// 拡縮する (設計書 5 章 ・D18)．**下地であり手修正が前提**
+    Scale {
+        #[command(flatten)]
+        args: shape_cmds::ScaleArgs,
+    },
+    /// 回転する (設計書 5 章 ・D18)．**下地であり手修正が前提**
+    Rotate {
+        #[command(flatten)]
+        args: shape_cmds::RotateArgs,
+    },
     /// 縁取りを描く (設計書 D36)
     Outline {
         #[command(flatten)]
@@ -133,6 +144,11 @@ pub(crate) enum Command {
     Anim {
         #[command(subcommand)]
         command: anim_cmds::AnimCommand,
+    },
+    /// 空気遠近法と多重スクロールメタ (設計書 4.4 ・5 章)
+    Atmos {
+        #[command(flatten)]
+        args: atmos_cmds::AtmosArgs,
     },
     /// スプライトシートへ梱包する (設計書 5 章 `sheet.pack`)
     Sheet {
@@ -309,11 +325,14 @@ pub(crate) fn dispatch(command: Command) -> Result<()> {
         Command::Shade { args } => shape_cmds::shade(&args),
         Command::Smooth { args } => shape_cmds::smooth(&args),
         Command::Aa { args } => shape_cmds::aa(&args),
+        Command::Scale { args } => shape_cmds::scale_cmd(&args),
+        Command::Rotate { args } => shape_cmds::rotate_cmd(&args),
         Command::Outline { args } => shape_cmds::outline_cmd(&args),
         Command::Compose { args } => compose_cmds::compose_cmd(&args),
         Command::Direction { args } => direction_cmds::direction_cmd(&args),
         Command::Tileset { command } => tileset_cmds::tileset(command),
         Command::Anim { command } => anim_cmds::anim(command),
+        Command::Atmos { args } => atmos_cmds::atmos_cmd(&args),
         Command::Sheet { command } => sheet_cmds::sheet(command),
         Command::Export { command } => export_cmds::export(command),
         Command::View { path, display } => view(&path, &display),

@@ -20,6 +20,7 @@ pub mod jaggy;
 pub mod mask;
 pub mod regions;
 pub mod runs;
+pub mod topology;
 
 pub use contour::{Chain, Contour, split_monotone, trace_color_boundaries, trace_contours};
 pub use distance::{curvature_field, normal_and_curvature, ridge_mask, signed_distance};
@@ -28,3 +29,4 @@ pub use jaggy::{Jaggy, JaggyReport, analyze_canvas, analyze_mask};
 pub use mask::{Field, Mask};
 pub use regions::{Region, RegionId, RegionMap, label_mask, label_regions};
 pub use runs::{banding, is_unimodal, jaggy_valleys, run_lengths, run_pixels, run_valleys};
+pub use topology::{components, euler_characteristic, holes};
