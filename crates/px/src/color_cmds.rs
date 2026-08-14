@@ -14,7 +14,7 @@ use px_core::grid::{GridParams, downscale_modal, estimate_grid, local_grid, unif
 use px_core::quantize::{ApplyOptions, Dither, QuantizeMethod, ReduceOptions};
 use px_core::ramp::{LightPreset, RampSpec, build_lighting, generate_ramp};
 use px_core::{ChromaCurve, Palette, Rgba8};
-use px_io::{Document, FrameId, hex, png};
+use px_io::{FrameId, hex, png};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
 pub enum MethodArg {
@@ -577,17 +577,18 @@ pub(crate) fn write_indexed(path: &Path, canvas: &IndexedCanvas, palette: &Palet
         return png::write_indexed(path, canvas, palette)
             .with_context(|| format!("{} を書き出せない", path.display()));
     }
-    // `.aseprite` なら添字をそのまま保てる
+    // `.aseprite` ・`.px.toml` なら添字をそのまま保てる
     let mut frame = px_core::Frame::new(canvas.size(), palette.clone());
     frame.layers.push(px_core::Layer::new(
         px_core::LayerMeta::named("art"),
         px_core::Surface::Indexed(canvas.clone()),
     ));
-    let doc = Document::from_frames(&[frame])?;
-    doc.write(path)
-        .with_context(|| format!("{} を書き出せない", path.display()))?;
+    let stem = path
+        .file_stem()
+        .map(|s| s.to_string_lossy().replace(".px", ""))
+        .unwrap_or_else(|| "sprite".to_string());
     let _ = FrameId(0);
-    Ok(())
+    crate::save_frames(path, &[frame], &stem)
 }
 
 /// `px lint`．

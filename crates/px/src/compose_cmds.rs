@@ -169,10 +169,7 @@ pub fn compose_cmd(args: &ComposeArgs) -> Result<()> {
 
         let (frames, report) = compose(&parts, &opts)?;
         let out_path = PathBuf::from(&output);
-        let doc = Document::from_frames(&frames)
-            .with_context(|| format!("{output} を組み立てられない"))?;
-        doc.write(&out_path)
-            .with_context(|| format!("{output} を書き出せない"))?;
+        crate::save_frames(&out_path, &frames, "compose")?;
 
         println!(
             "{output} — {}x{} ・{} フレーム ・{} 色{}",

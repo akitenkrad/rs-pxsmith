@@ -26,7 +26,6 @@ use px_core::palette::Palette;
 use px_core::ramp::LightSource;
 use px_core::tilejson::TilesetDoc;
 use px_core::tileset::{DedupeMode, ExtractOptions, extract, mirror_reliant_cells};
-use px_io::Document;
 use px_io::l0::L0Document;
 
 use crate::color_cmds::load_indexed;
@@ -470,10 +469,7 @@ fn autotile_cmd(args: &AutotileArgs) -> Result<()> {
             kind: px_core::frame::FrameKind::Key,
         })
         .collect();
-    let out = Document::from_frames(&out_frames)
-        .with_context(|| format!("{} を組み立てられない", args.output.display()))?;
-    out.write(&args.output)
-        .with_context(|| format!("{} を書き出せない", args.output.display()))?;
+    crate::save_frames(&args.output, &out_frames, "tiles")?;
     println!(
         "  {} へ {} 枚を書き出した",
         args.output.display(),
@@ -597,10 +593,7 @@ fn extract_cmd(args: &ExtractArgs) -> Result<()> {
             kind: px_core::frame::FrameKind::Key,
         })
         .collect();
-    let doc = Document::from_frames(&frames)
-        .with_context(|| format!("{} を組み立てられない", args.output.display()))?;
-    doc.write(&args.output)
-        .with_context(|| format!("{} を書き出せない", args.output.display()))?;
+    crate::save_frames(&args.output, &frames, "tiles")?;
     println!(
         "  {} へ {} 枚を書き出した",
         args.output.display(),

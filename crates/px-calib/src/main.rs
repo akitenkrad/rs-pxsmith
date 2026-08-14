@@ -20,6 +20,7 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 
+mod animcal;
 mod aocal;
 mod bands;
 mod composecal;
@@ -545,6 +546,41 @@ enum Command {
         seeds: PathBuf,
         #[arg(long, default_value_t = 5)]
         steps: u8,
+    },
+    /// **おばけが繋がるかを測る** — union ・掃引 ・重心を取り除いた掃引の 3 通りと，刻み幅
+    Smear {
+        #[arg(long, default_value = "testdata/grid-eval/seeds")]
+        seeds: PathBuf,
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
+    /// **外挿が真値に当たるかを測る** — 平行移動なら «t 倍動かした絵» が真値である
+    Extrapolate {
+        #[arg(long, default_value = "testdata/grid-eval/seeds")]
+        seeds: PathBuf,
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
+    /// **体積保存が画素の丸めでどれだけ崩れるかを測る** — 2 通りの決め方を並べる
+    Squash {
+        #[arg(long, default_value = "testdata/grid-eval/seeds")]
+        seeds: PathBuf,
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
+    /// **サブピクセルが実素材で効くかを測る** — 接線法 2 通りと高速法
+    Subpixel {
+        #[arg(long, default_value = "testdata/grid-eval/seeds")]
+        seeds: PathBuf,
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
+    /// **残像が «見える» のはどれくらい動いたときかを測る** — `px shade` に描かせた列で
+    Afterimage {
+        #[arg(long, default_value = "testdata/grid-eval/seeds")]
+        seeds: PathBuf,
+        #[arg(long)]
+        out: Option<PathBuf>,
     },
     /// **中割りが実用になるかを測る (R11)** — 真値のある平行移動 ・余白 ・トポロジー
     Tween {
@@ -2004,6 +2040,178 @@ fn main() -> Result<()> {
                 text.push('\n');
                 for r in &runs {
                     text.push_str(&composecal::run_csv(r));
+                    text.push('\n');
+                }
+                std::fs::write(&path, text)
+                    .with_context(|| format!("{} を書き出せない", path.display()))?;
+                println!("\n{} に書き出した", path.display());
+            }
+        }
+
+        Command::Smear { seeds, out } => {
+            let shifts = [4i32, 8, 16, 24, 32];
+            let rows = animcal::smear_rows(&seeds, &shifts)?;
+            println!("== おばけ 3 通り (円板ではなく実素材を平行移動させたもの) ==");
+            println!("\n  ずらし  件数  union が繋がる  掃引が繋がる  **重心を取り除いた掃引**");
+            for (shift, n, u, p, c) in animcal::summarise_smear(&rows) {
+                println!("  {shift:>6} {n:>6} {u:>15} {p:>13} {c:>24}");
+            }
+
+            let samples = [Some(1u32), Some(2), Some(4), Some(8), Some(16), None];
+            println!("\n== 刻み幅の掃引 (ずらし 32 画素．None は «変位から決める») ==");
+            for (n, broken, total) in animcal::sample_sweep(&seeds, 32, &samples)? {
+                let label = n
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "変位から".into());
+                println!("  標本 {label:<8} — 切れた {broken:>3} / {total} 枚");
+            }
+
+            if let Some(path) = out {
+                let mut text = String::from(animcal::SMEAR_HEADER);
+                text.push('\n');
+                for r in &rows {
+                    text.push_str(&animcal::smear_csv(r));
+                    text.push('\n');
+                }
+                std::fs::write(&path, text)
+                    .with_context(|| format!("{} を書き出せない", path.display()))?;
+                println!("\n{} に書き出した", path.display());
+            }
+        }
+
+        Command::Extrapolate { seeds, out } => {
+            let shifts = [8i32, 16];
+            let amounts = [0.25f32, 0.5, 1.0];
+            let rows = animcal::extrapolate_rows(&seeds, &shifts, &amounts)?;
+            println!("== 外挿 (平行移動なので真値がある — «t 倍だけ動かした絵») ==");
+            println!(
+                "\n  種類           振り幅  件数  場のまま  重心を取り除く  端のまま  切れた枚数"
+            );
+            for (kind, amount, n, plain, centroid, hold, clipped) in
+                animcal::summarise_extrapolate(&rows)
+            {
+                println!(
+                    "  {kind:<14} {amount:>5.2} {n:>6} {plain:>9.3} {centroid:>15.3} {hold:>9.3} {clipped:>11}"
+                );
+            }
+            let changed = rows.iter().filter(|r| r.topology_changed).count();
+            println!(
+                "\n  {} 件中 {} 件でトポロジーが両端のどちらとも違う",
+                rows.len(),
+                changed
+            );
+
+            if let Some(path) = out {
+                let mut text = String::from(animcal::EXTRAPOLATE_HEADER);
+                text.push('\n');
+                for r in &rows {
+                    text.push_str(&animcal::extrapolate_csv(r));
+                    text.push('\n');
+                }
+                std::fs::write(&path, text)
+                    .with_context(|| format!("{} を書き出せない", path.display()))?;
+                println!("\n{} に書き出した", path.display());
+            }
+        }
+
+        Command::Squash { seeds, out } => {
+            let amounts = [-0.5f32, -0.25, 0.25, 0.5];
+            let rows = animcal::squash_rows(&seeds, &amounts)?;
+            println!("== 体積保存 ($h \\times w$)．画素は整数なので丸めが残る ==");
+            println!(
+                "\n  決め方       画布  件数  矩形の誤差 (中央)  最悪  画素数の誤差  **拡縮だけ**  切れた  色が増えた"
+            );
+            for (rule, grew, n, med, worst, px, resample, clipped, added) in
+                animcal::summarise_squash(&rows)
+            {
+                let canvas = if grew { "広げる" } else { "そのまま" };
+                println!(
+                    "  {rule:<12} {canvas:<6} {n:>4} {:>16.3}% {:>5.1}% {:>12.1}% {:>12.1}% {clipped:>7} {added:>11}",
+                    med * 100.0,
+                    worst * 100.0,
+                    px * 100.0,
+                    resample * 100.0
+                );
+            }
+
+            if let Some(path) = out {
+                let mut text = String::from(animcal::SQUASH_HEADER);
+                text.push('\n');
+                for r in &rows {
+                    text.push_str(&animcal::squash_csv(r));
+                    text.push('\n');
+                }
+                std::fs::write(&path, text)
+                    .with_context(|| format!("{} を書き出せない", path.display()))?;
+                println!("\n{} に書き出した", path.display());
+            }
+        }
+
+        Command::Subpixel { seeds, out } => {
+            let fractions = [0.25f32, 0.5, 0.75];
+            let rows = animcal::subpixel_rows(&seeds, &fractions)?;
+            let (lo, mid, hi) = animcal::intermediate_rates(&rows);
+            println!("== サブピクセル (実素材) ==");
+            println!(
+                "\n  パレットの色の組に «間の色» がある割合 — 最小 {:.1}% ・中央 {:.1}% ・最大 {:.1}%",
+                lo * 100.0,
+                mid * 100.0,
+                hi * 100.0
+            );
+            println!(
+                "\n  方法      範囲        率  件数  動いた枚数  動いた画素 (中央)  中間色が無い  輪郭が動いた  色が増えた  blocking 増"
+            );
+            for (method, scope, fraction, n, moved, px, no_colour, sil, added, blocking) in
+                animcal::summarise_subpixel(&rows)
+            {
+                println!(
+                    "  {method:<9} {scope:<10} {fraction:>4.2} {n:>5} {moved:>11} {px:>18.0} {no_colour:>13} {sil:>13} {added:>11} {blocking:>12}"
+                );
+            }
+
+            let (files, differing, med, multi) = animcal::fraction_sensitivity(&seeds)?;
+            println!(
+                "\n  移動率を 0.25 と 0.75 に変えて出力を突き合わせる — {differing} / {files} 枚で違う (違った画素の中央 {med:.0})"
+            );
+            println!(
+                "  間の色が **2 色以上** ある組は，間の色がある組のうち {:.1}%",
+                multi * 100.0
+            );
+
+            if let Some(path) = out {
+                let mut text = String::from(animcal::SUBPIXEL_HEADER);
+                text.push('\n');
+                for r in &rows {
+                    text.push_str(&animcal::subpixel_csv(r));
+                    text.push('\n');
+                }
+                std::fs::write(&path, text)
+                    .with_context(|| format!("{} を書き出せない", path.display()))?;
+                println!("\n{} に書き出した", path.display());
+            }
+        }
+
+        Command::Afterimage { seeds, out } => {
+            let shifts = [1i32, 2, 4, 8];
+            let trails = [1u32, 2, 3];
+            let rows = animcal::afterimage_rows(&seeds, &shifts, &trails)?;
+            println!("== 残像 (px shade に描かせた 3 コマ．ランプが宣言されている状態) ==");
+            println!(
+                "\n  ずらし  長さ  件数  見えた枚数  見えた画素 (中央)  隠れた画素  端に着いた"
+            );
+            for (shift, trail, n, visible, drawn, covered, sat) in
+                animcal::summarise_afterimage(&rows)
+            {
+                println!(
+                    "  {shift:>6} {trail:>5} {n:>5} {visible:>11} {drawn:>18.0} {covered:>11.0} {sat:>11.0}"
+                );
+            }
+
+            if let Some(path) = out {
+                let mut text = String::from(animcal::AFTERIMAGE_HEADER);
+                text.push('\n');
+                for r in &rows {
+                    text.push_str(&animcal::afterimage_csv(r));
                     text.push('\n');
                 }
                 std::fs::write(&path, text)

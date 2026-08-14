@@ -8,6 +8,8 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand};
 use px_core::Frame;
+use px_core::frame::FrameKind;
+use px_io::hex;
 use px_io::l0::{L0Document, Violation};
 use px_io::{Document, FrameId};
 use px_view::render::RenderOptions;
@@ -305,6 +307,63 @@ fn main() -> Result<()> {
         } => color_cmds::validate(&input, &target, json),
         Command::Verify { command } => verify(command),
     }
+}
+
+/// フレーム列を**拡張子に合わせて**書き出す．
+///
+/// > [!warning] **読む側は拡張子を見るのに，書く側が見ていなかった．**
+/// > [`load_frames`] は `.px.toml` を L0 として読むが，書き出す側は 5 か所とも
+/// > `.aseprite` を書いていた — `px shade out.px.toml` が**中身は `.aseprite` の
+/// > ファイル**を作り，それを `px anim smear` に渡すと «UTF-8 でない» で落ちる．
+/// > **端から端まで CLI で通して見つけた** (M4 で 7 件目) ．書く側もここに寄せる．
+///
+/// > [!warning] **`.aseprite` は `kind` を持てない** (D81 と同じ形の穴．3 度目) ．
+/// > 設計書 7.1 ・D47 の «`inbetween` にはジャギー ・AA 系の lint を掛けない»
+/// > は，**フレームの `kind` がファイルに残っていて初めて効く**．保持層の
+/// > `.aseprite` にはその欄が無いので，`.aseprite` で書き出すと `px lint` は
+/// > 中割りにもジャギーを鳴らす．
+/// >
+/// > **端から端まで CLI で通して見つけた** — 単体試験は作業層のフレームしか
+/// > 見ていないので `kind` が落ちない．
+/// >
+/// > 欄を持っているのは L0 (`.px.toml`) だけなので，**L0 でも書き出せるように
+/// > して，`.aseprite` だけのときは «スコープが効かない» と併記する**．
+pub(crate) fn save_frames(path: &std::path::Path, frames: &[Frame], name: &str) -> Result<()> {
+    let text = path.to_string_lossy();
+    if text.ends_with(".px.toml") || text.ends_with(".toml") {
+        let palette_ref = path.with_extension("hex");
+        // **参照は隣のファイル名だけにする** — 絶対パスを書くと，L0 を別の場所へ
+        // 移した瞬間に読めなくなる (パレットは必ず隣に書いている)
+        let relative = std::path::Path::new(
+            palette_ref
+                .file_name()
+                .unwrap_or(std::ffi::OsStr::new("palette.hex")),
+        );
+        let exported = L0Document::from_frames(name, relative, frames, 0)
+            .map_err(|v| anyhow::anyhow!("L0 として書き出せない: {v}"))?;
+        for a in &exported.advisories {
+            println!("  L0 の注意: {a}");
+        }
+        exported
+            .document
+            .write(path)
+            .with_context(|| format!("{} を書き出せない", path.display()))?;
+        hex::write(&palette_ref, &frames[0].palette)
+            .with_context(|| format!("{} を書き出せない", palette_ref.display()))?;
+        println!("  パレット -> {}", palette_ref.display());
+        return Ok(());
+    }
+    let doc = Document::from_frames(frames).context("フレーム列を組み立てられない")?;
+    doc.write(path)
+        .with_context(|| format!("{} を書き出せない", path.display()))?;
+    if frames.iter().any(|f| f.kind != FrameKind::Key) {
+        println!(
+            "  ** .aseprite は kind を持てない ** — 書いた中割りは読み直すと key に\n\
+             なるので，px lint のスコープ (D47) が効かない．\n\
+             スコープが要るなら .px.toml で書き出すこと"
+        );
+    }
+    Ok(())
 }
 
 /// 拡張子から入力の種類を見分けてフレーム列を読む．

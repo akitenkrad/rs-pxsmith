@@ -21,7 +21,6 @@ use px_core::direction::{
 };
 use px_core::frame::Frame;
 use px_core::ramp::{LightPreset, LightSource};
-use px_io::Document;
 
 use crate::color_cmds::{CurveArg, PresetArg};
 use crate::shape_cmds::parse_light;
@@ -195,10 +194,7 @@ pub fn direction_cmd(args: &DirectionArgs) -> Result<()> {
         let mut vars = BTreeMap::new();
         vars.insert("dir".to_string(), dir.as_str().to_string());
         let path = PathBuf::from(expand_template(&args.output, &vars)?);
-        let doc = Document::from_frames(frames)
-            .with_context(|| format!("{} を組み立てられない", path.display()))?;
-        doc.write(&path)
-            .with_context(|| format!("{} を書き出せない", path.display()))?;
+        crate::save_frames(&path, frames, dir.as_str())?;
     }
     println!("\n{} ファイルを書き出した", all.len());
 
