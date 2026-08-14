@@ -8,12 +8,15 @@
 //! | [`render`] | キャンバスを画像へ起こす | — |
 //! | [`term`] | 端末の能力判定と表示 | M1 (R1・R18) |
 //! | [`diff`] | 2 枚の差分 | 5 章 `px diff` |
+//! | [`onion`] | オニオンスキン (輪郭のみ) | 5 章 / D52 |
 
 pub mod diff;
+pub mod onion;
 pub mod render;
 pub mod term;
 
 pub use diff::{Diff, PixelChange};
+pub use onion::{OnionOptions, OnionReport, onion_image};
 pub use render::{RenderOptions, to_rgba_image};
 pub use term::{TerminalKind, detect, show};
 

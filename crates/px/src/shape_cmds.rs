@@ -12,7 +12,9 @@ use px_core::Rgba8;
 use px_core::aa::{AaAddOptions, add_antialiasing};
 use px_core::frame::Surface;
 use px_core::geom::Mask;
+use px_core::guide::GuideOptions;
 use px_core::outline::{OutlineOptions, OutlineStyle, outline};
+use px_core::project::{Facing, ProjectOptions, Projection, SourcePlane, Step};
 use px_core::ramp::{LightSource, build_lighting};
 use px_core::resample::{ResampleAlgo, ResampleOptions};
 use px_core::shade::{DEFAULT_AMBIENT_OCCLUSION, ShadeOptions, shade_to_canvas};
@@ -615,6 +617,17 @@ fn report_resample(r: &px_core::resample::ResampleReport, input: &Path, output: 
             r.clipped
         );
     }
+    if r.filled_opaque > 0 {
+        // **«不透明な画素が増えた» の中身を分ける** — 透明添字を持たない絵には
+        // «何も無い» が無いので，広げた分は実色で埋まる (D92 ・D107 のとおり
+        // 処方せず数えて言う)
+        println!(
+            "    ** {} 画素は絵ではなく埋め草である ** — この絵は透明添字を宣言して\n\
+             \u{3000}\u{3000}いないので，広げた画布は実色 (添字 {}) で埋まった．透明にしたいなら\n\
+             \u{3000}\u{3000}入力に透明を 1 色宣言すること",
+            r.filled_opaque, 0
+        );
+    }
     println!("    ** 下地である ** — 設計書 1.3 のとおり，最後は手で直すことが前提である");
     if r.algo_name == "cleanedge" {
         // **回転は必ず画布が伸びるので «広がったか» では解像度を測れない．**
@@ -681,6 +694,237 @@ pub fn rotate_cmd(args: &RotateArgs) -> Result<()> {
     if let Some(r) = &last {
         report_resample(r, &args.input, &args.output);
     }
+    Ok(())
+}
+
+/// `px project` — 投影変換 (設計書 6.13)．
+///
+/// **どの面を写すのか ・どちらへ倒すのかは絵からは決まらないので宣言させる**
+/// (D89 ・設計書 6.13 «歪める方向はオブジェクトが向いている方向に合わせる») ．
+#[derive(Args, Clone)]
+pub struct ProjectArgs {
+    pub input: PathBuf,
+    pub output: PathBuf,
+    /// 投影．**段は名前が決めている** (iso = 2:1 ・dimetric45 = 1:1)
+    #[arg(long = "to", value_parser = ["iso", "dimetric45", "oblique"])]
+    pub to: String,
+    /// 入力がどの面を描いた絵か．**絵からは決まらない**
+    ///
+    /// `top` は真上から見た絵で 2 軸とも倒れる．`side` は横から見た絵で
+    /// **垂直線は立ったまま**である
+    #[arg(long, value_parser = ["top", "side"])]
+    pub from: String,
+    /// 歪める向き．**オブジェクトが向いている方向に合わせること (逆にしない)**
+    #[arg(long, value_parser = ["right", "left"])]
+    pub facing: String,
+    /// 段 `走り:上がり`．**選べるのは oblique だけ** (6.13 の表で 2 通り挙がる行)
+    #[arg(long)]
+    pub step: Option<String>,
+    /// 流儀
+    #[arg(long, default_value = "nearest", value_parser = ["nearest", "cleanedge"])]
+    pub algo: String,
+    /// 画布を広げない．**投影すると外接矩形は伸びるので切れる**
+    #[arg(long)]
+    pub no_grow: bool,
+}
+
+pub fn project_cmd(args: &ProjectArgs) -> Result<()> {
+    let projection =
+        Projection::parse(&args.to).with_context(|| format!("投影 '{}' を知らない", args.to))?;
+    let plane =
+        SourcePlane::parse(&args.from).with_context(|| format!("面 '{}' を知らない", args.from))?;
+    let facing = Facing::parse(&args.facing)
+        .with_context(|| format!("向き '{}' を知らない", args.facing))?;
+    let step = args.step.as_deref().map(Step::parse).transpose()?;
+
+    let opts = ProjectOptions {
+        projection,
+        plane,
+        facing,
+        step,
+        resample: resample_options(&args.algo, !args.no_grow)?,
+    };
+
+    let frames = crate::load_frames(&args.input)?;
+    let mut out = Vec::with_capacity(frames.len());
+    let mut last = None;
+    for frame in &frames {
+        let mut next = frame.clone();
+        for layer in &mut next.layers {
+            if let Surface::Indexed(c) = &layer.surface {
+                let (n, r) = px_core::project::project(c, &frame.palette, &opts)?;
+                next.size = px_core::math::uvec2(n.width(), n.height());
+                layer.surface = Surface::Indexed(n);
+                last = Some(r);
+            }
+        }
+        out.push(next);
+    }
+    let name = resample_stem(&args.output);
+    crate::save_frames(&args.output, &out, &name)?;
+    if let Some(r) = &last {
+        report_project(r, &args.input, &args.output);
+    }
+    Ok(())
+}
+
+fn report_project(r: &px_core::project::ProjectReport, input: &Path, output: &Path) {
+    println!(
+        "  {} -> {} ({} ・{} から ・{} 向き ・段 {})",
+        input.display(),
+        output.display(),
+        r.projection,
+        r.plane,
+        r.facing,
+        r.step.label()
+    );
+    println!(
+        "    受ける軸 {:.2} 度 ・垂直線は{} ・面積比 {:.3}",
+        r.degrees,
+        if r.keeps_vertical {
+            "立ったまま"
+        } else {
+            "倒れる"
+        },
+        r.area_ratio
+    );
+    report_resample(&r.resample, input, output);
+
+    // **段が格子に乗ることを言う．** 設計書 6.13 は手順の方で tan 30 度 を使うが，
+    // 同じ節の表が «正確な 30 度は引けないため 2:1 で代用» と書いている．
+    // 採ったのは表の側で，実測でもジャギーが 6.4 -> 3.0 に減る
+    println!(
+        "    ** 段は {} なので格子に乗る ** — 走りの長さが 1 種類になる．\n\
+         \u{3000}\u{3000}30 度 (tan 30 = 0.577) は走りが 1 と 2 に割れ，実素材の\n\
+         \u{3000}\u{3000}ジャギーが 3.0 -> 6.4 に増える",
+        r.step.label()
+    );
+    println!(
+        "    ** 向きは {} で歪めた ** — オブジェクトが向いている方向と\n\
+         \u{3000}\u{3000}逆なら --facing を替えること (絵からは決まらない)",
+        r.facing
+    );
+}
+
+/// `px guide` — 投影ガイドグリッドを引く (設計書 6.13)．
+#[derive(Args, Clone)]
+pub struct GuideArgs {
+    pub output: PathBuf,
+    /// 投影
+    #[arg(long, value_parser = ["iso", "dimetric45", "oblique"])]
+    pub projection: String,
+    /// どの面のガイドか
+    #[arg(long, default_value = "top", value_parser = ["top", "side"])]
+    pub from: String,
+    /// 倒す向き
+    #[arg(long, default_value = "right", value_parser = ["right", "left"])]
+    pub facing: String,
+    /// 段 `走り:上がり`．**選べるのは oblique だけ**
+    #[arg(long)]
+    pub step: Option<String>,
+    /// **整数の刻みを何回繰り返すか**．等角の刻みは (2, 1) なので 16 なら 1 升が 32x16
+    #[arg(long, default_value_t = 16)]
+    pub cell: u32,
+    /// 画布の大きさ `WxH`
+    #[arg(long, default_value = "256x256")]
+    pub size: String,
+    /// 升をチェス盤状に塗り分ける (設計書 6.13)
+    #[arg(long)]
+    pub checker: bool,
+}
+
+fn parse_size(spec: &str) -> Result<px_core::math::UVec2> {
+    let (w, h) = spec
+        .split_once(['x', 'X'])
+        .with_context(|| format!("画布 '{spec}' を読めない (`WxH` のはず)"))?;
+    Ok(px_core::math::uvec2(
+        w.trim()
+            .parse()
+            .with_context(|| format!("幅 '{w}' を読めない"))?,
+        h.trim()
+            .parse()
+            .with_context(|| format!("高さ '{h}' を読めない"))?,
+    ))
+}
+
+pub fn guide_cmd(args: &GuideArgs) -> Result<()> {
+    let projection = Projection::parse(&args.projection)
+        .with_context(|| format!("投影 '{}' を知らない", args.projection))?;
+    let plane =
+        SourcePlane::parse(&args.from).with_context(|| format!("面 '{}' を知らない", args.from))?;
+    let facing = Facing::parse(&args.facing)
+        .with_context(|| format!("向き '{}' を知らない", args.facing))?;
+    let step = args.step.as_deref().map(Step::parse).transpose()?;
+
+    let opts = GuideOptions {
+        projection,
+        plane,
+        facing,
+        step,
+        cell: args.cell,
+        size: parse_size(&args.size)?,
+        checker: args.checker,
+    };
+    let (canvas, palette, r) = px_core::guide::guide(&opts)?;
+
+    let name = resample_stem(&args.output);
+    let mut frame = px_core::frame::Frame::new(canvas.size(), palette);
+    frame.layers.push(px_core::frame::Layer::new(
+        px_core::frame::LayerMeta::named("guide"),
+        Surface::Indexed(canvas),
+    ));
+    crate::save_frames(&args.output, std::slice::from_ref(&frame), &name)?;
+
+    println!(
+        "  {} ({} ・{} から ・{} 向き ・段 {})",
+        args.output.display(),
+        r.projection,
+        r.plane,
+        r.facing,
+        r.step.label()
+    );
+    println!(
+        "    刻み ({}, {}) と ({}, {}) ・1 升 {}x{} ・線 {} 画素",
+        r.basis.0.x,
+        r.basis.0.y,
+        r.basis.1.x,
+        r.basis.1.y,
+        r.cell_size.x,
+        r.cell_size.y,
+        r.line_pixels
+    );
+    // **またぐ枚数は数え上げなので校正しない** — 設計書 6.13 の «2 枚 / 4 枚» が
+    // 本当かをそのまま数えて出す (D92 ・D101 と同じ側)
+    if r.cells == 0 {
+        println!(
+            "    ** 画布に収まりきった升が 1 つも無い ** — --cell を小さくするか\n\
+             \u{3000}\u{3000}--size を大きくすること (またぐ枚数は数えられない)"
+        );
+    } else {
+        let spans: Vec<String> = r
+            .tile_span
+            .iter()
+            .map(|(tiles, n)| format!("{tiles} 枚 = {n} 升"))
+            .collect();
+        println!(
+            "    一辺 {} の正方形タイルへのまたがり ({} 升): {}",
+            r.tile,
+            r.cells,
+            spans.join(" ・")
+        );
+    }
+    if args.checker {
+        println!(
+            "    チェス盤の塗り分け: 辺を接して同色になった組 {}",
+            r.same_colour_adjacent
+        );
+    } else {
+        println!(
+            "    ** 塗り分けていない ** — 設計書 6.13 は交点のドット連結を避けるため\n\
+             \u{3000}\u{3000}チェス盤状の塗り分けを使えと言う (--checker)"
+        );
+    }
+    println!("    ** 下地である ** — 設計書 1.3 のとおり，最後は手で直すことが前提である");
     Ok(())
 }
 

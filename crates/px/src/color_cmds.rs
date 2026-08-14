@@ -189,6 +189,17 @@ pub enum PaletteCommand {
         #[arg(long)]
         allow_pure_black: bool,
     },
+    /// 面積上位色とコントラストを報告する (設計書 5 章 ・G5)
+    Report {
+        /// 絵．**インデックスカラーが要る**
+        input: PathBuf,
+        /// 一覧に出す色数の上限
+        #[arg(long, default_value_t = 12)]
+        top: usize,
+        /// **«主な色» として突き合わせる上位の数**．書籍は 2 〜 3 と言う
+        #[arg(long, default_value_t = 3)]
+        main: usize,
+    },
     /// 既存のパレットへ強制する
     Apply {
         input: PathBuf,
@@ -218,6 +229,7 @@ pub fn palette(command: PaletteCommand) -> Result<()> {
             Ok(())
         }
         PaletteCommand::Extract { inputs, output } => extract(&inputs, &output),
+        PaletteCommand::Report { input, top, main } => report(&input, top, main),
         PaletteCommand::Merge {
             inputs,
             output,
@@ -300,6 +312,83 @@ pub fn load_palette(path: &Path) -> Result<Palette> {
     } else {
         hex::import(path).with_context(|| format!("{} を読めない", path.display()))
     }
+}
+
+/// `px palette report` — 面積上位色とコントラストを報告する (設計書 5 章)．
+///
+/// **処方はしない** — 何色に絞るべきかは絵の狙いで決まるので，数えて出すだけに
+/// とどめる (D101 «削減率は入力で決まるので報告するだけ» と同じ側)．
+fn report(input: &Path, top: usize, main: usize) -> Result<()> {
+    let (canvas, palette) = load_indexed(input)?;
+    let r = px_core::palreport::report(&canvas, &palette, main);
+    if r.opaque == 0 {
+        bail!("{} に不透明な画素が 1 つも無い", input.display());
+    }
+
+    println!(
+        "{} — 不透明 {} 画素 ・パレット {} 色のうち使った色 {}",
+        input.display(),
+        r.opaque,
+        r.palette_len,
+        r.used
+    );
+
+    println!("\n  面積上位色");
+    println!("    添字  色        面積    割合   最大の塊  領域数  明度");
+    for c in r.by_area.iter().take(top) {
+        println!(
+            "    {:>4}  {}  {:>6} {:>6.1}% {:>9} {:>7} {:>6.3}",
+            c.index,
+            c.colour.to_hex_string(),
+            c.area,
+            c.share * 100.0,
+            c.largest_region,
+            c.regions,
+            c.lightness
+        );
+    }
+    if r.used > top {
+        println!("    (残り {} 色は省いた．--top で増やせる)", r.used - top);
+    }
+
+    println!("\n  面積を覆うのに要る色数");
+    for percent in [50u32, 80, 90, 95] {
+        println!("    {percent:>3}% -> {} 色", r.cover(percent));
+    }
+    // **処方せず突き合わせるだけ** — 書籍が言っているのは «主な色を 2 〜 3 色に
+    // 収める» であって，«超えたら直せ» ではない．
+    //
+    // **どの割合で読むかで «主な色» の数が変わる**ので，実素材 61 枚で測った
+    // 中央値を並べて基準にする — 書籍の 2 〜 3 色に合うのは **50% の側**である
+    // (80% で読むと中央 4 色で，2 〜 3 色に収まるのは 45.9% しかない)
+    println!(
+        "    参考: 書籍第四章 «色のデザイン» は主な色を 2 〜 3 色に収めることを勧める．\n\
+         \u{3000}\u{3000}実素材 61 枚の中央値は **50% で 2 色 ・80% で 4 色 ・90% で 5 色** で，\n\
+         \u{3000}\u{3000}書籍の 2 〜 3 色に合うのは «面積の半分» で読んだときである\n\
+         \u{3000}\u{3000}(80% で読むと 2 〜 3 色に収まる絵は 45.9% しかない)"
+    );
+
+    if r.contrast.is_empty() {
+        println!("\n  ** 主な色が 1 色しかないので比べる組が無い ** — 上位 {main} 色で見ている");
+    } else {
+        println!("\n  主な色どうしの隔たり (上位 {main} 色)");
+        println!("    組        明度差   色距離");
+        for c in &r.contrast {
+            println!(
+                "    {:>3} - {:<3} {:>7.3} {:>8.3}",
+                c.a, c.b, c.lightness, c.delta_e
+            );
+        }
+        // **見るのは明度である** — 色距離は色相の差も混ぜてしまうので，
+        // «明度が同じで色相だけ違う 2 色» を «離れている» と数える
+        if let Some(min) = r.closest_main_lightness() {
+            println!(
+                "    最も近い組の明度差 {min:.3} — **形が読めるかを決めるのは明度差**であり，\n\
+                 \u{3000}\u{3000}色距離が大きくても明度が並んでいれば形は読めない"
+            );
+        }
+    }
+    Ok(())
 }
 
 fn extract(inputs: &[PathBuf], output: &Path) -> Result<()> {

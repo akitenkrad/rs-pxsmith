@@ -90,6 +90,16 @@ pub struct ResampleReport {
     pub clipped: usize,
     /// **作った色の数．常に 0 でなければならない** (D94)．
     pub created_colours: usize,
+    /// **透明の宣言が無いので実色で埋めた画素の数．**
+    ///
+    /// 広げた画布のうち標本が当たらなかったところは «何も無い» で埋めたいが，
+    /// **透明添字を持たない絵にはその «何も無い» が無い** — 埋め草の添字 0 は
+    /// 実色である (D109 «透明添字はパレットのアルファではない» の裏側) ．
+    ///
+    /// 黙って埋めると **«不透明な画素が 1024 から 1936 に増えた»** とだけ見え，
+    /// 増えた 912 が絵なのか埋め草なのか読めない．D92 ・D107 のとおり
+    /// **処方せず数えて報告する**．
+    pub filled_opaque: usize,
 }
 
 impl ResampleReport {
@@ -120,22 +130,29 @@ impl Mapping {
     }
 }
 
-fn rotation_mapping(canvas: &IndexedCanvas, degrees: f32, grow: bool) -> Mapping {
+/// **前向きの 2x2 行列から逆写像を組む．**
+///
+/// 回転も投影も «入力の軸をどこへ倒すか» を決めるだけなので，違うのは行列だけ
+/// である．**流儀 ・画布の広げ方 ・標本の取り方を 1 か所に集める** — 同じ仕事の
+/// 実装を 2 つ作ると必ず食い違う (D110 ・D118) ．
+///
+/// `forward` は `[a, b, c, d]` で $(x, y) \mapsto (a x + b y,\; c x + d y)$．
+/// 退化した行列 (行列式 0) は写せないので `None` を返す．
+fn mapping_from_forward(canvas: &IndexedCanvas, forward: [f32; 4], grow: bool) -> Option<Mapping> {
     let (w, h) = (canvas.width() as f32, canvas.height() as f32);
-    let rad = degrees.to_radians();
-    let (s, c) = rad.sin_cos();
+    let [a, b, c, d] = forward;
+    let det = a * d - b * c;
+    if !det.is_finite() || det.abs() < 1e-6 {
+        return None;
+    }
 
-    // 出力の画布 — 4 隅を回して外接矩形を取る
+    // 出力の画布 — 4 隅を写して外接矩形を取る
     let (ow, oh) = if grow {
-        let corners = [(0.0, 0.0), (w, 0.0), (0.0, h), (w, h)];
-        let mid = Vec2 {
-            x: w / 2.0,
-            y: h / 2.0,
-        };
+        let (mx, my) = (w / 2.0, h / 2.0);
         let (mut lo, mut hi) = ((f32::MAX, f32::MAX), (f32::MIN, f32::MIN));
-        for (x, y) in corners {
-            let (dx, dy) = (x - mid.x, y - mid.y);
-            let (rx, ry) = (c * dx - s * dy, s * dx + c * dy);
+        for (x, y) in [(0.0, 0.0), (w, 0.0), (0.0, h), (w, h)] {
+            let (dx, dy) = (x - mx, y - my);
+            let (rx, ry) = (a * dx + b * dy, c * dx + d * dy);
             lo = (lo.0.min(rx), lo.1.min(ry));
             hi = (hi.0.max(rx), hi.1.max(ry));
         }
@@ -147,17 +164,39 @@ fn rotation_mapping(canvas: &IndexedCanvas, degrees: f32, grow: bool) -> Mapping
         (canvas.width(), canvas.height())
     };
 
-    // 出力の中心を入力の中心へ戻す (**逆写像**を持つ)
+    // 逆写像 (出力 → 入力) を持ち，出力の中心を入力の中心へ戻す
+    let inv = [d / det, -b / det, -c / det, a / det];
     let (ocx, ocy) = (ow as f32 / 2.0, oh as f32 / 2.0);
     let offset = Vec2 {
-        x: w / 2.0 - (c * ocx + s * ocy),
-        y: h / 2.0 - (-s * ocx + c * ocy),
+        x: w / 2.0 - (inv[0] * ocx + inv[1] * ocy),
+        y: h / 2.0 - (inv[2] * ocx + inv[3] * ocy),
     };
-    Mapping {
+    Some(Mapping {
         out: IRect::new(0, 0, ow, oh),
-        matrix: [c, s, -s, c],
+        matrix: inv,
         offset,
-    }
+    })
+}
+
+fn rotation_mapping(canvas: &IndexedCanvas, degrees: f32, grow: bool) -> Mapping {
+    let (s, c) = degrees.to_radians().sin_cos();
+    // 回転は退化しないので必ず取れる
+    mapping_from_forward(canvas, [c, -s, s, c], grow).expect("回転行列は退化しない")
+}
+
+/// **任意の 2x2 行列で写す** — `px project` (設計書 6.13) が使う口．
+///
+/// `forward` は `[a, b, c, d]` で $(x, y) \mapsto (a x + b y,\; c x + d y)$．
+/// 回転と同じ標本を通るので，**投影のために標本を書き直してはいけない**．
+pub fn affine(
+    canvas: &IndexedCanvas,
+    palette: &Palette,
+    forward: [f32; 4],
+    opts: &ResampleOptions,
+) -> Result<(IndexedCanvas, ResampleReport)> {
+    let mapping = mapping_from_forward(canvas, forward, opts.grow)
+        .ok_or(CoreError::ResampleDegenerate { matrix: forward })?;
+    Ok(resample(canvas, palette, &mapping, opts))
 }
 
 fn scale_mapping(canvas: &IndexedCanvas, factor: f32) -> Mapping {
@@ -230,6 +269,8 @@ fn rotate_quarter(canvas: &IndexedCanvas, quarters: i32) -> (IndexedCanvas, Resa
         opaque: (opaque_count(canvas), opaque_count(&out)),
         clipped: 0,
         created_colours: 0,
+        // 4 分の 1 回転は画布が伸びず全画素が書き換わるので埋め草は出ない
+        filled_opaque: 0,
     };
     (out, report)
 }
@@ -249,6 +290,7 @@ fn resample(
     let mut out = IndexedCanvas::filled(mapping.out.w, mapping.out.h, fill);
     out.set_transparent(canvas.transparent());
 
+    let mut unsampled = 0usize;
     for y in 0..mapping.out.h as i32 {
         for x in 0..mapping.out.w as i32 {
             let p = mapping.source_of(x, y);
@@ -256,14 +298,23 @@ fn resample(
                 ResampleAlgo::Nearest => sample_nearest(canvas, p),
                 ResampleAlgo::CleanEdge => crate::cleanedge::sample(canvas, palette, p),
             };
-            if let Some(i) = index {
-                out.set(x, y, i);
+            match index {
+                Some(i) => {
+                    out.set(x, y, i);
+                }
+                None => unsampled += 1,
             }
         }
     }
 
     // **入力の不透明な画素のうち，出力のどこにも現れなかったものを数える**
     let clipped = count_clipped(canvas, mapping);
+    // 透明添字を持たない絵では，標本の当たらなかったところが実色で埋まる
+    let filled_opaque = if canvas.transparent().is_some() {
+        0
+    } else {
+        unsampled
+    };
     let report = ResampleReport {
         algo_name: opts.algo.as_str(),
         size: (
@@ -273,6 +324,7 @@ fn resample(
         opaque: (opaque_count(canvas), opaque_count(&out)),
         clipped,
         created_colours: 0,
+        filled_opaque,
     };
     (out, report)
 }
@@ -402,6 +454,29 @@ mod tests {
         let (b, r) = rotate(&a, &pal(), 30.0, &ResampleOptions::default()).unwrap();
         assert!(b.width() > 16 && b.height() > 16, "画布が広がっていない");
         assert_eq!(r.clipped, 0, "切れた画素がある");
+    }
+
+    /// **壊れると: 透明の宣言が無い絵を広げたとき，実色で埋めたことを黙る．**
+    ///
+    /// 端から端まで CLI で通して出た．全面不透明なタイルを回すと
+    /// «不透明な画素 1024 -> 1936» とだけ出て，増えた 912 が絵なのか埋め草なのか
+    /// 読めなかった (D128 «透明の宣言が無い絵を «空» と読んでいた» の裏側)．
+    #[test]
+    fn growing_a_canvas_with_no_transparent_index_says_it_filled_with_a_real_colour() {
+        // 透明添字を宣言していない全面不透明の絵
+        let opaque = IndexedCanvas::filled(16, 16, 1);
+        assert_eq!(opaque.transparent(), None);
+        let (_, r) = rotate(&opaque, &pal(), 30.0, &ResampleOptions::default()).unwrap();
+        assert!(
+            r.filled_opaque > 0,
+            "広げた画布を実色で埋めたのに 0 と報告した"
+        );
+
+        // 透明添字がある絵では埋め草は出ない
+        let mut clear = IndexedCanvas::filled(16, 16, 1);
+        clear.set_transparent(Some(0));
+        let (_, r) = rotate(&clear, &pal(), 30.0, &ResampleOptions::default()).unwrap();
+        assert_eq!(r.filled_opaque, 0, "透明で埋められるのに埋め草を数えた");
     }
 
     /// **壊れると: 広げないと切れることを黙る．**

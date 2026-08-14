@@ -120,6 +120,16 @@ pub(crate) enum Command {
         #[command(flatten)]
         args: shape_cmds::RotateArgs,
     },
+    /// 投影変換 (設計書 6.13)．**下地であり手修正が前提**
+    Project {
+        #[command(flatten)]
+        args: shape_cmds::ProjectArgs,
+    },
+    /// 投影ガイドグリッドを引く (設計書 6.13)
+    Guide {
+        #[command(flatten)]
+        args: shape_cmds::GuideArgs,
+    },
     /// 縁取りを描く (設計書 D36)
     Outline {
         #[command(flatten)]
@@ -233,6 +243,15 @@ struct DisplayArgs {
     /// 透明部分の市松模様を消す
     #[arg(long)]
     no_checkerboard: bool,
+    /// 前後のコマを**輪郭だけ**重ねる (D52)．前は寒色 ・後は暖色
+    #[arg(long, value_name = "コマ数")]
+    onion: Option<usize>,
+    /// 後ろのコマを重ねる数．省略すると `--onion` と同じ
+    #[arg(long, value_name = "コマ数")]
+    onion_after: Option<usize>,
+    /// **オニオンスキンを塗り潰す**．D52 が «採らない» と言う側で，比べるためにある
+    #[arg(long)]
+    onion_filled: bool,
 }
 
 impl DisplayArgs {
@@ -245,6 +264,15 @@ impl DisplayArgs {
                 .silhouette
                 .then_some(px_core::Rgba8::rgb(0x1a, 0x1c, 0x2c)),
             ..RenderOptions::default()
+        }
+    }
+
+    fn onion(&self) -> px_view::onion::OnionOptions {
+        let before = self.onion.unwrap_or(0);
+        px_view::onion::OnionOptions {
+            before,
+            after: self.onion_after.unwrap_or(before),
+            filled: self.onion_filled,
         }
     }
 }
@@ -327,6 +355,8 @@ pub(crate) fn dispatch(command: Command) -> Result<()> {
         Command::Aa { args } => shape_cmds::aa(&args),
         Command::Scale { args } => shape_cmds::scale_cmd(&args),
         Command::Rotate { args } => shape_cmds::rotate_cmd(&args),
+        Command::Project { args } => shape_cmds::project_cmd(&args),
+        Command::Guide { args } => shape_cmds::guide_cmd(&args),
         Command::Outline { args } => shape_cmds::outline_cmd(&args),
         Command::Compose { args } => compose_cmds::compose_cmd(&args),
         Command::Direction { args } => direction_cmds::direction_cmd(&args),
@@ -526,7 +556,9 @@ fn view(path: &Path, display: &DisplayArgs) -> Result<()> {
     let frame = frames
         .get(display.frame)
         .with_context(|| format!("フレーム {} が無い (全 {} 件)", display.frame, frames.len()))?;
-    let img = px_view::render::to_rgba_image(frame, &display.options());
+    let onion = display.onion();
+    let (img, report) =
+        px_view::onion::onion_image(&frames, display.frame, &onion, &display.options());
     px_view::show(&img, px_view::term::Placement::default())?;
     println!(
         "{} フレーム {} / {} — {}x{}，{} ms，{}",
@@ -538,6 +570,27 @@ fn view(path: &Path, display: &DisplayArgs) -> Result<()> {
         frame.duration_ms,
         frame.kind.as_str()
     );
+    if !onion.is_off() {
+        println!(
+            "  オニオンスキン: {} コマ重ねた ・端で足りなかった {} コマ",
+            report.drawn, report.missing
+        );
+        if report.drawn > 0 {
+            // **D52 «輪郭のみ» の理由を数えて出す** — 隠す量が塗り潰しの何割か
+            println!(
+                "    いまのコマを隠した画素 {} (塗り潰しなら {}．{:.0}%)",
+                report.obscured,
+                report.obscured_if_filled,
+                report.obscured_ratio() * 100.0
+            );
+        }
+        if onion.filled {
+            println!(
+                "    ** 塗り潰している ** — D52 は «輪郭のみ» と決めている\n\
+                 \u{3000}\u{3000}(前後のコマがいまのコマを覆い隠すため)．--onion-filled を外すこと"
+            );
+        }
+    }
     Ok(())
 }
 

@@ -223,6 +223,18 @@ pub enum CoreError {
     #[error("拡縮の倍率が {factor} である (正の有限値のはず)")]
     ResampleBadFactor { factor: f32 },
 
+    /// 写像が退化している (面積が 0 に潰れる)．
+    #[error("写像 {matrix:?} が退化している (行列式が 0 なので絵が線へ潰れる)")]
+    ResampleDegenerate { matrix: [f32; 4] },
+
+    /// 投影の段が正の整数でない．
+    #[error("投影の段 '{spec}' を読めない (`走り:上がり` の正の整数のはず)")]
+    ProjectBadStep { spec: String },
+
+    /// ガイドの刻みか画布が 0 である．
+    #[error("ガイドの刻み {cell} ・画布 {width}x{height} に 0 がある")]
+    GuideBadSize { cell: u32, width: u32, height: u32 },
+
     /// 空気遠近法を掛けるフレームが無い．
     #[error("空気遠近法を掛けるフレームが無い")]
     AtmosNoFrames,

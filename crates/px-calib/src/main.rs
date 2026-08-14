@@ -36,6 +36,7 @@ mod lintcal;
 mod lintgen;
 mod metrics;
 mod pillow;
+mod projcal;
 mod real;
 mod recon;
 mod recover;
@@ -590,6 +591,16 @@ enum Command {
     Rotate {
         #[arg(long, default_value = "testdata/grid-eval/seeds")]
         seeds: PathBuf,
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
+    /// **投影の主張を測る** — 設計書 6.13 の 2 手順は同じ変換か ・30 度は格子に乗るか
+    Project {
+        #[arg(long, default_value = "testdata/grid-eval/seeds")]
+        seeds: PathBuf,
+        /// 段を刻む線の長さ
+        #[arg(long, default_value_t = 64)]
+        stair_len: u32,
         #[arg(long)]
         out: Option<PathBuf>,
     },
@@ -2282,6 +2293,91 @@ fn main() -> Result<()> {
                 text.push('\n');
                 for r in &rows {
                     text.push_str(&rotcal::rot_csv(r));
+                    text.push('\n');
+                }
+                std::fs::write(&path, text)
+                    .with_context(|| format!("{} を書き出せない", path.display()))?;
+                println!("\n{} に書き出した", path.display());
+            }
+            return Ok(());
+        }
+
+        Command::Project {
+            seeds,
+            stair_len,
+            out,
+        } => {
+            println!("== 設計書 6.13 の «または» は同じ変換か ==");
+            let (pairs, skipped) = projcal::two_procedures(&seeds)?;
+            let agree = pairs.iter().map(|r| r.agreement).sum::<f32>() / pairs.len().max(1) as f32;
+            let same_size = pairs
+                .iter()
+                .filter(|r| r.halve_size == r.shear_size)
+                .count();
+            println!("  {} 件 (飛ばした {skipped})", pairs.len());
+            println!("  シルエット一致 (中央合わせ)  {:.1}%", agree * 100.0);
+            println!(
+                "  出力の寸法が同じ            {same_size} / {}",
+                pairs.len()
+            );
+            if let Some(best) = pairs
+                .iter()
+                .max_by(|a, b| a.agreement.total_cmp(&b.agreement))
+            {
+                println!(
+                    "  最も近い 1 件でも          {:.1}% ({}．{}x{} 対 {}x{})",
+                    best.agreement * 100.0,
+                    best.file,
+                    best.halve_size.0,
+                    best.halve_size.1,
+                    best.shear_size.0,
+                    best.shear_size.1
+                );
+            }
+            println!("  ** 一致しないなら «または» は誤りで，適用先の違う 2 つの変換である **");
+
+            println!("\n== 段は格子に乗るか (走りの長さが 1 種類なら乗っている) ==");
+            println!("  段                        傾き    角度   現れた走りの長さ");
+            for s in projcal::stairs(stair_len) {
+                let runs: Vec<String> = s.runs.iter().map(|r| r.to_string()).collect();
+                println!(
+                    "  {:<24} {:>5.3} {:>7.2} 度  {}",
+                    s.label,
+                    s.slope,
+                    s.degrees,
+                    runs.join(" ・")
+                );
+            }
+
+            println!("\n== 実素材のジャギー (横から見た絵として写す) ==");
+            println!("    名前                件数  ジャギー(平均)  作った色");
+            for (label, n, jag, created) in projcal::grid_vs_thirty(&seeds)? {
+                println!("    {label:<20} {n:>5} {jag:>13.1} {created:>9}");
+            }
+
+            let (rows, skipped) = projcal::build(&seeds)?;
+            println!("\n== 投影 x 面 ({} 件 ・飛ばした {skipped}) ==", rows.len());
+            println!(
+                "  投影         面     件数   角度   垂直維持   面積比  切れ  切れ(広げず)  作色  blocking増  ジャギー"
+            );
+            for (p, plane, n, deg, vert, area, clip, clip_ng, created, dblock, jag) in
+                projcal::summarise(&rows)
+            {
+                println!(
+                    "  {p:<12} {plane:<6} {n:>4} {deg:>6.2} {:>9.0}% {area:>8.3} {clip:>5} {clip_ng:>13} {created:>5} {dblock:>11.1} {jag:>9.1}",
+                    vert * 100.0
+                );
+            }
+            println!(
+                "\n  ** blocking が増えるのは道具の誤りではない ** — 投影は下地であり\n\
+                 \u{3000}\u{3000}手修正が前提である (設計書 1.3) ．"
+            );
+
+            if let Some(path) = out {
+                let mut text = String::from(projcal::PROJ_HEADER);
+                text.push('\n');
+                for r in &rows {
+                    text.push_str(&projcal::proj_csv(r));
                     text.push('\n');
                 }
                 std::fs::write(&path, text)

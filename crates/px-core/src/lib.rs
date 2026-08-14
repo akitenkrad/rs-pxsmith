@@ -30,6 +30,9 @@
 //! | [`export`] | 出力先アダプタ (Tiled) | 4.4 |
 //! | [`atmos`] | 空気遠近法と多重スクロールメタ | 4.4 / 5 章 |
 //! | [`resample`] | 拡縮と回転 | 5 章 / D18 |
+//! | [`project`] | 投影変換 | 6.13 / D51 |
+//! | [`palreport`] | パレットの面積レポート | 5 章 / G5 |
+//! | [`guide`] | 投影ガイドグリッド | 6.13 / D51 |
 //! | [`cleanedge`] | cleanEdge の移植 (MIT) | D18 |
 //! | [`ink`] | 描画インクとブラシ | 3.4 |
 //! | [`edit`] | 編集操作とパッチ | 3.6 |
@@ -53,10 +56,13 @@ pub mod export;
 pub mod frame;
 pub mod geom;
 pub mod grid;
+pub mod guide;
 pub mod ink;
 pub mod math;
 pub mod outline;
 pub mod palette;
+pub mod palreport;
+pub mod project;
 pub mod quantize;
 pub mod ramp;
 pub mod resample;
@@ -94,10 +100,13 @@ pub use frame::{
 };
 pub use geom::{Chain, Contour, Field, Mask, Region, RegionMap};
 pub use grid::{GridError, GridEstimate, GridParams, estimate_grid, local_grid};
+pub use guide::{GuideOptions, GuideReport, guide};
 pub use ink::{Brush, FillOpts, Ink, PatternMask};
 pub use math::{IRect, IVec2, Rect, UVec2, Vec2, clip_pair, ivec2, uvec2, vec2};
 pub use outline::{OutlineOptions, OutlineReport, OutlineStyle, outline};
 pub use palette::{ChromaCurve, Palette, Ramp};
+pub use palreport::{ColourArea, ContrastPair, PaletteReport};
+pub use project::{Facing, ProjectOptions, ProjectReport, Projection, SourcePlane, Step, project};
 pub use ramp::{LightPreset, LightSource, LightingModel, RampSpec, generate_ramp};
 pub use shade::{
     Lamp, ShadeOptions, Shading, bounce_distance_field, incidence, normal_field, shade, shade_mask,
