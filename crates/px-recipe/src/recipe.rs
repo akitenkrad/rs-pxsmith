@@ -122,13 +122,29 @@ impl ResolvedStep {
 // ------------------------------------------------------------------ 読み込み
 
 impl Recipe {
+    /// レシピの置き場所．
+    ///
+    /// > [!warning] **`parent()` は裸のファイル名に `None` を返さない．**
+    /// > `Path::new("build.toml").parent()` は `Some("")` なので，
+    /// > `unwrap_or(".")` の守りは**一度も働かない** — そして空の場所へは
+    /// > 移れないので，`px run build.toml` (手引きが載せているそのままの形) が
+    /// > 落ちていた．**起きない場合を守って，起きる場合を素通りさせていた**
+    /// > 形で，D80 ・D145 «補助関数が構造的に空だった» と同じである．
+    /// >
+    /// > 既存の試験が絶対パスしか渡していなかったので気付けなかった．
+    pub(crate) fn root_of(path: &Path) -> PathBuf {
+        match path.parent() {
+            Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),
+            _ => PathBuf::from("."),
+        }
+    }
+
     pub fn read(path: &Path) -> Result<Self> {
         let text = std::fs::read_to_string(path).map_err(|source| RecipeError::RecipeRead {
             path: path.display().to_string(),
             source,
         })?;
-        let root = path.parent().unwrap_or(Path::new(".")).to_path_buf();
-        Self::parse(&text, &root, &path.display().to_string())
+        Self::parse(&text, &Self::root_of(path), &path.display().to_string())
     }
 
     pub fn parse(text: &str, root: &Path, name: &str) -> Result<Self> {
@@ -572,5 +588,36 @@ part_delay = { torso = 1, cape = 2, arm = 3 }
             parse("[project]\nformat = 1\n"),
             Err(RecipeError::RecipeNoSteps)
         ));
+    }
+}
+
+#[cfg(test)]
+mod root_tests {
+    use super::*;
+
+    /// **壊れると: `px run build.toml` (裸のファイル名) が落ちる．**
+    ///
+    /// `parent()` は裸のファイル名に `Some("")` を返すので，`unwrap_or(".")` の
+    /// 守りは働かない．**空の場所へは移れない**．
+    #[test]
+    fn a_bare_file_name_resolves_to_the_current_directory() {
+        assert_eq!(Recipe::root_of(Path::new("build.toml")), PathBuf::from("."));
+        assert_eq!(
+            Recipe::root_of(Path::new("proj/build.toml")),
+            PathBuf::from("proj")
+        );
+        assert_eq!(
+            Recipe::root_of(Path::new("/abs/proj/build.toml")),
+            PathBuf::from("/abs/proj")
+        );
+    }
+
+    /// **壊れると: 置き場所が空文字になり «移れない» で落ちる．**
+    #[test]
+    fn the_root_is_never_empty() {
+        for p in ["build.toml", "a/b.toml", "/x/y.toml", "b"] {
+            let root = Recipe::root_of(Path::new(p));
+            assert!(!root.as_os_str().is_empty(), "{p} で空の場所が出た");
+        }
     }
 }

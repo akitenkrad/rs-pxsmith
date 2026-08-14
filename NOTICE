@@ -32,3 +32,20 @@ HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
 WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 OTHER DEALINGS IN THE SOFTWARE.
+
+--------------------------------------------------------------------------------
+LGPL dependency (binary redistribution only)
+--------------------------------------------------------------------------------
+
+The `px` binary links `ansi_colours` (LGPL-3.0-or-later) through
+`viuer` -> `px-view`. Rust links statically, so redistributing a built
+`px` binary carries the LGPL-3.0 obligation to let recipients relink it
+against a modified `ansi_colours` (LGPL section 4).
+
+Distributing source, or the library crates on their own, does not:
+
+  px-core / px-io / px-lint / px-recipe / px-macro  -- no LGPL in the tree
+  px-view / px                                      -- LGPL via viuer
+
+`icy_sixel` (no declared licence) is reachable only through the optional
+`icy_sixel` / `sixel` features of `px-view`, which are off by default.

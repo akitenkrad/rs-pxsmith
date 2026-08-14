@@ -673,12 +673,24 @@ pub fn run(args: &RunArgs) -> Result<()> {
                 true
             }
             _ => {
-                if step.op == "gen" {
+                // **門は «gen» とその配下すべてに掛ける** (D158)．
+                //
+                // > [!warning] M6 で `px gen prog` を足した瞬間に穴が開いた．
+                // > op はサブコマンドの木から引く (D130) ので，`gen.prog` は
+                // > **足しただけで実行できる op になる** — 完全一致で見ている
+                // > 門はそれを素通しし，`--allow-generate` 無しで外部 API を
+                // > 叩けてしまう．**新しい枝が既存の門をすり抜ける**形で，
+                // > D110 «決める場所が 2 つあると必ず食い違う» の裏返しである．
+                if step.op == "gen" || step.op.starts_with("gen.") {
                     // **既定はキャッシュ参照のみ** (D31)
                     if !args.allow_generate {
                         return Err(RecipeError::GenNotCached { at: step.index }.into());
                     }
-                    return Err(RecipeError::GenNotWritten.into());
+                    // 種類の付いていない `gen` は何を作るのか決まっていない
+                    if step.op == "gen" {
+                        return Err(RecipeError::GenNotWritten.into());
+                    }
+                    // `gen.prog` などは普通に実行し，普通にキャッシュへ貯める
                 }
                 let before = snapshot(&root);
                 execute(&argv, &root).with_context(|| format!("{} が失敗した", step.label()))?;

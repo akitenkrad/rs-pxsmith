@@ -2,28 +2,43 @@
 
 セッションをまたぐときの出発点．**まずこれを読み，次に `docs/status.md` を読む．**
 
-- 更新: 2026-08-14 (**M0 〜 M5 完了．M7 も閉じた (8 / 8)．残るのは M6 だけ**)
+- 更新: 2026-08-14 (**M0 〜 M5 ・M7 完了．M6 は 3 件済 ・1 件は書かない**)
 - 仕様: Obsidian の `設計書/ドット絵CLI-Rust/` — `設計書.md` / `実装計画書.md` / `開発ノート.md`
 - **`開発ノート.md` に「実装して初めて分かったこと」が全部入っている．** 設計書だけ読むと
   同じ穴に落ちる
 
-> [!important] **次にやるのは M6 (生成 AI 連携) だが，着手の前に利用者へ確認が要る．**
-> **付録 B #3 ・#4 (生成 AI のバックエンド選定 ・LLM 出力形式) が開いたまま**で，
-> これは利用者が決めることである．仮置きで進めると D89 ・D92 が禁じる
-> «宣言を推測する» 形になる (`op = "gen"` は M5 で «キャッシュに無い» と言って
-> 落ちる形になっている) ．**付録 B #1 ・#2 (ライセンス ・公開範囲) も開いたまま**で，
-> これも利用者の判断である．
+> [!warning] **M6 のバックエンドは本物の API に 1 度も当てていない．**
+> この環境に鍵が無く (`ANTHROPIC_API_KEY` 未設定 ・`ant` 未導入)，**HTTP の
+> 往復を実測していない**．送る本文 ・応答の読み方 ・`stop_reason` の扱いは
+> すべて**文書から書いたもの**である．
+>
+> このリポジトリは «端から端まで CLI で通す» で M4 ・M5 ・M7 に**計 12 件**の
+> 誤りを見つけている．**同じ密度で誤りが残っていると考えること．**
+> 鍵のある環境で下を 1 度通し，出た差分を `docs/status.md` の M6 節へ書く:
+>
+> ```sh
+> export ANTHROPIC_API_KEY=...
+> cargo run -p px -- gen prog out/chest.px.toml --prompt "木の宝箱．正面から" \
+>     --palette 1a1c2c,566c86,8a6a4a,b13e53,f4f4f4 --size 16x16
+> ```
+>
+> 輪の側は偽バックエンドで試験してあるので，**落ちるとすれば
+> `crates/px-gen/src/anthropic.rs` の中だけ**である．
 
-## いまの状態
+> [!note] **付録 B は 4 件すべて閉じた** (D155 ・D156)．
+> ライセンスは `MIT OR Apache-2.0`，公開は当面 GitHub のみ，生成 AI は
+> **LLM のみ ・外部 API**，出力の主軸は **L0 テキスト形式**．
+
+## いまの状態## いまの状態
 
 | 項目 | 値 |
 | --- | --- |
-| フェーズ | M0 ・M1 ・M1a ・**M2 完了** (B は未達のまま閉じた) ・**M3 完了**．**M4 完了 (20 / 20)** — **`px compose`** (D93 〜 D95) ・**`px direction`** (D96 〜 D98) ・**`px tileset extract`** (D99 〜 D101) ・**`px tileset autotile`** (D102 〜 D104) ・**ディザの位相** (D105 〜 D107) ・**象限インポータ** (D108 ・D109) ・**正規 JSON の統合** (D110) ・**`px export tiled`** (D111) ・**`px sheet pack`** (D112 ・D113) ・**`px anim tween`** (D114 ・D115) ・**`px anim ease`** (D116 ・D117) ・**`px anim cycle`** (D118 ・D119) ・**`px anim smear`** (D120 ・D121) ・**`px anim extrapolate`** (D122) ・**`px anim squash`** (D123 ・D128) ・**`px anim subpixel`** (D124 ・D125) ・**`px anim afterimage`** (D126) ・**書く側も拡張子を見る** (D127) ・**`px atmos`** (D135 〜 D138) ・**フレーム間 lint 6 ルール** (D139 〜 D142) ．**M5 完了** — レシピ ・式評価器 ・依存グラフ ・ステップキー ・キャッシュ ・`recipe expand` ・決定論性試験 ・生成過程 GIF (D129 〜 D134) ．**M4 は閉じた** (D139 〜 D142) ．**M7 完了 (8 / 8)** — lint の 19 ・20 ・21 で**7 章の 27 ルールが揃い** (D143 〜 D145) ，**`px scale` / `px rotate` で R17 を閉じた** (D146 〜 D148) ．**`px project`** (D149 〜 D151) ・**`px guide`** (D152) ・**`px view --onion`** (D153) ・**`px palette report`** (D154) ．**残るのは M6 だけ** |
-| テスト | **867 件**すべて通過 |
+| フェーズ | M0 ・M1 ・M1a ・**M2 完了** (B は未達のまま閉じた) ・**M3 完了**．**M4 完了 (20 / 20)** — **`px compose`** (D93 〜 D95) ・**`px direction`** (D96 〜 D98) ・**`px tileset extract`** (D99 〜 D101) ・**`px tileset autotile`** (D102 〜 D104) ・**ディザの位相** (D105 〜 D107) ・**象限インポータ** (D108 ・D109) ・**正規 JSON の統合** (D110) ・**`px export tiled`** (D111) ・**`px sheet pack`** (D112 ・D113) ・**`px anim tween`** (D114 ・D115) ・**`px anim ease`** (D116 ・D117) ・**`px anim cycle`** (D118 ・D119) ・**`px anim smear`** (D120 ・D121) ・**`px anim extrapolate`** (D122) ・**`px anim squash`** (D123 ・D128) ・**`px anim subpixel`** (D124 ・D125) ・**`px anim afterimage`** (D126) ・**書く側も拡張子を見る** (D127) ・**`px atmos`** (D135 〜 D138) ・**フレーム間 lint 6 ルール** (D139 〜 D142) ．**M5 完了** — レシピ ・式評価器 ・依存グラフ ・ステップキー ・キャッシュ ・`recipe expand` ・決定論性試験 ・生成過程 GIF (D129 〜 D134) ．**M4 は閉じた** (D139 〜 D142) ．**M7 完了 (8 / 8)** — lint の 19 ・20 ・21 で**7 章の 27 ルールが揃い** (D143 〜 D145) ，**`px scale` / `px rotate` で R17 を閉じた** (D146 〜 D148) ．**`px project`** (D149 〜 D151) ・**`px guide`** (D152) ・**`px view --onion`** (D153) ・**`px palette report`** (D154) ．**M6 は 3 件済 ・1 件は書かない** — `px-gen` (D155 〜 D158) ．**ただしバックエンドは実測していない** |
+| テスト | **896 件**すべて通過 |
 | 品質 | `cargo fmt --all --check` と `cargo clippy --workspace --all-targets -- -D warnings` がクリーン |
-| クレート | `px-core` / `px-io` / `px-view` / `px-macro` / `px-lint` / **`px-recipe`** / `px` / `px-calib` |
+| クレート | `px-core` / `px-io` / `px-view` / `px-macro` / `px-lint` / `px-recipe` / **`px-gen`** / `px` / `px-calib` |
 | ブランチ | `main` |
-| コミット | **`ed7fb12` までコミット済み** (M4 の残り ・M7 の前半をまとめて入れた) |
+| コミット | **`376d06b` までコミット済み** (M7 を閉じたところまで) |
 
 > [!note] 2026-08-14 の変更 — **M7 の残り 4 件．M7 が閉じた** (D149 〜 D154)
 > `px project` ・`px guide` ・`px view --onion` ・`px palette report` を書いた．

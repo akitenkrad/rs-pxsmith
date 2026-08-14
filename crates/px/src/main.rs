@@ -20,6 +20,7 @@ mod color_cmds;
 mod compose_cmds;
 mod direction_cmds;
 mod export_cmds;
+mod gen_cmds;
 mod run_cmds;
 mod shape_cmds;
 mod sheet_cmds;
@@ -169,6 +170,11 @@ pub(crate) enum Command {
     Export {
         #[command(subcommand)]
         command: export_cmds::ExportCommand,
+    },
+    /// 生成 AI 連携 (設計書 8 章)．**`px gen image` は書いていない** (D156)
+    Gen {
+        #[command(subcommand)]
+        command: gen_cmds::GenCommand,
     },
     /// 端末に表示して確かめる
     View {
@@ -365,6 +371,7 @@ pub(crate) fn dispatch(command: Command) -> Result<()> {
         Command::Atmos { args } => atmos_cmds::atmos_cmd(&args),
         Command::Sheet { command } => sheet_cmds::sheet(command),
         Command::Export { command } => export_cmds::export(command),
+        Command::Gen { command } => gen_cmds::generate(command),
         Command::View { path, display } => view(&path, &display),
         Command::Watch { path, display } => watch::run(&path, &display.options(), display.frame),
         Command::Diff { a, b, limit } => diff(&a, &b, limit),

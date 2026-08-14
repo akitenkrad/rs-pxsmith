@@ -2,6 +2,7 @@
 edition.workspace = true
 name = "px-view"
 publish.workspace = true
+license.workspace = true
 repository.workspace = true
 version.workspace = true
 

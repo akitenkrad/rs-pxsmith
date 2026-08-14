@@ -2,6 +2,7 @@
 edition.workspace = true
 name = "px"
 publish.workspace = true
+license.workspace = true
 repository.workspace = true
 version.workspace = true
 
@@ -13,6 +14,7 @@ path = "src/main.rs"
 anyhow = { workspace = true }
 clap = { workspace = true }
 px-core = { workspace = true }
+px-gen = { workspace = true }
 px-io = { workspace = true }
 px-lint = { workspace = true }
 px-macro = { workspace = true }

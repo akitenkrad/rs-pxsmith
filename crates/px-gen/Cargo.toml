@@ -1,15 +1,20 @@
 [package]
 edition.workspace = true
-name = "px-lint"
+name = "px-gen"
 publish.workspace = true
 license.workspace = true
 repository.workspace = true
 version.workspace = true
 
 [dependencies]
+blake3 = { workspace = true }
 px-core = { workspace = true }
+px-io = { workspace = true }
+px-lint = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+thiserror = { workspace = true }
+ureq = { workspace = true }
 
 [lints]
 workspace = true
