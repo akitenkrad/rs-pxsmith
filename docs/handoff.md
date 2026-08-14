@@ -2,7 +2,7 @@
 
 セッションをまたぐときの出発点．**まずこれを読み，次に `docs/status.md` を読む．**
 
-- 更新: 2026-08-14
+- 更新: 2026-08-14 (M4 完了)
 - 仕様: Obsidian の `設計書/ドット絵CLI-Rust/` — `設計書.md` / `実装計画書.md` / `開発ノート.md`
 - **`開発ノート.md` に「実装して初めて分かったこと」が全部入っている．** 設計書だけ読むと
   同じ穴に落ちる
@@ -11,12 +11,74 @@
 
 | 項目 | 値 |
 | --- | --- |
-| フェーズ | M0 ・M1 ・M1a ・**M2 完了** (B は未達のまま閉じた) ・**M3 完了**．**M4 進行中** — **`px compose`** (D93 〜 D95) ・**`px direction`** (D96 〜 D98) ・**`px tileset extract`** (D99 〜 D101) ・**`px tileset autotile`** (D102 〜 D104) ・**ディザの位相** (D105 〜 D107) ・**象限インポータ** (D108 ・D109) ・**正規 JSON の統合** (D110) ・**`px export tiled`** (D111) ・**`px sheet pack`** (D112 ・D113) ・**`px anim tween`** (D114 ・D115) ・**`px anim ease`** (D116 ・D117) ・**`px anim cycle`** (D118 ・D119) が済．**次は `anim afterimage` / `subpixel` / `squash` / `extrapolate` / `smear`** |
-| テスト | **683 件**すべて通過 |
+| フェーズ | M0 ・M1 ・M1a ・**M2 完了** (B は未達のまま閉じた) ・**M3 完了**．**M4 完了** — **`px compose`** (D93 〜 D95) ・**`px direction`** (D96 〜 D98) ・**`px tileset extract`** (D99 〜 D101) ・**`px tileset autotile`** (D102 〜 D104) ・**ディザの位相** (D105 〜 D107) ・**象限インポータ** (D108 ・D109) ・**正規 JSON の統合** (D110) ・**`px export tiled`** (D111) ・**`px sheet pack`** (D112 ・D113) ・**`px anim tween`** (D114 ・D115) ・**`px anim ease`** (D116 ・D117) ・**`px anim cycle`** (D118 ・D119) ・**`px anim smear`** (D120 ・D121) ・**`px anim extrapolate`** (D122) ・**`px anim squash`** (D123 ・D128) ・**`px anim subpixel`** (D124 ・D125) ・**`px anim afterimage`** (D126) ・**書く側も拡張子を見る** (D127) ．**次は M5** |
+| テスト | **717 件**すべて通過 |
 | 品質 | `cargo fmt --all --check` と `cargo clippy --workspace --all-targets -- -D warnings` がクリーン |
 | クレート | `px-core` / `px-io` / `px-view` / `px-macro` / `px-lint` / `px` / `px-calib` |
 | ブランチ | `main` |
-| コミット | M4 の 8 件はコミット済み (`bb7b6dd` ・`83440b1`) ．**`sheet pack` と `anim` 3 件は未コミット** |
+| コミット | M4 の 12 件はコミット済み (`bb7b6dd` ・`83440b1` ・`85e93fd` ・`300a3e0` ・`2b335ef`) ．**残り 5 件 (`smear` ・`extrapolate` ・`squash` ・`subpixel` ・`afterimage`) は未コミット** |
+
+> [!warning] 2026-08-14 の変更 — **M4 の残り 5 件．設計書の 2 つの節が矛盾していた** (D120 〜 D128)
+> `anim smear` / `extrapolate` / `squash` / `subpixel` / `afterimage` を実装し，
+> **M4 が閉じた**．**閾値を決める前に主張を測る**をそのまま当てて 3 つ外れた．
+>
+> **1. おばけ — 設計書の掃引は，設計書自身が «採らない» と言う union と同じ集合である** (D120)
+>
+> | ずらし | union が繋がる | **掃引 (設計書のまま)** | **重心を取り除いた掃引** |
+> | --- | --- | --- | --- |
+> | 8 | 61 / 64 | **61 / 64** | **64 / 64** |
+> | 24 | 25 / 64 | **25 / 64** | **64 / 64** |
+> | 32 | 12 / 64 | **12 / 64** | **64 / 64** |
+>
+> 6.9 の包含定理 $R_t \subseteq A \cup B$ と，掃引が両端を含むことから
+> $\bigcup_t R_t = A \cup B$ が出る — **代数なので «たまたま» ではない**．
+> R11 と同じ原因で直し方も同じ (重心を先に取り除く) ．
+> **擬似コードの $\min$ も符号が逆** (外側正の距離場を前提にしている) ．
+>
+> 設計書が正しかったのは刻み幅の方で (D121) ，**標本 16 = 1 歩 2 画素でも
+> 3 枚が切れる** — «1 画素に 1 標本» はちょうどの条件である．
+>
+> **2. 外挿 — 心配していたことは起きなかった** (D122) ．包含定理が崩れるので
+> 暴れるかと思ったが，平行移動の真値と **768 件すべてで画素単位一致**
+> (切れ 0 ・トポロジー変化 0) ．平行移動なら $d_A = d_B$ なので係数が何であれ
+> 場が変わらない — これも代数．**形が違う 2 枚は測っていない** (真値が作れない) ．
+>
+> **3. 潰し — 体積は保存しきれないし，画布は広げるしかない** (D123) ．
+> 幅を体積の式から引く方が良い (誤差 1.042% 対 1.562%) が，**どちらも 0 に
+> ならない** (画素が整数だから) ．**広げないと 140 通り中 136 通りで切れる**．
+>
+> **4. サブピクセル — $f$ は «どれだけ色を渡すか»** (D124) ．水を注ぐ規則 1 つで
+> 設計書 6.10 の表 4 行が全部出る．中間色はランプでなくパレットから引く
+> (**D81 と同じ形が 4 度目**) ．**高速法はパレット強制で滲みは消えるが，
+> シルエットを動かす** (61 枚中 32 枚) ので «書籍より良い» は出てこない (D125) ．
+>
+> **5. 残像 — 設計書は «残像» の 1 語しか決めていない** (D126) ．他の判断
+> (D89 ・D94 ・D95 ・D77) から引ける形に落とし，引いた先を書いた．
+> **1 画素の動きでは 64 枚中 55 枚が 1 画素も見えない** — 前のコマが隠れるためで，
+> 失敗ではないので `invisible()` でそう言う．
+>
+> > [!warning] **端から端まで通して 2 件出た** (M4 で計 7 件目 ・8 件目) ．
+> > **(a) 読む側は拡張子を見るのに，書く側が見ていなかった** (D127) ．
+> > `px shade out.px.toml` が中身 `.aseprite` のファイルを作り，`px anim smear`
+> > に渡すと «UTF-8 でない» で落ちる．`save_frames` に寄せた (5 か所) ．
+> > **(b) 透明の宣言が無い絵を «空» と読んでいた** (D128) ．`opaque_bbox` が
+> > `None` を返すので，隙間の無い絵で `px anim squash` が全部落ちる．
+> > **`px-calib` は失敗を黙って飛ばしていたので気付かなかった** — 測る口が
+> > «飛ばした件» を数えていないと，落ちていることが見えない．
+>
+> ```sh
+> cargo run -p px -- anim smear out.px.toml --from a.px.toml --to b.px.toml --base 8A6A4A
+> cargo run -p px -- anim extrapolate out.px.toml --from a.px.toml --to b.px.toml \
+>     --kind anticipation --amount 0.3 --base 8A6A4A
+> cargo run -p px -- anim squash in.px.toml out.px.toml --amount -0.3
+> cargo run -p px -- anim subpixel in.px.toml out.px.toml --method tangent
+> cargo run -p px -- anim afterimage walk.px.toml out.px.toml --ramp 0,1,2,3,4 --trail 2
+> cargo run -p px-calib --release -- smear        # union ・掃引 ・重心 ・刻み幅
+> cargo run -p px-calib --release -- extrapolate  # 真値のある平行移動
+> cargo run -p px-calib --release -- squash       # 体積保存の 2 通り x 画布
+> cargo run -p px-calib --release -- subpixel     # 接線法 2 通りと高速法
+> cargo run -p px-calib --release -- afterimage   # 見えるのはどれくらい動いたときか
+> ```
 
 > [!warning] 2026-08-14 の変更 — **`px anim cycle`．16 通りのうち 12 通りを書いた** (D118 ・D119)
 > 設計書 6.12 の «変調対象 4 x 波形 4» を実装した．**`Rotate` の 4 通りは書かない** —
@@ -699,6 +761,15 @@ cargo run -p px -- smooth /tmp/shaded.aseprite /tmp/smoothed.aseprite --dry-run
 # アンチエイリアスを付ける (既定は内部境界のみ．D34)
 cargo run -p px -- aa /tmp/smoothed.aseprite /tmp/aa.aseprite --dry-run
 
+# アニメーション原則 (6.11) — おばけ ・外挿 ・潰し ・サブピクセル ・残像
+cargo run -p px -- anim smear /tmp/smear.px.toml --from /tmp/a.px.toml --to /tmp/b.px.toml \
+    --base 8A6A4A --light dir:-0.6,0.8          # 重心を取り除かないと union と同じ
+cargo run -p px -- anim extrapolate /tmp/anticip.px.toml --from /tmp/a.px.toml \
+    --to /tmp/b.px.toml --kind anticipation --amount 0.3 --base 8A6A4A
+cargo run -p px -- anim squash /tmp/a.px.toml /tmp/squash.px.toml --amount -0.3
+cargo run -p px -- anim subpixel /tmp/a.px.toml /tmp/sub.px.toml --method tangent
+cargo run -p px -- anim afterimage /tmp/walk.px.toml /tmp/trail.px.toml --ramp 0,1,2,3,4
+
 # パーツを合成する (アンカーは L0 の [meta] anchors．既定は画布を広げる)
 cargo run -p px -- compose /tmp/hero.aseprite --part parts/body.px.toml --part parts/cap.px.toml@neck
 cargo run -p px -- compose '/tmp/hero_${cap}.aseprite' --part parts/body.px.toml \
@@ -774,7 +845,7 @@ cargo test -p px-lint       # ルール 13 と合成した形の自己整合性
 > 10 節の «B を動かす設計案» は **D71 として当たった** (ただし «関門を足す» のではなく
 > «帯ずれを肩代わりする» 形で) ．結果は同節の «結果» に書いてある．
 
-### 0. **M4 進行中．合成 ・方向 ・タイル 5 件が済み，次は export と sheet pack である**
+### 0. **M4 完了 (2026-08-14)．次は M5 である**
 
 | M4 の完了条件 | 状態 |
 | --- | --- |
@@ -791,7 +862,11 @@ cargo test -p px-lint       # ルール 13 と合成した形の自己整合性
 | **`px anim tween`** | **済 (D114 ・D115)** — **R11 を «重心を先に取り除く» で解いた** |
 | **`px anim ease --fps --hold`** | **済 (D116 ・D117)** — **未決事項 #5 を閉じた** (17 ms) |
 | **`px anim cycle`** | **済 (D118 ・D119)** — 16 通りのうち 12 通り (rotate は書かない) |
-| `px anim afterimage` / `subpixel` / `squash` / `extrapolate` / `smear` | **次はここ** |
+| **`px anim smear`** | **済 (D120 ・D121)** — 設計書の掃引は union と同じ集合だった |
+| **`px anim extrapolate`** | **済 (D122)** — 平行移動なら真値と画素単位一致 |
+| **`px anim squash`** | **済 (D123 ・D128)** — 体積は保存しきれない ・画布は広げる |
+| **`px anim subpixel`** | **済 (D124 ・D125)** — 接線法が既定．高速法はシルエットを動かす |
+| **`px anim afterimage`** | **済 (D126)** — 設計書が 1 語しか決めていないので他の判断から引いた |
 
 > [!note] **export と sheet pack で先に見ること**
 > 設計書 4.4 は «**独自 JSON (bitmask → tile index + flip flags) がエンジン非依存の
@@ -1110,6 +1185,11 @@ cargo run -p px-calib --release -- direction                # 方向展開 (2 �
 cargo run -p px-calib --release -- tileset                  # タイル (3 モードの削減率 ・測れる割合)
 cargo run -p px-calib --release -- dither                   # ディザの位相 (設計書 4.3 の主張の確認)
 cargo run -p px-calib --release -- tween                    # 中割り (真値のある平行移動 ・余白 ・トポロジー)
+cargo run -p px-calib --release -- smear                    # おばけ (union ・掃引 ・重心を取り除いた掃引 ・刻み幅)
+cargo run -p px-calib --release -- extrapolate              # 外挿 (真値のある平行移動 ・切れた件数)
+cargo run -p px-calib --release -- squash                   # 体積保存 (2 通りの決め方 x 画布を広げる / 広げない)
+cargo run -p px-calib --release -- subpixel                 # サブピクセル (接線法 2 通り ・高速法 ・移動率の効き)
+cargo run -p px-calib --release -- afterimage               # 残像 (どれくらい動けば見えるか)
 cargo run -p px-calib --release -- lint --shadow-hue 1 3 5  # ルール 6 の色相差 (正例と負例を同時に)
 cargo run -p px-calib --release -- lint --outline-interior 0.02 0.05 0.1   # ルール 4 の門
 cargo run -p px-calib --release -- lint --dir testdata/lint-cases/negative
@@ -1193,6 +1273,10 @@ $\mathrm{min\_confidence} = 0.095$ (**$\hat{s}$ で割って使う**．D72 で 0
 | **落ち方を 1 つだけ数える** | 2 つの関門が同時に落としている件が先頭の関門に付け替わり，**犯人を取り違える**．`diagnose` の `failed_gates` 欄を見る |
 | **関門を単独で測る** | 前の関門が落としてくれる相手まで背負わせて評価してしまう．真の $s$ が既に消えている件では，後ろの関門を何に取り替えても成績は動かない |
 | **分離能の高さで統計を採る** | 均衡正解率 87.1% の統計が関門としては 15 / 101 だった．**選択規則を回して完全一致数で見る** |
+| **測る口が «飛ばした件» を数えない** | `let Ok(..) else { continue }` で失敗を落としていると，**道具が全件で落ちていても «測れた件だけ» の表が出る**．透明の宣言が無い絵で `squash` が全滅していたのに気付かなかった (D128) |
+| **読む側だけ拡張子を見る** | `.px.toml` に書いたつもりが中身は `.aseprite` になり，次の道具で «UTF-8 でない» と落ちる．**書く側も `save_frames` に寄せる** (D127) |
+| **設計書の別々の節が矛盾していないか見ない** | 6.11 の掃引は 6.9 の包含定理から «union と同じ集合» になる．**節をまたいで代数を突き合わせる** (D120) |
+| **«使った色が増えないこと» を不変条件にする** | 中間色を置くとは «パレットの中のまだ使っていない色を使い始める» ことなので**増えるのが正しい**．守るべきは «パレットの外へ出ないこと» (D124) |
 | **飽和した統計に線を引こうとする** | 帯ずれは落としたい候補で $\lfloor s/2 \rfloor$ に張り付く (巡回距離の上限) ．**どこで切っても分かれない** — 統計の «形» を先に見る (D68) |
 | **«掃引は済んでいる» という記録を，関門を変えた後も信じる** | D70 の記録は «$\theta$ の運転点は動かない» と書いていたが，D71 で 0.35 → 0.28 へ動いた．**掃引の結論には «どの関門の下で» を必ず添え，関門を足したら読み直す** |
 | **関門だけ変えて閾値を据え置く** | 関門を変えれば通ってくる相手が変わる．$\varepsilon$ ・$\delta$ ・$\tau$ は**組で選び直す** — 実測で +2.3 ポイントを取り逃す |
