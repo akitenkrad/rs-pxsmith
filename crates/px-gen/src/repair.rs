@@ -170,6 +170,20 @@ fn parse_and_lint(raw: &str, path: &Path) -> Attempt {
         advisory += report.advisory().count();
     }
 
+    // **コマが 2 つ以上あればフレーム間のルールも掛ける** (設計書 7.1 の `sequence`)．
+    //
+    // ここが抜けていた (D165) — `px lint` は 22 〜 27 を掛けるのに生成の輪は
+    // 掛けていなかったので，**道具が «通った» と言った列が自分の検査に落ちる**
+    // 状態だった (6 ルール中 4 つが blocking である)．
+    // `px gen prog --frames 8` で出した絵がまさにそれに当たる．
+    if frames.len() >= 2 {
+        let (report, _coverage) = px_lint::lint_sequence(&frames, &cfg);
+        for f in report.blocking() {
+            blocking.push(format!("ルール {} ({}): {}", f.rule, f.name, f.message));
+        }
+        advisory += report.advisory().count();
+    }
+
     if blocking.is_empty() {
         Attempt::Accepted { advisory }
     } else {
@@ -335,6 +349,62 @@ mod tests {
         assert!(r.attempts[0].is_accepted());
         // 初回に助言を渡してはいけない
         assert_eq!(g.seen.borrow()[0], None);
+    }
+
+    /// 3 コマの列 — **真ん中の中割りだけ穴が開いている** (トポロジーが変わる)．
+    ///
+    /// ルール 22 は数え上げ (オイラー標数) なので閾値が無く，**必ず鳴る**．
+    fn sequence_with_topology_change() -> String {
+        let solid = [
+            "........", ".111111.", ".111111.", ".111111.", ".111111.", ".111111.", ".111111.",
+            "........",
+        ];
+        let holed = [
+            "........", ".111111.", ".111111.", ".11..11.", ".11..11.", ".111111.", ".111111.",
+            "........",
+        ];
+        let frame = |name: &str, kind: &str, rows: &[&str; 8]| {
+            format!(
+                "[[frame]]\nname = \"{name}\"\nkind = \"{kind}\"\nduration_ms = 100\n\
+                 data = \'\'\'\n{}\n\'\'\'\n\n",
+                rows.join("\n")
+            )
+        };
+        format!(
+            "[meta]\nformat = 1\nname = \"t\"\nlayer = \"art\"\n\n\
+             [palette]\nref = \"t.px.hex\"\n\n\
+             [palette.map]\n\".\" = \"transparent\"\n0 = 0\n1 = 1\n\n{}{}{}",
+            frame("t_0", "key", &solid),
+            frame("t_1", "inbetween", &holed),
+            frame("t_2", "key", &solid),
+        )
+    }
+
+    /// **壊れると: 生成した «列» がフレーム間の検査を素通りする** (D165)．
+    ///
+    /// `px lint` は 22 〜 27 を掛けるのに，生成の輪は 1 コマずつしか見て
+    /// いなかった — **道具が «通った» と言った列が自分の検査に落ちる**状態で，
+    /// 6 ルール中 4 つが blocking である．
+    #[test]
+    fn a_blocking_sequence_rule_turns_the_loop() {
+        let w = Workdir::new("sequence");
+        let g = Scripted::new(&[&sequence_with_topology_change(), &good_l0()]);
+        let r = generate_with_repair(&g, &req(3), &w.l0()).unwrap();
+
+        assert_eq!(r.attempts.len(), 2, "列の違反で作り直していない: {r:?}");
+        match &r.attempts[0] {
+            Attempt::Blocking { findings } => assert!(
+                findings.iter().any(|f| f.contains("ルール 22")),
+                "フレーム間のルールが挙がっていない: {findings:?}"
+            ),
+            other => panic!("列の blocking として読めていない: {other:?}"),
+        }
+        // **助言に載って次の試行へ渡ること** — 載らなければ直しようがない
+        let feedback = g.seen.borrow()[1].clone().expect("2 度目には助言がある");
+        assert!(
+            feedback.contains("ルール 22"),
+            "助言に載っていない: {feedback}"
+        );
     }
 
     /// **壊れると: 読めなかった理由が次の試行へ渡らない (同じ失敗を繰り返す)．**
