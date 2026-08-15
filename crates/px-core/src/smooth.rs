@@ -61,6 +61,13 @@ pub struct SmoothReport {
     pub over_limit: usize,
     /// **どの候補を当てても減らなかった数** — 直し方が無いということである．
     pub no_candidate: usize,
+    /// **幾何が決めた刻みなので触らなかった数** (D169)．
+    ///
+    /// 一定の傾きの直線の digitization には谷が必ず現れる — それは描き損ねでは
+    /// ないので，動かすと**正しく描いた線が壊れる** (D163 の実測: 清書 58 枚で
+    /// 88 画素 ・17 枚) ．**黙って飛ばさずに数える** — «鳴らなかった» と
+    /// «触らないと決めた» は別である (D77 ・D104 ・D164 の作法)．
+    pub geometric: usize,
     /// 実際に回った巡回数．
     pub passes: usize,
 }
@@ -76,6 +83,11 @@ pub fn smooth_canvas(canvas: &mut IndexedCanvas, opts: &SmoothOptions) -> Smooth
         for jaggy in &found.jaggies {
             let Some(index) = jaggy.index else { continue };
             if !jaggy.within_limit {
+                continue;
+            }
+            // **幾何が決めた刻みは動かさない** (D169)．検出は今までどおり鳴るが，
+            // 画素を動かすのはここだけなので，壊すのを止められるのもここだけである
+            if jaggy.on_straight_chain {
                 continue;
             }
             // 前の手で形が変わっていることがある．**当てる前に確かめる**
@@ -101,7 +113,14 @@ pub fn smooth_canvas(canvas: &mut IndexedCanvas, opts: &SmoothOptions) -> Smooth
     let last = analyze_canvas(canvas, opts.max_move);
     report.remaining = last.jaggies.len();
     report.over_limit = last.jaggies.iter().filter(|j| !j.within_limit).count();
-    report.no_candidate = report.remaining - report.over_limit;
+    report.geometric = last
+        .jaggies
+        .iter()
+        .filter(|j| j.within_limit && j.on_straight_chain)
+        .count();
+    report.no_candidate = report
+        .remaining
+        .saturating_sub(report.over_limit + report.geometric);
     report
 }
 
@@ -393,5 +412,46 @@ mod tests {
         let report = smooth_mask(&mut m, &SmoothOptions::default());
         assert_eq!(report.moved, 0, "円を削った: {report:?}");
         assert_eq!(m, before);
+    }
+
+    /// **壊れると: `px smooth` が正しく描いた直線を書き換える** (R22 ・D169)．
+    ///
+    /// 傾き 2/5 の理想の階段は走りが `[3, 2, 3, 2, ...]` になり，2 のところが
+    /// 定義上すべて谷である．**幾何が決めた刻みなので 1 画素も動かしてはいけない．**
+    /// D163 の実測では，これを動かして清書 58 枚のうち 17 枚を壊していた．
+    #[test]
+    fn an_ideal_slope_is_left_alone() {
+        // 3 と 2 が交互に並ぶ = 傾き 2/5 の digitization
+        let widths: Vec<i32> = (0..12).map(|i| if i % 2 == 0 { 3 } else { 2 }).collect();
+        let mut mask = staircase(&widths);
+        let before = mask.clone();
+        let report = smooth_mask(&mut mask, &SmoothOptions::default());
+
+        assert_eq!(report.moved, 0, "理想の傾きを書き換えている");
+        assert!(report.geometric > 0, "幾何として数えていない: {report:?}");
+        for p in before.bounds().iter() {
+            assert_eq!(before.get(p), mask.get(p), "画素 {p:?} が変わった");
+        }
+    }
+
+    /// **壊れると: 幾何の例外が広すぎて，本物のジャギーまで直さなくなる．**
+    ///
+    /// `[3, 3, 2, 3]` は D80 が理想形と対比させたジャギーである．走りは 2 種類で
+    /// 1 しか違わないが，**短い方が 1 度しか出てこないので «並び» を確かめようが
+    /// ない** — 直線としては説明できない．**今までどおり直さなければならない．**
+    ///
+    /// > [!warning] **負例を 2 度続けて外した** (この計画で 5 度目 ・6 度目)．
+    /// > `[3, 3, 1, 3, 3]` は深さ 2 で**移動上限を超える**ので元から «報告のみ»，
+    /// > `[3, 3, 2, 3, 3]` は**どちらへ借りても谷が残る**ので元から動かせない．
+    /// > どちらも `geometric: 0` で **例外は 1 度も働いていなかった** —
+    /// > 道具ではなく試験が誤っていた．**«直る形» であることを先に確かめること．**
+    #[test]
+    fn a_lone_dip_is_not_excused_as_geometry() {
+        let mut mask = staircase(&[3, 3, 2, 3]);
+        assert_eq!(jaggies(&mask), 1, "元の絵に谷が無い");
+        let report = smooth_mask(&mut mask, &SmoothOptions::default());
+        assert_eq!(report.moved, 1, "本物のジャギーを直していない: {report:?}");
+        assert_eq!(report.geometric, 0, "幾何として除いている: {report:?}");
+        assert_eq!(report.remaining, 0, "谷が残っている: {:?}", top_runs(&mask));
     }
 }

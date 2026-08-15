@@ -150,8 +150,21 @@ pub fn smooth(args: &SmoothArgs) -> Result<()> {
     );
     if report.remaining > 0 {
         println!(
-            "  残り {} 件: 移動上限 {} を超える {} 件 ・直し方が無い {} 件",
-            report.remaining, args.max_move, report.over_limit, report.no_candidate
+            "  残り {} 件: 移動上限 {} を超える {} 件 ・**幾何が決めた刻み {} 件** ・直し方が無い {} 件",
+            report.remaining,
+            args.max_move,
+            report.over_limit,
+            report.geometric,
+            report.no_candidate
+        );
+    }
+    // **«触らないと決めた» を黙らない** (D169．D77 ・D104 ・D164 の作法)
+    if report.geometric > 0 {
+        println!(
+            "  ** {} 件は一定の傾きの直線として説明できるので触っていない ** —\n\
+             \u{3000}\u{3000}直線の digitization には谷が必ず現れる．**動かすと正しく描いた線が壊れる**\n\
+             \u{3000}\u{3000}(lint ルール 8 は advisory なので今までどおり助言としては鳴る)",
+            report.geometric
         );
     }
     if args.dry_run {

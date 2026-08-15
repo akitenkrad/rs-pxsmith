@@ -18,7 +18,7 @@ use crate::math::{IVec2, ivec2};
 use super::contour::{Chain, split_monotone, trace_contours};
 use super::distance::{curvature_field, signed_distance};
 use super::mask::{Field, Mask};
-use super::runs::{jaggy_valleys, run_lengths, run_pixels};
+use super::runs::{is_digital_straight, jaggy_valleys, run_lengths, run_pixels};
 
 /// 見つかったジャギー 1 箇所．
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -39,6 +39,17 @@ pub struct Jaggy {
     /// ランが伸びている向き (単位ベクトル)．**1 画素のランでは画素からは決まらない**
     /// ので，チェーンの主軸から取る — `smooth` が «どちらへ伸ばすか» に要る．
     pub major: IVec2,
+    /// **この谷が乗っている単調区間が «一定の傾きの直線» として説明できるか** (D169)．
+    ///
+    /// 真なら，この谷は**幾何が決めた刻み**であって描き損ねではない — 直線の
+    /// digitization には必ず現れる形だからである
+    /// ([`crate::geom::runs::is_digital_straight`]) ．
+    ///
+    /// > [!note] **報告するだけで，検出は変えない** (D101 ・D107 ・D138 の作法)．
+    /// > lint ルール 8 は今までどおりこの谷も数える (advisory なので助言である) ．
+    /// > **画素を動かす `px smooth` の側だけがこれを見て手を引く** — 鳴るのは
+    /// > 助言で済むが，動かすと**正しく描いた線が壊れる**からである (D163)．
+    pub on_straight_chain: bool,
 }
 
 impl Jaggy {
@@ -178,6 +189,8 @@ fn analyze_chain(
     } else {
         ivec2(0, 1)
     };
+    // **区間ごとに 1 度だけ求める** — 谷ごとに数え直すと同じ仕事を何度も書く (D110)
+    let straight = is_digital_straight(&runs);
     for i in jaggy_valleys(&runs, &turns) {
         let target = runs[i - 1].min(runs[i + 1]);
         let delta = target as i32 - runs[i] as i32;
@@ -189,6 +202,7 @@ fn analyze_chain(
             within_limit: delta.unsigned_abs() <= max_move,
             pixels: groups.get(i).cloned().unwrap_or_default(),
             major,
+            on_straight_chain: straight,
         });
     }
     report

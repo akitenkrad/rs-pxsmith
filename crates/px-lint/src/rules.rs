@@ -1272,7 +1272,12 @@ fn rule_8_jaggies(canvas: &IndexedCanvas, cfg: &LintConfig, report: &mut Report)
                 "ラン長 {} が両隣 (目標 {}) より短い{}",
                 jaggy.length,
                 jaggy.target,
-                if jaggy.within_limit {
+                if jaggy.on_straight_chain {
+                    // **一定の傾きの直線には谷が必ず現れる** (D169)．`px smooth` は
+                    // ここを触らないので «直せる» と書くと嘘になる — 助言は
+                    // 道具が実際にすることと合っていなければならない
+                    "．一定の傾きの直線なので幾何が決めた刻みである (px smooth は触らない)"
+                } else if jaggy.within_limit {
                     "．px smooth で直せる"
                 } else {
                     // 移動上限を超える谷は**意図的なディテールの可能性がある** (R22)

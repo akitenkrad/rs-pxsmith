@@ -145,6 +145,107 @@ pub fn is_unimodal(runs: &[u32]) -> bool {
     run_valleys(runs).len() <= 1
 }
 
+/// **走りの列が «一定の傾きの直線» の digitization として説明できるか** (D169)．
+///
+/// 一定の傾き $a/b$ で引いた直線の走りは，長さが $\lfloor b/a \rfloor$ と
+/// $\lceil b/a \rceil$ の 2 種類しか取らず，**どちらが現れるかの並びが
+/// «できるだけ均等» になる** (Sturmian) ．この性質は再帰的で，
+/// «珍しい方の間に普通の方が何個あるか» を数え直すと同じ条件になる．
+/// 閾値は 1 つも無い — **数え上げだけで決まる**．
+///
+/// # 何に使うか — 検出ではなく **抑制** に使う
+///
+/// 設計書 6.4 (D32) は «理想 Bresenham 列との比較» を**検出器としては採らない**
+/// と決めている (意図的に描かれた曲線をすべて違反と判定してしまうため) ．
+/// **ここはその逆向きである** — 直線として説明できるときに «直さない» と言うだけで，
+/// **曲線を違反にする方向には決して働かない**．だから D32 とは両立する．
+///
+/// # 端の走りは落とす
+///
+/// 単調区間の最初と最後の走りは**途中で切り取られている**ことがあるので，
+/// 長さの条件から外す (切られた走りは短く出るだけで，傾きの証拠にならない) ．
+///
+/// # 繰り返していないものを «幾何» と呼ばない
+///
+/// 珍しい方の値が **1 度しか出てこない列は偽とする**．`[3, 3, 2, 3]` は
+/// 数としては «2 種類が 1 違い» を満たすが，**2 が 1 度出るだけでは並びを
+/// 確かめようがない** — これは D80 が «最も普通のジャギー» として挙げた形なので，
+/// ここを真にすると `px smooth` が本物のジャギーを直さなくなる．
+/// **模様は繰り返して初めて模様である．**
+pub fn is_digital_straight(runs: &[u32]) -> bool {
+    if runs.len() < 3 {
+        // 谷が存在しえない長さ (`run_valleys` は 3 本以上を要求する)
+        return true;
+    }
+    balanced(&runs[1..runs.len() - 1], true)
+}
+
+/// [`is_digital_straight`] の本体 — 再帰する．
+///
+/// `top` は最上位の呼び出しか．**繰り返しの要求は最上位でだけ課す** —
+/// 数え直した列は既に «珍しい方が 2 度以上出た» ことの帰結なので，
+/// そこで再び 2 度以上を求めると長い直線まで落ちる．
+fn balanced(v: &[u32], top: bool) -> bool {
+    if v.len() <= 1 {
+        return !top;
+    }
+    let lo = *v.iter().min().expect("空でない");
+    let hi = *v.iter().max().expect("空でない");
+    if hi == lo {
+        return true;
+    }
+    if hi - lo > 1 {
+        return false;
+    }
+
+    // **連続してよいのは一方だけ** — 両方が 2 個以上並ぶ列は直線にならない
+    let longest = |val: u32| -> usize {
+        let (mut best, mut cur) = (0usize, 0usize);
+        for &x in v {
+            if x == val {
+                cur += 1;
+                best = best.max(cur);
+            } else {
+                cur = 0;
+            }
+        }
+        best
+    };
+    let (lo_max, hi_max) = (longest(lo), longest(hi));
+    if lo_max >= 2 && hi_max >= 2 {
+        return false;
+    }
+
+    // 孤立する方を «区切り» に取る (どちらも孤立するなら短い方)
+    let rare = if lo_max == 1 { lo } else { hi };
+    let occurrences = v.iter().filter(|&&x| x == rare).count();
+    if top && occurrences < 2 {
+        // 1 度きりの食い違いは «傾き» の証拠にならない
+        return false;
+    }
+
+    // 区切りの間に «普通の方» が何個あるかを数え直す
+    // (先頭と末尾の半端は落とす — 端の走りと同じ理由)
+    let mut counts = Vec::new();
+    let mut seen = false;
+    let mut run = 0u32;
+    for &x in v {
+        if x == rare {
+            if seen {
+                counts.push(run);
+            }
+            seen = true;
+            run = 0;
+        } else {
+            run += 1;
+        }
+    }
+    if counts.is_empty() {
+        return true;
+    }
+    balanced(&counts, false)
+}
+
 /// バンディング — 同じ長さのランが並走している箇所 (lint 12)．
 ///
 /// `min_repeat` 個以上続いたところを返す．返り値は開始位置と長さ．
@@ -366,5 +467,99 @@ mod tests {
                 "ランの合計がチェーンの長さと合わない"
             );
         }
+    }
+
+    /// 傾き $a/b$ の理想の階段の走り列 (`jaggytruth` と同じ作り方)．
+    fn staircase_runs(a: u32, b: u32, w: u32) -> Vec<u32> {
+        let heights: Vec<u32> = (0..w).map(|x| (a * x) / b).collect();
+        let mut runs = Vec::new();
+        let mut cur = 1u32;
+        for i in 1..heights.len() {
+            if heights[i] == heights[i - 1] {
+                cur += 1;
+            } else {
+                runs.push(cur);
+                cur = 1;
+            }
+        }
+        runs.push(cur);
+        runs
+    }
+
+    /// **壊れると: 正しく描いた直線を «幾何ではない» と読み，`px smooth` が壊す．**
+    #[test]
+    fn every_ideal_staircase_reads_as_a_straight_line() {
+        for (a, b) in [
+            (1u32, 1u32),
+            (1, 2),
+            (1, 3),
+            (1, 4),
+            (1, 5),
+            (2, 3),
+            (2, 5),
+            (2, 7),
+            (3, 4),
+            (3, 5),
+            (3, 7),
+            (3, 8),
+            (4, 5),
+            (4, 7),
+            (4, 9),
+            (4, 11),
+            (5, 6),
+            (5, 8),
+            (5, 9),
+            (5, 14),
+        ] {
+            let runs = staircase_runs(a, b, 96);
+            assert!(
+                is_digital_straight(&runs),
+                "傾き {a}/{b} の理想の階段が直線と読めない: {runs:?}"
+            );
+        }
+    }
+
+    /// **壊れると: 本物のジャギーを «幾何» と読み，`px smooth` が直さなくなる．**
+    ///
+    /// `[3, 3, 1, 3]` は D60 が «最も普通のジャギー» として挙げた形，
+    /// `[3, 3, 2, 3]` は D80 が理想形と対比させたジャギーである．
+    /// **どちらも直線と読んではいけない．**
+    #[test]
+    fn a_single_dip_is_not_a_straight_line() {
+        for runs in [
+            vec![3, 3, 1, 3],
+            vec![3, 3, 2, 3],
+            vec![3, 3, 3, 2, 3, 3, 3],
+            vec![4, 3, 2, 3, 4],
+        ] {
+            assert!(
+                !is_digital_straight(&runs),
+                "単発のくぼみを直線と読んでいる: {runs:?}"
+            );
+        }
+    }
+
+    /// **壊れると: 段をずらした階段 (設計書 6.4 の «揃っていない階段») を見逃す．**
+    #[test]
+    fn a_shifted_step_breaks_straightness() {
+        let mut runs = staircase_runs(1, 3, 96);
+        // 走りを 1 つ削り，隣へ足す = 段が 1 画素早く落ちる
+        let n = runs.len() / 2;
+        runs[n] -= 1;
+        runs[n + 1] += 1;
+        assert!(
+            !is_digital_straight(&runs),
+            "崩した階段を直線と読んでいる: {runs:?}"
+        );
+    }
+
+    /// **壊れると: 端が切れているだけの直線を «幾何ではない» と読む．**
+    #[test]
+    fn truncated_end_runs_do_not_break_straightness() {
+        let mut runs = staircase_runs(1, 3, 96);
+        let last = runs.len() - 1;
+        runs[0] = 1;
+        runs[last] = 1;
+        assert!(is_digital_straight(&runs), "端の欠けで落ちている: {runs:?}");
     }
 }
