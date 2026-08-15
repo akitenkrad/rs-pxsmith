@@ -7,11 +7,18 @@ assets as a declarative pipeline. It has no interactive drawing UI: humans (or
 generative models) produce the original artwork, and everything downstream —
 derivation, reconciliation, and verification — runs as code.
 
-> Status: **in development**. M0 (foundations), M1 (feedback loop), M1a (geometry),
-> M2 (color and palette), M3 (cleanup and validation), and and M5 (pipeline) are complete;
-> M4 (composition, tilesets, animation) is 18 of its 20 completion criteria — the
-> sequence lint rules and `px atmos` remain. See `docs/status.md` for the details,
-> including every claim that was measured rather than assumed.
+> Status: **all eight phases are complete** — M0 (foundations), M1 (feedback loop),
+> M1a (geometry), M2 (colour and palette), M3 (cleanup and validation), M4
+> (composition, tilesets, animation), M5 (pipeline), M6 (generative AI), and M7
+> (projection, scaling, inspection). 919 tests pass. `px gen prog` has been run
+> against the live API.
+>
+> What is left is written down rather than glossed over: one untested error path
+> (a refusal from the backend), two defects that were measured and deliberately
+> not fixed because the fix revises a numbered design decision, and one region of
+> the grid estimator that misses its target. See `docs/status.md` and
+> `docs/investigations/` — every threshold in this tool was chosen by measuring
+> something, and the measurements that came out badly are recorded too.
 
 ## Design
 
@@ -25,7 +32,7 @@ author's Obsidian vault (`設計書/ドット絵CLI-Rust/`). Key decisions:
 | 3 | A retained layer and a working layer, kept separate | Byte-exact `.aseprite` round-trip and simple algorithms at the same time |
 | 4 | Shape and shading are separate; shading is always derived | Flips, tweens, and recolors never break, and palette escapes cannot occur |
 | 5 | No scripting language in recipes | Step keys resolve incrementally, keeping incremental builds deterministic |
-| 6 | A small set of geometry foundations underpins everything | Contour tracing, distance fields, run-length analysis, local grid estimation, and region labeling carry 6 still-image features, 3 animation features, and 18 lint rules |
+| 6 | A small set of geometry foundations underpins everything | Contour tracing, distance fields, run-length analysis, local grid estimation, and region labeling carry 6 still-image features, 3 animation features, and 18 of the 27 lint rules |
 
 ## Workspace
 
@@ -35,12 +42,15 @@ author's Obsidian vault (`設計書/ドット絵CLI-Rust/`). Key decisions:
 | `px-io` | Retained layer (`Document`), `.aseprite`, palette, and L0 text I/O |
 | `px-view` | Terminal preview and diffing. Inspection only, by construction |
 | `px-macro` | The `pixels!` proc-macro for embedding sprites in Rust |
-| `px-lint` | The 18 implemented quality rules and their thresholds |
+| `px-lint` | The 27 quality rules and their thresholds — 21 on a single canvas, 6 across a frame sequence |
 | `px-recipe` | The restricted expression language, dependency graph, step keys, and cache |
+| `px-gen` | The generation loop: request, provenance, and the verify-and-repair cycle |
 | `px` | The `px` command-line binary |
 | `px-calib` | Measurement mouths. Every threshold in the tool was chosen with one of these |
 
-Crates planned for later milestones: `px-export`, `px-gen`.
+There is no `px-export` crate. Export targets (Tiled, sprite sheets, canonical
+JSON) are output adapters with no algorithms of their own, so they sit in
+`px-core` beside the data they serialise and are wired up in `px`.
 
 ## Build
 
@@ -104,6 +114,64 @@ cargo run -p px -- anim subpixel in.px.toml out.px.toml --method tangent
 cargo run -p px -- lint out.px.toml
 cargo run -p px -- validate out.px.toml --target gb
 ```
+
+`lint` distinguishes a rule that did not fire from a rule that could not run, and
+says which happened. A quiet report is not evidence of a clean sprite unless the
+check was in a position to fail.
+
+### Composition, tilesets, and projection
+
+```sh
+# Assemble parts, then derive the other seven directions by flip + re-shading
+cargo run -p px -- compose out.px.toml --part body.px.toml --part head.px.toml
+cargo run -p px -- direction 'out/${dir}.px.toml' --from s=hero_s.px.toml \
+    --light dir:-0.6,0.8 --reshade
+
+# Cut a sheet into tiles, collapse duplicates, build a 47-piece autotile set
+# (indexed input only — quantising here would smuggle our choice into tile equality)
+cargo run -p px -- tileset extract sheet.aseprite tiles.aseprite --tile 16 --map map.json
+cargo run -p px -- tileset autotile quadrants.px.toml auto.aseprite
+
+# Fake depth: haze distant layers toward the sky, record parallax speeds
+cargo run -p px -- atmos 'out/${name}.px.toml' --input fg.px.toml --input bg.px.toml \
+    --sky 41a6f6 --haze background=0.6 --scroll-meta out/scene.scroll.json
+
+# Project a top-down sprite onto an isometric floor, and draw a matching guide
+cargo run -p px -- project in.px.toml iso.px.toml --to iso --from top --facing right
+cargo run -p px -- guide g.png --projection iso --from top --cell 16 --size 256x256
+```
+
+### Inspecting
+
+```sh
+cargo run -p px -- view walk.px.toml --frame 2 --onion 2   # onion skin, outlines only
+cargo run -p px -- palette report hero.px.toml --top 12    # which colours carry the area
+```
+
+### Generation
+
+`px gen prog` asks a language model for L0 text, then parses, lints, and — if a
+blocking rule fires — sends the findings back and asks again. The checker is the
+same `px lint` used everywhere else; nothing was written specially for this.
+
+```sh
+export ANTHROPIC_API_KEY=...
+cargo run -p px -- gen prog out/chest.px.toml --prompt "a wooden chest, seen head-on" \
+    --palette 1a1c2c,566c86,8a6a4a,b13e53,f4f4f4 --size 16x16
+
+cargo run -p px -- gen prog out/x.px.toml --prompt "a chest" \
+    --palette 1a1c2c,f4f4f4 --size 8x8 --dry-run   # print the request, send nothing
+```
+
+The model can only emit palette indices — colours live in a separate `.hex` file
+that the tool writes first — so a palette escape is structurally impossible
+rather than merely checked for. There is no seed or temperature to set: what
+makes a build reproducible is the cache and committing the result, and the
+provenance file says so instead of recording a seed field that would be a lie.
+
+`px gen image` is deliberately not implemented: the design rejects any generated
+image whose grid is non-uniform, and how often a diffusion model clears that bar
+depends on the model, so the work has no readable ceiling.
 
 ### Recipes
 
@@ -170,4 +238,12 @@ palette triggers a rebuild.
 
 ## License
 
-Undecided. Until then this repository is not published.
+Licensed under either of [Apache License 2.0](LICENSE-APACHE) or
+[MIT license](LICENSE-MIT) at your option — the usual dual licence for Rust
+crates, so this code can be used from either side of that ecosystem.
+
+`crates/px-core/src/cleanedge.rs` is a port of the cleanEdge shader by torcado,
+used under its own terms; see [NOTICE](NOTICE) for the attribution it requires.
+
+Test material under `testdata/` is CC0 or MIT with the attribution recorded in
+`testdata/SOURCES.md`. Material that cannot be redistributed is not committed.
