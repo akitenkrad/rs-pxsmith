@@ -46,7 +46,7 @@
 | 品質 | `cargo fmt --all --check` と `cargo clippy --workspace --all-targets -- -D warnings` がクリーン |
 | クレート | `px-core` / `px-io` / `px-view` / `px-macro` / `px-lint` / `px-recipe` / **`px-gen`** / `px` / `px-calib` |
 | ブランチ | `main` |
-| コミット | **`46c49b6` まで**．D162 〜 D169 はすべてコミット済み (**作業ツリーはきれい**) |
+| コミット | **D162 〜 D169 はすべてコミット済み．作業ツリーはきれい** (最後のコミットは `git log -1` で見る — 番号をここに書くと自分を追いかける) |
 
 > [!note] 2026-08-15 の変更 — **R3 の «読み手» を独立化した．素材はまだ** (D167)
 > 往復検証の 19 件は **`aseprite-io` 自身の fixtures 由来**なので «忠実性を独立に
