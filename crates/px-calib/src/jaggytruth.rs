@@ -43,9 +43,9 @@ use px_core::math::ivec2;
 use rayon::prelude::*;
 
 /// 背景 (透明) の添字．
-const BG: u8 = 0;
+pub(crate) const BG: u8 = 0;
 /// 図形の添字．
-const FG: u8 = 1;
+pub(crate) const FG: u8 = 1;
 
 /// 清書 1 枚の測定．
 #[derive(Clone, Debug)]
@@ -124,7 +124,7 @@ impl Summary {
 ///
 /// **階段を高さの列で持つと «段をずらす» が 1 行で書ける** — 画素を足し引き
 /// する形だと，狙った欠陥になっているかが読めない．
-fn from_heights(heights: &[u32], height_px: u32) -> IndexedCanvas {
+pub(crate) fn from_heights(heights: &[u32], height_px: u32) -> IndexedCanvas {
     let w = heights.len() as u32;
     let mut c = IndexedCanvas::from_pixels(w, height_px, vec![BG; (w * height_px) as usize])
         .expect("画布を作れる")
@@ -138,7 +138,7 @@ fn from_heights(heights: &[u32], height_px: u32) -> IndexedCanvas {
 }
 
 /// 理想の階段 — 傾き $a / b$．**走りの長さは傾きが決める**．
-fn staircase_heights(a: u32, b: u32, w: u32) -> Vec<u32> {
+pub(crate) fn staircase_heights(a: u32, b: u32, w: u32) -> Vec<u32> {
     (0..w).map(|x| (a * x) / b).collect()
 }
 
@@ -146,7 +146,7 @@ fn staircase_heights(a: u32, b: u32, w: u32) -> Vec<u32> {
 ///
 /// はみ出すと «塗る画素が 1 つも無い列» ができ，そこに画布の縁が縦の辺として
 /// 現れる — **測っているのが階段ではなく «切り取られた形» になる**．
-fn fitting_height(heights: &[u32]) -> u32 {
+pub(crate) fn fitting_height(heights: &[u32]) -> u32 {
     heights.iter().copied().max().unwrap_or(0) + 6
 }
 
@@ -154,7 +154,7 @@ fn fitting_height(heights: &[u32]) -> u32 {
 ///
 /// 段が上がる列 `x` を見つけ，その 1 つ手前の列を先に上げる．
 /// 走りは «1 短い» と «1 長い» の対になり，**谷ができる**．
-fn shift_one_step(heights: &[u32], which: usize) -> Option<(Vec<u32>, usize)> {
+pub(crate) fn shift_one_step(heights: &[u32], which: usize) -> Option<(Vec<u32>, usize)> {
     let pool: Vec<usize> = (3..heights.len().saturating_sub(3))
         .filter(|&x| heights[x] > heights[x - 1] && heights[x - 1] == heights[x - 2])
         .collect();
@@ -184,7 +184,7 @@ fn bump_one(heights: &[u32], which: usize) -> Option<(Vec<u32>, usize)> {
 }
 
 /// **ラスタライズした円板** — 縁の凹凸はすべて幾何が決める．
-fn disk(radius: u32) -> IndexedCanvas {
+pub(crate) fn disk(radius: u32) -> IndexedCanvas {
     let pad = 2;
     let size = radius * 2 + 1 + pad * 2;
     let mut c = IndexedCanvas::from_pixels(size, size, vec![BG; (size * size) as usize])
@@ -204,7 +204,7 @@ fn disk(radius: u32) -> IndexedCanvas {
 }
 
 /// 円板の «上端» を高さの列にする (段をずらす操作を掛けるため)．
-fn disk_heights(radius: u32) -> Vec<u32> {
+pub(crate) fn disk_heights(radius: u32) -> Vec<u32> {
     let pad = 2;
     let size = radius * 2 + 1 + pad * 2;
     let center = (radius + pad) as f64;
@@ -328,7 +328,7 @@ pub fn predicts_valley(a: u32, b: u32) -> bool {
 }
 
 /// 清書の群．
-fn clean_scenes() -> Vec<(String, &'static str, IndexedCanvas)> {
+pub(crate) fn clean_scenes() -> Vec<(String, &'static str, IndexedCanvas)> {
     let mut out = Vec::new();
     for r in 3u32..=40 {
         out.push((format!("disk-r{r:02}"), "円板", disk(r)));
@@ -349,7 +349,7 @@ fn clean_scenes() -> Vec<(String, &'static str, IndexedCanvas)> {
 }
 
 /// 負例の元になる高さの列 (階段と円板の上端)．
-fn defect_bases() -> Vec<(String, Vec<u32>, u32)> {
+pub(crate) fn defect_bases() -> Vec<(String, Vec<u32>, u32)> {
     let mut out = Vec::new();
     for (a, b) in SLOPES {
         let h = staircase_heights(a, b, 64);

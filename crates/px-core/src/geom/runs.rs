@@ -177,7 +177,26 @@ pub fn is_digital_straight(runs: &[u32]) -> bool {
         // 谷が存在しえない長さ (`run_valleys` は 3 本以上を要求する)
         return true;
     }
-    balanced(&runs[1..runs.len() - 1], true)
+    is_digital_straight_span(runs, true, true)
+}
+
+/// **区間の一部だけを見て同じ判定をする** — 端を落とすかどうかを呼ぶ側が決める．
+///
+/// [`is_digital_straight`] は単調区間まるごとを見るので両端を落とすが，
+/// **区間の途中で切った窓では，切り口の側の走りは切り取られていない** —
+/// そこを落とすと «見なかったことにした走り» の分だけ判定が甘くなる．
+/// どちらを落とすかは場面で変わるので引数にした (判定の本体は 1 つである．D110)．
+///
+/// 落とした結果が 1 本以下なら **偽** を返す — 走り 1 本に傾きは無い．
+/// ([`is_digital_straight`] が短い列を真とするのは «谷が存在しえない» からで，
+/// 窓の側にその理屈は無い．)
+pub fn is_digital_straight_span(runs: &[u32], trim_first: bool, trim_last: bool) -> bool {
+    let from = usize::from(trim_first);
+    let to = runs.len().saturating_sub(usize::from(trim_last));
+    if from >= to {
+        return false;
+    }
+    balanced(&runs[from..to], true)
 }
 
 /// [`is_digital_straight`] の本体 — 再帰する．
@@ -561,5 +580,30 @@ mod tests {
         runs[0] = 1;
         runs[last] = 1;
         assert!(is_digital_straight(&runs), "端の欠けで落ちている: {runs:?}");
+    }
+
+    /// **落とした結果が空になる窓は偽である** — 走り 0 本 ・1 本に傾きは無い．
+    ///
+    /// [`is_digital_straight`] が短い列を**真**とするのとは向きが逆なので，
+    /// 引き写すと «何も見ていない窓» が直線として通る．
+    ///
+    /// **壊れると: 窓を短く取るだけで何でも «直線» になり，抑制が青天井になる．**
+    #[test]
+    fn a_window_with_nothing_left_after_trimming_is_not_a_line() {
+        assert!(!is_digital_straight_span(&[], false, false), "空の窓");
+        assert!(
+            !is_digital_straight_span(&[3], true, false),
+            "落として 0 本"
+        );
+        assert!(
+            !is_digital_straight_span(&[3, 4], true, true),
+            "落として 0 本"
+        );
+        assert!(
+            !is_digital_straight_span(&[3], false, false),
+            "1 本だけの窓"
+        );
+        // 落とさなければ 2 本は読める (同じ長さが 2 本 = 傾き一定)
+        assert!(is_digital_straight_span(&[3, 3], false, false), "2 本の窓");
     }
 }

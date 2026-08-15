@@ -32,6 +32,7 @@ mod diagnose;
 mod dircal;
 mod ingest;
 mod jaggycal;
+mod jaggyseam;
 mod jaggytruth;
 mod lintcal;
 mod lintgen;
@@ -495,6 +496,17 @@ enum Command {
         /// 移動上限 (画素)
         #[arg(long, default_value_t = jaggycal::DEFAULT_MOVE)]
         max_move: u32,
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
+    /// **円板の谷を «継ぎ目» として許したときの上限を測る** — 認識器を書く前の判断材料
+    JaggySeam {
+        /// 移動上限 (画素)
+        #[arg(long, default_value_t = jaggycal::DEFAULT_MOVE)]
+        max_move: u32,
+        /// 実素材 (省略すると清書と負例だけ測る)
+        #[arg(long, default_value = "testdata/grid-eval/seeds")]
+        dir: PathBuf,
         #[arg(long)]
         out: Option<PathBuf>,
     },
@@ -1937,6 +1949,165 @@ fn main() -> Result<()> {
                 }
                 px_io::atomic::write(&path, text.as_bytes())?;
                 println!("\n  {} 行を {} へ書いた", s.clean.len(), path.display());
+            }
+        }
+
+        Command::JaggySeam { max_move, dir, out } => {
+            let real = if dir.is_dir() {
+                Some(dir.as_path())
+            } else {
+                None
+            };
+            let s = jaggyseam::run(max_move, real)?;
+            println!("== 継ぎ目の谷を許したときの «上限» ==");
+            println!(
+                "  **窓の取り方を全部試して両側が直線になれば継ぎ目とみなす** —\n\
+                 \u{3000}\u{3000}認識器が達しうる最も緩い側である．ここで落ちるものは書いても守れない"
+            );
+
+            println!("\n  いま `px smooth` が動かしているもの (D169 の後)");
+            for (kind, (sheets, movable, moved)) in jaggyseam::by_kind(&s) {
+                println!(
+                    "    {kind:<20} {sheets:>3} 枚 ・動かす谷 {movable:>3} ・動かした画素 {moved:>3}"
+                );
+            }
+            println!(
+                "    合計                 {:>3} 枚 ・動かす谷 {:>3} ・動かした画素 {:>3} ・壊した絵 {} 枚",
+                s.clean.len(),
+                s.clean_movable(),
+                s.clean_moved(),
+                s.clean_sheets_damaged()
+            );
+
+            if real.is_some() {
+                println!(
+                    "    実素材 {} 枚 ・動かす谷 {}",
+                    s.real_files,
+                    s.real_movable()
+                );
+            }
+            println!(
+                "\n  負例 {} 件のうち谷ができたのは {} 件 ・**`smooth` が直せたのは {} 件**",
+                s.defects.len(),
+                s.defects_with_valley(),
+                s.repaired()
+            );
+            println!(
+                "    (検出の捕捉は例外を入れても定義上動かない — 動くのは «直せたか» の側である)"
+            );
+            println!(
+                "    崩した場所に谷があるのは {} 件 ・**D169 の直線の例外で動かせなくなった {} 件**",
+                s.with_valley_near(),
+                s.silenced_by_d169()
+            );
+            println!(
+                "    動かす谷があるのに直らなかった {} 件 (当てる候補が無い) ・\n\
+                 \u{3000}\u{3000}直ったのに近くに動かす谷が無い {} 件 (**数え上げが挙動を説明できていない分**)",
+                s.movable_but_unrepaired(),
+                s.repaired_unexplained()
+            );
+            println!(
+                "    **1 か所崩すと巻き添えが出る**: 崩した場所で動かした {} 画素に対し，\n\
+                 \u{3000}\u{3000}崩していない場所で **{} 画素** — 例外は区間まるごとに掛かるので，\n\
+                 \u{3000}\u{3000}1 か所崩れると同じ縁の正しい部分まで書き換えの対象に戻る",
+                s.moved_here(),
+                s.moved_elsewhere()
+            );
+
+            println!("\n  **上限** — 継ぎ目に見える谷を全部許したら");
+            println!(
+                "    {:<20} {:>4} {:>12} {:>10} {:>12} {:>12}",
+                "谷の配り方",
+                "本数",
+                "清書で守れる",
+                "残る絵",
+                "**直せなくなる**",
+                "実素材で守れる"
+            );
+            for share in jaggyseam::SHARES {
+                for min_runs in jaggyseam::MIN_RUNS {
+                    let saved = s.clean_seam(share, min_runs);
+                    let lost = s.lost(share, min_runs);
+                    println!(
+                        "    {:<20} {:>4} {:>8} / {:<3} {:>8} 枚 {:>8} / {:<3} {:>8} / {:<3}",
+                        share.label(),
+                        min_runs,
+                        saved,
+                        s.clean_movable(),
+                        s.clean_sheets_left(share, min_runs),
+                        lost,
+                        s.repaired(),
+                        s.real_seam(share, min_runs),
+                        s.real_movable()
+                    );
+                }
+            }
+
+            // **一番よく効く取り方の中身を出す** — 表の 1 行を人が確かめられるように
+            let best = jaggyseam::SHARES
+                .iter()
+                .flat_map(|&sh| jaggyseam::MIN_RUNS.iter().map(move |&m| (sh, m)))
+                .filter(|&(sh, m)| s.lost(sh, m) == 0)
+                .max_by_key(|&(sh, m)| s.clean_seam(sh, m));
+            if let Some((share, min_runs)) = best {
+                println!(
+                    "\n  **直せなくなる件が 0 のまま一番効く取り方**: {} ・{} 本 — 清書 {} / {} 谷",
+                    share.label(),
+                    min_runs,
+                    s.clean_seam(share, min_runs),
+                    s.clean_movable()
+                );
+            }
+            // **表の «一番効く行» の中身を出す** — 数字だけでは確かめようがない
+            {
+                let (share, min_runs) = (jaggyseam::Share::Right, 2usize);
+                let names = s.lost_names(share, min_runs);
+                if !names.is_empty() {
+                    println!(
+                        "\n  {} ・{} 本 で直せなくなる負例: {}",
+                        share.label(),
+                        min_runs,
+                        names.join(" ")
+                    );
+                }
+                let left = s.left_names(share, min_runs);
+                println!(
+                    "  {} ・{} 本 でも残る清書 ({} 枚): {}",
+                    share.label(),
+                    min_runs,
+                    left.len(),
+                    left.join(" ")
+                );
+            }
+            if s.repaired_unexplained() > 0 {
+                println!(
+                    "  数え上げが説明できていない負例: {}",
+                    s.unexplained_names().join(" ")
+                );
+            }
+
+            if let Some(path) = out {
+                let mut text = String::from(
+                    "share,min_runs,clean_saved,clean_movable,sheets_left,lost,repaired,real_saved,real_movable\n",
+                );
+                for share in jaggyseam::SHARES {
+                    for min_runs in jaggyseam::MIN_RUNS {
+                        text.push_str(&format!(
+                            "{},{},{},{},{},{},{},{},{}\n",
+                            share.label(),
+                            min_runs,
+                            s.clean_seam(share, min_runs),
+                            s.clean_movable(),
+                            s.clean_sheets_left(share, min_runs),
+                            s.lost(share, min_runs),
+                            s.repaired(),
+                            s.real_seam(share, min_runs),
+                            s.real_movable()
+                        ));
+                    }
+                }
+                px_io::atomic::write(&path, text.as_bytes())?;
+                println!("\n  {} へ書いた", path.display());
             }
         }
 

@@ -28,5 +28,8 @@ pub use jaggy::turn_runs;
 pub use jaggy::{Jaggy, JaggyReport, analyze_canvas, analyze_mask};
 pub use mask::{Field, Mask};
 pub use regions::{Region, RegionId, RegionMap, label_mask, label_regions};
-pub use runs::{banding, is_unimodal, jaggy_valleys, run_lengths, run_pixels, run_valleys};
+pub use runs::{
+    banding, is_digital_straight, is_digital_straight_span, is_unimodal, jaggy_valleys,
+    run_lengths, run_pixels, run_valleys,
+};
 pub use topology::{components, euler_characteristic, holes};
