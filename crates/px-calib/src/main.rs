@@ -1896,6 +1896,39 @@ fn main() -> Result<()> {
                 }
             }
 
+            println!("\n  **谷の形は偽と真で分かれるか** (D168．偽 = 清書 ・真 = 崩した場所)");
+            println!("    {:>6} {:>12} {:>12}", "深さ", "偽 (清書)", "真 (崩し)");
+            let depths: std::collections::BTreeSet<i32> = s
+                .clean_depths
+                .keys()
+                .chain(s.defect_depths.keys())
+                .copied()
+                .collect();
+            for d in depths {
+                println!(
+                    "    {d:>6} {:>12} {:>12}",
+                    s.clean_depths.get(&d).copied().unwrap_or(0),
+                    s.defect_depths.get(&d).copied().unwrap_or(0)
+                );
+            }
+            println!(
+                "\n    {:>6} {:>12} {:>12}",
+                "両隣の差", "偽 (清書)", "真 (崩し)"
+            );
+            let gaps: std::collections::BTreeSet<u32> = s
+                .clean_neighbour_gap
+                .keys()
+                .chain(s.defect_neighbour_gap.keys())
+                .copied()
+                .collect();
+            for g in gaps {
+                println!(
+                    "    {g:>6} {:>12} {:>12}",
+                    s.clean_neighbour_gap.get(&g).copied().unwrap_or(0),
+                    s.defect_neighbour_gap.get(&g).copied().unwrap_or(0)
+                );
+            }
+
             if let Some(path) = out {
                 let mut text = String::from(jaggytruth::HEADER);
                 text.push('\n');

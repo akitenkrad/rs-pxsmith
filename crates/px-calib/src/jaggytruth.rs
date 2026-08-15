@@ -78,6 +78,14 @@ pub struct Summary {
     pub defects: Vec<Defect>,
     /// 出っ張り (原理的に谷にならない形) を別に数える．
     pub bumps: Vec<Defect>,
+    /// **清書に出た谷の深さ** — 全件が偽である．
+    pub clean_depths: BTreeMap<i32, usize>,
+    /// **崩した場所で捕まえた谷の深さ** — 全件が真である．
+    pub defect_depths: BTreeMap<i32, usize>,
+    /// 清書に出た谷の «両隣の長さの差» — 全件が偽．
+    pub clean_neighbour_gap: BTreeMap<u32, usize>,
+    /// 崩した場所で捕まえた谷の «両隣の長さの差» — 全件が真．
+    pub defect_neighbour_gap: BTreeMap<u32, usize>,
 }
 
 impl Summary {
@@ -236,6 +244,43 @@ fn caught_near(canvas: &IndexedCanvas, x: usize, max_move: u32) -> bool {
         .any(|j| j.pixels.iter().any(|q| (q.x - x as i32).abs() <= 2))
 }
 
+/// 谷の «深さ» と «両隣の差» を数える．
+///
+/// **偽 (清書) と真 (崩した場所) で形が分かれるかを見るため**に取る —
+/// 分かれるなら `smooth` が動かない条件をそこから書ける (D168)．
+///
+/// 両隣の差は「目標 (両隣の小さい方) − 谷の長さ」ではなく，
+/// **両隣どうしの差** ($|r_{i-1} - r_{i+1}|$) である．理想の digitization では
+/// 隣り合う走りの長さは 1 しか違わないので，ここが開いていれば «並びが崩れている»．
+fn depth_of(canvas: &IndexedCanvas, max_move: u32, near: Option<usize>) -> Vec<(i32, u32)> {
+    let report = analyze_canvas(canvas, max_move);
+    let mut out = Vec::new();
+    for chain in trace_contours(&canvas.mask_of(FG)) {
+        for part in split_monotone(&chain) {
+            let r = run_lengths(&part);
+            for i in run_valleys(&r) {
+                if i == 0 || i + 1 >= r.len() {
+                    continue;
+                }
+                let gap = r[i - 1].abs_diff(r[i + 1]);
+                let target = r[i - 1].min(r[i + 1]) as i32;
+                out.push((target - r[i] as i32, gap));
+            }
+        }
+    }
+    // 崩した場所を指定されているときは，そこで鳴った件だけに絞る
+    if let Some(x) = near {
+        let hit = report
+            .jaggies
+            .iter()
+            .any(|j| j.pixels.iter().any(|q| (q.x - x as i32).abs() <= 2));
+        if !hit {
+            return Vec::new();
+        }
+    }
+    out
+}
+
 const SLOPES: [(u32, u32); 20] = [
     // 走りが 1 種類だけになる傾き (単位分数)
     (1, 1),
@@ -359,10 +404,39 @@ pub fn run(max_move: u32) -> Summary {
             .collect()
     };
 
+    // **偽と真で谷の形が分かれるかを測る** (D168)
+    let mut clean_depths: BTreeMap<i32, usize> = BTreeMap::new();
+    let mut clean_neighbour_gap: BTreeMap<u32, usize> = BTreeMap::new();
+    for (_, _, canvas) in clean_scenes() {
+        for (d, gap) in depth_of(&canvas, max_move, None) {
+            *clean_depths.entry(d).or_default() += 1;
+            *clean_neighbour_gap.entry(gap).or_default() += 1;
+        }
+    }
+    let mut defect_depths: BTreeMap<i32, usize> = BTreeMap::new();
+    let mut defect_neighbour_gap: BTreeMap<u32, usize> = BTreeMap::new();
+    for (name, heights, h) in defect_bases() {
+        let _ = &name;
+        for k in 0..3 {
+            let Some((broken, x)) = shift_one_step(&heights, k * 5) else {
+                continue;
+            };
+            let canvas = from_heights(&broken, h);
+            for (d, gap) in depth_of(&canvas, max_move, Some(x)) {
+                *defect_depths.entry(d).or_default() += 1;
+                *defect_neighbour_gap.entry(gap).or_default() += 1;
+            }
+        }
+    }
+
     Summary {
         clean,
         defects: make(shift_one_step),
         bumps: make(bump_one),
+        clean_depths,
+        defect_depths,
+        clean_neighbour_gap,
+        defect_neighbour_gap,
     }
 }
 
