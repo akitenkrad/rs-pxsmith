@@ -174,7 +174,7 @@ fn parse_and_lint(raw: &str, path: &Path) -> Attempt {
     //
     // ここが抜けていた (D165) — `px lint` は 22 〜 27 を掛けるのに生成の輪は
     // 掛けていなかったので，**道具が «通った» と言った列が自分の検査に落ちる**
-    // 状態だった (6 ルール中 4 つが blocking である)．
+    // 状態だった (6 ルール中 5 つが blocking である — 27 だけ advisory)．
     // `px gen prog --frames 8` で出した絵がまさにそれに当たる．
     if frames.len() >= 2 {
         let (report, _coverage) = px_lint::lint_sequence(&frames, &cfg);
@@ -384,7 +384,7 @@ mod tests {
     ///
     /// `px lint` は 22 〜 27 を掛けるのに，生成の輪は 1 コマずつしか見て
     /// いなかった — **道具が «通った» と言った列が自分の検査に落ちる**状態で，
-    /// 6 ルール中 4 つが blocking である．
+    /// 6 ルール中 5 つが blocking である (27 だけ advisory)．
     #[test]
     fn a_blocking_sequence_rule_turns_the_loop() {
         let w = Workdir::new("sequence");
