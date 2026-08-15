@@ -6,11 +6,9 @@
 
 <p align="center"><em>A Makefile for pixel art.</em></p>
 
-<!-- Restore after `cargo publish --workspace`:
-  <a href="https://crates.io/crates/pxsmith-core"><img src="https://img.shields.io/crates/v/pxsmith-core.svg" alt="crates.io"></a>
-  <a href="https://docs.rs/pxsmith-core"><img src="https://docs.rs/pxsmith-core/badge.svg" alt="docs.rs"></a>
--->
 <p align="center">
+  <a href="https://crates.io/crates/pxsmith"><img src="https://img.shields.io/crates/v/pxsmith.svg" alt="crates.io"></a>
+  <a href="https://docs.rs/pxsmith-core"><img src="https://docs.rs/pxsmith-core/badge.svg" alt="docs.rs"></a>
   <a href="https://github.com/akitenkrad/rs-pxsmith/actions/workflows/ci.yml"><img src="https://github.com/akitenkrad/rs-pxsmith/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg" alt="License">
   <img src="https://img.shields.io/badge/rust-2024%20edition-orange.svg" alt="Rust 2024">

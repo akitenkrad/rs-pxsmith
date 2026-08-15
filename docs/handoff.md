@@ -5,9 +5,9 @@
 - 更新: 2026-08-15 (**M0 〜 M7 完了．付録 B ・付録 C は全件閉じた．
   R22 は D170 で閉じ，M2 の区分 B は D173 で目標を超えた (42 / 50)．
   名前は D175 〜 D177 で `pxsmith*` に統一した — パッケージ ・ディレクトリ ・
-  ライブラリ ・**bin** ・**GitHub リポジトリ**まで．`cargo publish --workspace --dry-run`
-  はライブラリ 6 つとも通る．**次は `cargo publish` を人が実行するだけ** —
-  D174 〜 D177 を読むこと)
+  ライブラリ ・**bin** ・**GitHub リポジトリ**まで．
+  **crates.io へ 8 クレートを公開した (D179)．`cargo install pxsmith` が使える** —
+  D174 〜 D179 を読むこと)
 - 仕様: Obsidian の `設計書/ドット絵CLI-Rust/` — `設計書.md` / `実装計画書.md` / `開発ノート.md`
 - **`開発ノート.md` に「実装して初めて分かったこと」が全部入っている．** 設計書だけ読むと
   同じ穴に落ちる
@@ -49,7 +49,7 @@
 | テスト | **948 件**すべて通過 |
 | 品質 | `cargo fmt --all --check` と `cargo clippy --workspace --all-targets -- -D warnings` がクリーン |
 | クレート | `pxsmith-core` / `pxsmith-io` / `pxsmith-view` / `pxsmith-macro` / `pxsmith-lint` / `pxsmith-recipe` / **`pxsmith-gen`** / `pxsmith` (CLI．**コマンド名は `pxsmith`**) / `pxsmith-calib` (**コマンド名は `pxsmith-calib`**) |
-| 公開 | **まだ出していない．** `publish = true` は **8 クレート** (core / io / lint / recipe / macro / gen / view / pxsmith)．出さないのは測定用ハーネス `pxsmith-calib` だけ (D178 で view と CLI を対象に加えた — LGPL の義務はソース公開には掛からない) |
+| 公開 | **crates.io に 8 クレートすべて公開済み (0.1.0．D179)** — core / io / lint / recipe / macro / gen / view / pxsmith．出していないのは測定用ハーネス `pxsmith-calib` だけ |
 | リポジトリ | `github.com/akitenkrad/`**`rs-pxsmith`** (D177 で改名．旧 `rs-pxforge` は GitHub 側のリダイレクトが残る)．ローカルも `~/Documents/workspace/rust/rs-pxsmith` |
 | ブランチ | `main` |
 | コミット | **D175 〜 D177 (改名一式) は未コミット．** それ以前はコミット済み (最後のコミットは `git log -1` で見る — 番号をここに書くと自分を追いかける) |
@@ -106,9 +106,9 @@
 > > ワークスペース根の 3 つを各クレートへ symlink して直した (cargo は symlink を
 > > 実体化して梱包する)．**`NOTICE` は拡張子が無いので改名の置換からも漏れていた．**
 >
-> **`publish = true` を立てたのはライブラリ 6 つだけ** — `pxsmith` (CLI) ・
-> `pxsmith-view` は LGPL の再リンク義務，`pxsmith-calib` は測定用ハーネスなので
-> `publish = false` のまま．**まだ出していない** (`cargo publish` は鍵が要るので人が実行する)．
+> **`publish = true` は 8 クレート** (core / io / lint / recipe / macro / gen / view /
+> pxsmith)．`pxsmith-calib` は測定用ハーネスなので `publish = false` のまま．
+> **2026-08-15 に 0.1.0 として全件公開した** (D179)．
 
 > [!note] 2026-08-15 の変更 — **crates.io の準備．名前が取られていただけでは済まなかった** (D174)
 > **これは改名前の記録である** — 下の名前は当時のもので，いまは `pxsmith*` (D175)．

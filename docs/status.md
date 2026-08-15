@@ -518,6 +518,43 @@ GitHub の `akitenkrad/rs-pxforge` を **`akitenkrad/rs-pxsmith` へ改名**し�
 > `--workspace` はそこで止まるので，**末尾だけ読むと «ok» に見える**
 > (最後に走ったのは通った試験である) ．D138 «飛ばした件を数える» と同じ側．
 
+### crates.io へ公開した — 新規クレートはバースト 5 で止まる (2026-08-15 ・D179)
+
+`cargo publish --workspace` を実行し，**8 クレートすべてを 0.1.0 として公開した**．
+`pxsmith-core` / `pxsmith-io` / `pxsmith-lint` / `pxsmith-recipe` / `pxsmith-macro` /
+`pxsmith-gen` / `pxsmith-view` / `pxsmith` である．出していないのは測定用ハーネス
+`pxsmith-calib` だけである．
+
+> [!warning] **1 度では終わらない — 5 件目で 429 に当たる．**
+> 梱包と検証は 8 件すべて通り，アップロードも 5 件目までは進んだが，そこで
+> `429 Too Many Requests` («You have published too many new crates in a short
+> period of time») で止まった．**失敗ではなく待ちである．**
+>
+> crates.io の実装 (`src/rate_limiter.rs`) は次のとおり定めている．
+>
+> | 動作 | バースト | 補充 |
+> | --- | ---: | --- |
+> | **新規クレート** (`PublishNew`) | **5** | **10 分に 1 件** |
+> | 既存クレートの新版 (`PublishUpdate`) | 30 | 1 分に 1 件 |
+> | yank / unyank | 100 | 1 分に 1 件 |
+>
+> **新規に 6 つ以上のクレートを出すワークスペースは，必ず途中で止まる．**
+> 応答に «try again after ...» (GMT) が入るので，そこから 10 分おきに残りを
+> `-p` で個別に出す．順序は依存に従う — このときは `pxsmith-macro` →
+> `pxsmith-gen` → `pxsmith` であった (`pxsmith` は gen と macro の両方が
+> 登録所に載っていないと梱包の検証に落ちる) ．
+>
+> 途中で止まっても**課金も不整合も起きない**．公開済みの分はそのまま残る．
+
+公開後に README のバッジを戻した．crates.io バッジは `pxsmith` (CLI) を指す —
+利用者が最初に触るのはコマンドだからである．docs.rs バッジは `pxsmith-core` を指す．
+
+```sh
+rm -rf target/package          # 残骸があると誤診する (D178)
+cargo publish --workspace      # 5 件目で 429 に当たる想定
+cargo publish -p <残り>         # 10 分おきに，依存順で
+```
+
 ### `viuer` を optional にして 8 クレートすべてを公開対象にした (2026-08-15 ・D178)
 
 D175 は «`pxsmith` と `pxsmith-view` は LGPL の再リンク義務があるので出さない» と
