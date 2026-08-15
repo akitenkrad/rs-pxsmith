@@ -108,6 +108,16 @@ pub struct GenRequest {
     pub constraints: Constraints,
     /// 検査に落ちたときに作り直す上限 (設計書 8.2 の $n_{\max}$)．
     pub max_attempts: u32,
+    /// 応答の上限トークン．**思考と本文の合算に掛かる** (D160)．
+    ///
+    /// **上限であって目標ではない** — 上げても応答は長くならない．
+    /// 既定は [`crate::anthropic::DEFAULT_MAX_TOKENS`]．
+    ///
+    /// > [!note] **鍵に混ぜる** (D165)．
+    /// > 同じ依頼でも上限が違えば «切れた応答» と «通った応答» に分かれるので，
+    /// > 混ぜないと**切れた結果を上限の広い依頼へ返してしまう**．
+    /// > 当たりが減る代わりに，返ってきたものが依頼に対応していることを保つ．
+    pub max_tokens: u32,
 }
 
 /// 生成物が満たすべき形．**絵から決まらないので宣言させる** (D89)．
@@ -143,6 +153,8 @@ impl GenRequest {
         h.update(&self.constraints.width.to_le_bytes());
         h.update(&self.constraints.height.to_le_bytes());
         h.update(&self.constraints.frames.to_le_bytes());
+        // **上限も混ぜる** (D165) — 上限が違えば «切れた» と «通った» に分かれる
+        h.update(&self.max_tokens.to_le_bytes());
         for c in &self.constraints.palette {
             h.update(c.as_bytes());
             h.update(b"\0");
@@ -205,6 +217,7 @@ mod tests {
                 frames: 1,
             },
             max_attempts: 3,
+            max_tokens: crate::anthropic::DEFAULT_MAX_TOKENS,
         }
     }
 
@@ -238,6 +251,11 @@ mod tests {
         let mut pal = req();
         pal.constraints.palette.push("b13e53".to_string());
         assert_ne!(pal.key(), base, "パレットが鍵に入っていない");
+
+        // **壊れると: 上限を絞った依頼へ «切れていない» 結果が返る** (D165)
+        let mut t = req();
+        t.max_tokens = 256;
+        assert_ne!(t.key(), base, "上限トークンが鍵に入っていない");
 
         let mut ep = req();
         ep.backend.endpoint = "https://example.invalid/v1".to_string();

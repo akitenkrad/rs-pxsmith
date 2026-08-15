@@ -63,7 +63,12 @@ const FALLBACK_BETA: &str = "server-side-fallback-2026-07-01";
 /// 流で受けるので時間切れを気にせず取れる — 手引きの «流すなら 64000» に合わせる
 /// (一括で受けていたころの 16000 は «時間切れしない上限» であって，
 /// 絵に要る量ではなかった) ．上限であって目標ではないので，上げても高くならない．
-const MAX_TOKENS: u32 = 64000;
+///
+/// **依頼ごとに変えられる** (`GenRequest::max_tokens` ・`--max-tokens`．D165) —
+/// 固定したままだと [`GenError::Truncated`] の道が**偽バックエンドの試験でしか
+/// 通らない**．本物の応答で 1 度も通っていない道は «ある» とは言えない
+/// (D80 ・D145 ・D162 ・D164 と同じ側)．
+pub const DEFAULT_MAX_TOKENS: u32 = 64000;
 
 /// Anthropic Messages API を叩くバックエンド．
 pub struct AnthropicGenerator {
@@ -186,7 +191,7 @@ fn build_body(req: &GenRequest, palette_ref: &str, feedback: Option<&str>) -> se
 
     let mut body = serde_json::json!({
         "model": req.backend.model,
-        "max_tokens": MAX_TOKENS,
+        "max_tokens": req.max_tokens,
         // **流で受ける** (D162) — 一括で受けると思考の間 1 バイトも流れず，
         // 60 秒で経路に畳まれる．依頼の中身ではなく «受け取り方» の欄である
         "stream": true,
@@ -263,7 +268,7 @@ impl Generator for AnthropicGenerator {
             return Err(error_from_status(status, &text));
         }
 
-        read_stream(response.body_mut().as_reader())?.finish()
+        read_stream(response.body_mut().as_reader())?.finish(req.max_tokens)
     }
 
     fn describe(&self) -> String {
@@ -318,14 +323,14 @@ impl Outcome {
     /// **`stop_reason` を本文より先に見る** — 断られたときや切れたときは
     /// `content` が空か途中までしかないので，本文から読むとそこで落ちて
     /// **本当の理由が消える**．
-    fn finish(self) -> Result<String> {
+    /// `max_tokens` は**報告のために渡す** — 依頼ごとに違うので
+    /// 定数から読むと «こちらが要求した上限» を言えなくなる (D165)．
+    fn finish(self, max_tokens: u32) -> Result<String> {
         // **上限に当たったのを先に見る** — 構造化出力は途中で切れると JSON に
         // ならないので，見ないと «JSON になっていない» と誤診する．原因は
         // «壊れた応答» ではなく «こちらが要求した上限» である (D160)．
         if self.stop_reason.as_deref() == Some("max_tokens") {
-            return Err(GenError::Truncated {
-                max_tokens: MAX_TOKENS,
-            });
+            return Err(GenError::Truncated { max_tokens });
         }
 
         // **断りも本文より先に見る**
@@ -468,6 +473,7 @@ mod tests {
                 frames: 1,
             },
             max_attempts: 3,
+            max_tokens: DEFAULT_MAX_TOKENS,
         }
     }
 
@@ -607,7 +613,10 @@ mod tests {
             serde_json::json!({"type": "message_delta", "delta": {"stop_reason": "end_turn"}}),
             serde_json::json!({"type": "message_stop"}),
         ]);
-        let l0 = read_stream(body.as_bytes()).unwrap().finish().unwrap();
+        let l0 = read_stream(body.as_bytes())
+            .unwrap()
+            .finish(DEFAULT_MAX_TOKENS)
+            .unwrap();
         assert!(l0.starts_with("[meta]"), "本文が繋がっていない: {l0}");
     }
 
@@ -629,7 +638,10 @@ mod tests {
             serde_json::json!({"type": "message_delta", "delta": {"stop_reason": "end_turn"}}),
         ]);
         assert_eq!(
-            read_stream(body.as_bytes()).unwrap().finish().unwrap(),
+            read_stream(body.as_bytes())
+                .unwrap()
+                .finish(DEFAULT_MAX_TOKENS)
+                .unwrap(),
             "ok"
         );
     }
@@ -648,7 +660,10 @@ mod tests {
                 "delta": {"stop_reason": "refusal", "stop_details": {"category": "cyber"}},
             }),
         ]);
-        match read_stream(body.as_bytes()).unwrap().finish() {
+        match read_stream(body.as_bytes())
+            .unwrap()
+            .finish(DEFAULT_MAX_TOKENS)
+        {
             Err(GenError::Refused { category }) => assert_eq!(category, "cyber"),
             other => panic!("断りとして読めていない: {other:?}"),
         }
@@ -662,8 +677,11 @@ mod tests {
             text_delta(0, "{\"l0\": \"[meta]"),
             serde_json::json!({"type": "message_delta", "delta": {"stop_reason": "max_tokens"}}),
         ]);
-        match read_stream(body.as_bytes()).unwrap().finish() {
-            Err(GenError::Truncated { max_tokens }) => assert_eq!(max_tokens, MAX_TOKENS),
+        match read_stream(body.as_bytes())
+            .unwrap()
+            .finish(DEFAULT_MAX_TOKENS)
+        {
+            Err(GenError::Truncated { max_tokens }) => assert_eq!(max_tokens, DEFAULT_MAX_TOKENS),
             other => panic!("上限として読めていない: {other:?}"),
         }
     }
@@ -700,7 +718,10 @@ mod tests {
             serde_json::json!({"type": "message_delta", "delta": {"stop_reason": "end_turn"}}),
         ]));
         assert_eq!(
-            read_stream(body.as_bytes()).unwrap().finish().unwrap(),
+            read_stream(body.as_bytes())
+                .unwrap()
+                .finish(DEFAULT_MAX_TOKENS)
+                .unwrap(),
             "ok"
         );
     }

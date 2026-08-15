@@ -183,6 +183,7 @@ mod tests {
                 frames: 1,
             },
             max_attempts: 1,
+            max_tokens: crate::anthropic::DEFAULT_MAX_TOKENS,
         }
     }
 

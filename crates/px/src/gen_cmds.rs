@@ -55,6 +55,12 @@ pub struct ProgArgs {
     /// 検査に落ちたときに作り直す上限 (設計書 8.2 の n_max)
     #[arg(long, default_value_t = 3)]
     pub attempts: u32,
+    /// 応答の上限トークン．**思考と本文の合算に掛かる**．
+    ///
+    /// 上限であって目標ではないので上げても応答は長くならない．
+    /// **小さくすると «切れた» 側の道を実際に通せる**（D165）
+    #[arg(long, default_value_t = px_gen::anthropic::DEFAULT_MAX_TOKENS)]
+    pub max_tokens: u32,
     /// 叩かずに，何をどう頼むかだけ出す
     #[arg(long)]
     pub dry_run: bool,
@@ -113,6 +119,7 @@ fn prog(args: &ProgArgs) -> Result<()> {
             frames: args.frames,
         },
         max_attempts: args.attempts,
+        max_tokens: args.max_tokens,
     };
 
     let (dir, stem) = split_output(&args.output)?;
