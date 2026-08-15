@@ -168,6 +168,15 @@ tarball against the registry, so it finds errors that **cannot occur in your
 workspace**. Three of five crates failed the first time it was run, one of them
 by silently resolving a path dependency to an unrelated crate of the same name.
 
+"End to end" includes platforms you do not develop on. The L0 text format split
+rows on `\n` and kept whatever came before it, so a file delivered with **CRLF**
+line endings put a carriage return in every row and failed with *"the character
+`␍` is not in the [palette] map"*. L0 is meant to be edited by hand and Windows
+git converts line endings on checkout, so this was reachable by any Windows user
+— and it was invisible on macOS and Linux. The sibling `.hex` reader had used
+`str::lines()` from the start and was never affected: the entire difference was
+one call site.
+
 ## 9. Read the specification before writing about it
 
 Prompt text describing the tool's own file format was written from memory and was

@@ -483,9 +483,14 @@ fn decode(
     path: &Path,
     frame: &str,
 ) -> Result<IndexedCanvas> {
-    // 閉じ区切り直前の改行を 1 つだけ落とす (開き直後の改行は TOML が落としている)
-    let body = data.strip_suffix('\n').unwrap_or(data);
-    let rows: Vec<&str> = body.split('\n').collect();
+    // 閉じ区切り直前の改行を 1 つだけ落とし，行へ分ける (開き直後の改行は TOML が落としている)．
+    //
+    // **`str::lines()` を使う** — `split('\n')` だと行末の `\r` が画素として残るので，
+    // **CRLF で届いた L0 が «文字 '␍' が [palette] map に無い» で落ちる**．
+    // L0 は人が編集する形式であり，Windows の git は既定でチェックアウト時に
+    // CRLF へ変えるので，これは実利用で踏む (`.hex` 側は元から `lines()` である)．
+    // 書く側は常に `\n` を書く — 寛容なのは読む側だけでよい．
+    let rows: Vec<&str> = data.lines().collect();
     if rows.is_empty() || rows.iter().all(|r| r.is_empty()) {
         return Err(IoError::Parse {
             path: path.to_path_buf(),
@@ -782,6 +787,38 @@ data = '''
         let frames = doc.to_frames(&path).unwrap();
         assert_eq!(frames[0].kind, FrameKind::Inbetween);
         assert_eq!(frames[0].duration_ms, 42);
+    }
+
+    /// **L0 は人が編集する形式なので，CRLF で届く．**
+    /// Windows の git は既定でチェックアウト時に `\n` を `\r\n` へ変える．
+    /// 行末の `\r` を画素として読むと «文字 '␍' が [palette] map に無い» で落ちる —
+    /// これは Windows の CI でのみ出た (`px-macro` の fixture が CRLF になるため)．
+    /// **`.hex` 側は `str::lines()` を使っていて元から通っていた**ので，
+    /// 差は «行の分け方» 1 か所にしかなかった．
+    #[test]
+    fn crlf_line_endings_parse_the_same_as_lf() {
+        let lf = scratch("crlf_line_endings_parse_the_same_as_lf_lf");
+        let crlf = scratch("crlf_line_endings_parse_the_same_as_lf_crlf");
+
+        let want = L0Document::parse(HERO, &lf)
+            .unwrap()
+            .to_frames(&lf)
+            .unwrap();
+        let got = L0Document::parse(&HERO.replace('\n', "\r\n"), &crlf)
+            .unwrap()
+            .to_frames(&crlf)
+            .unwrap();
+
+        assert_eq!(got.len(), want.len());
+        for (g, w) in got.iter().zip(&want) {
+            assert_eq!(g.size, w.size, "画布が CRLF で変わった");
+            let (gi, wi) = (
+                g.layers[0].surface.as_indexed().unwrap(),
+                w.layers[0].surface.as_indexed().unwrap(),
+            );
+            assert_eq!(gi.width(), wi.width(), "幅が CRLF で変わった");
+            assert_eq!(gi.pixels(), wi.pixels(), "画素が CRLF で変わった");
+        }
     }
 
     #[test]
