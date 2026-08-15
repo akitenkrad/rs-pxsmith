@@ -26,11 +26,22 @@ pub enum GenError {
     ///
     /// これは «壊れた» ではない — 応答は正常に返っており，モデルが内容を
     /// 断っただけである．作り直しても同じなので**輪を回さずに落とす**．
+    ///
+    /// > [!note] **分類だけでは何が引っ掛かったか読めない** (D171)．
+    /// > `stop_details` には `category` と並んで `explanation` が入る．
+    /// > 分類は開いた集合 (`cyber` ・`bio` ・`reasoning_extraction` …) なので，
+    /// > 名前だけ見ても直しようがない — **説明の方が唯一の手掛かりである**．
+    /// > どちらも欠けうるので，無いときは無いと言う (D77 ・D104)．
     #[error(
-        "モデルが生成を断った (分類 {category})．同じ依頼を作り直しても同じなので\
-         止める — プロンプトを書き直すこと"
+        "モデルが生成を断った (分類 {category}{})．同じ依頼を作り直しても同じなので\
+         止める — プロンプトを書き直すこと",
+        .explanation.as_deref().map(|e| format!("・{e}")).unwrap_or_default()
     )]
-    Refused { category: String },
+    Refused {
+        category: String,
+        /// `stop_details.explanation`．**無いこともある**．
+        explanation: Option<String>,
+    },
 
     /// 応答の形が想定と違う．
     #[error("応答を読めない: {message}")]

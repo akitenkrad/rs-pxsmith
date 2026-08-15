@@ -46,7 +46,7 @@
 use std::io::{BufRead, BufReader, Read};
 
 use crate::error::{GenError, Result};
-use crate::repair::Generator;
+use crate::repair::{Generated, Generator};
 use crate::request::{GenKind, GenRequest};
 
 /// 鍵を置く環境変数．**依頼にも素性にも鍵は書かない．**
@@ -245,7 +245,7 @@ pub fn preview_request(req: &GenRequest, palette_ref: &str) -> String {
 }
 
 impl Generator for AnthropicGenerator {
-    fn generate(&self, req: &GenRequest, feedback: Option<&str>) -> Result<String> {
+    fn generate(&self, req: &GenRequest, feedback: Option<&str>) -> Result<Generated> {
         if req.kind != GenKind::Prog {
             return Err(GenError::NotWritten { kind: req.kind });
         }
@@ -334,6 +334,13 @@ fn error_from_status(status: u16, text: &str) -> GenError {
 struct Outcome {
     stop_reason: Option<String>,
     refusal_category: Option<String>,
+    /// 断りの説明文 (`stop_details.explanation`)．**分類だけでは何が引っ掛かったか
+    /// 読めない**ので併せて読む (D159 «読めるなら読む» と同じ側．D171)．
+    refusal_explanation: Option<String>,
+    /// **応答が名乗ったモデル** (`message_start` の `message.model`)．
+    served_model: Option<String>,
+    /// 断りを別のモデルが肩代わりしたか (`fallback` の塊が来たか)．
+    fell_back: bool,
     /// 最初の `text` ブロックの中身 (思考ブロックは入れない)．
     text: Option<String>,
 }
@@ -344,7 +351,7 @@ impl Outcome {
     /// **本当の理由が消える**．
     /// `max_tokens` は**報告のために渡す** — 依頼ごとに違うので
     /// 定数から読むと «こちらが要求した上限» を言えなくなる (D165)．
-    fn finish(self, max_tokens: u32) -> Result<String> {
+    fn finish(self, max_tokens: u32) -> Result<Generated> {
         // **上限に当たったのを先に見る** — 構造化出力は途中で切れると JSON に
         // ならないので，見ないと «JSON になっていない» と誤診する．原因は
         // «壊れた応答» ではなく «こちらが要求した上限» である (D160)．
@@ -356,6 +363,7 @@ impl Outcome {
         if self.stop_reason.as_deref() == Some("refusal") {
             return Err(GenError::Refused {
                 category: self.refusal_category.unwrap_or_else(|| "不明".to_string()),
+                explanation: self.refusal_explanation,
             });
         }
 
@@ -368,13 +376,18 @@ impl Outcome {
             serde_json::from_str(&raw).map_err(|e| GenError::BadResponse {
                 message: format!("構造化出力が JSON になっていない: {e}"),
             })?;
-        parsed
+        let l0 = parsed
             .get("l0")
             .and_then(|l| l.as_str())
             .map(str::to_string)
             .ok_or_else(|| GenError::BadResponse {
                 message: "l0 の欄が無い".to_string(),
-            })
+            })?;
+        Ok(Generated {
+            l0,
+            served_model: self.served_model,
+            fell_back: self.fell_back,
+        })
     }
 }
 
@@ -426,7 +439,17 @@ fn read_stream(reader: impl Read) -> Result<Outcome> {
                     message: error_message(&v),
                 });
             }
+            // **誰が答えたかはここで名乗る** — 依頼したモデルとは限らない (D171)
+            Some("message_start") => {
+                if let Some(m) = v.pointer("/message/model").and_then(|m| m.as_str()) {
+                    out.served_model = Some(m.to_string());
+                }
+            }
             Some("content_block_start") => {
+                // 肩代わりの継ぎ目は普通の塊として届く (専用の事象は無い)
+                if v.pointer("/content_block/type").and_then(|t| t.as_str()) == Some("fallback") {
+                    out.fell_back = true;
+                }
                 let is_text =
                     v.pointer("/content_block/type").and_then(|t| t.as_str()) == Some("text");
                 if let (true, Some(i)) = (is_text, v.get("index").and_then(|i| i.as_u64())) {
@@ -454,6 +477,12 @@ fn read_stream(reader: impl Read) -> Result<Outcome> {
                     .and_then(|c| c.as_str())
                 {
                     out.refusal_category = Some(c.to_string());
+                }
+                if let Some(e) = v
+                    .pointer("/delta/stop_details/explanation")
+                    .and_then(|e| e.as_str())
+                {
+                    out.refusal_explanation = Some(e.to_string());
                 }
             }
             _ => {}
@@ -666,7 +695,124 @@ mod tests {
             .unwrap()
             .finish(DEFAULT_MAX_TOKENS)
             .unwrap();
-        assert!(l0.starts_with("[meta]"), "本文が繋がっていない: {l0}");
+        assert!(
+            l0.l0.starts_with("[meta]"),
+            "本文が繋がっていない: {:?}",
+            l0.l0
+        );
+    }
+
+    /// **応答は自分が誰か名乗る — それを読む** (D171)．
+    ///
+    /// **壊れると: 素性が «依頼したモデル» しか書けなくなり，肩代わりされた
+    /// ときに «この絵を作ったモデル» を取り違える．**
+    #[test]
+    fn the_answer_says_which_model_produced_it() {
+        let inner = serde_json::json!({"l0": "ok"}).to_string();
+        let body = sse(&[
+            serde_json::json!({
+                "type": "message_start",
+                "message": {"model": "claude-opus-5"},
+            }),
+            text_start(0),
+            text_delta(0, &inner),
+            serde_json::json!({"type": "message_delta", "delta": {"stop_reason": "end_turn"}}),
+        ]);
+        let got = read_stream(body.as_bytes())
+            .unwrap()
+            .finish(DEFAULT_MAX_TOKENS)
+            .unwrap();
+        assert_eq!(got.served_model.as_deref(), Some("claude-opus-5"));
+        assert!(!got.fell_back, "肩代わりしていないのに立っている");
+    }
+
+    /// **断りを別のモデルが肩代わりすると，答えたモデルが変わる** (D171)．
+    ///
+    /// 肩代わりの継ぎ目に専用の事象は無く，**普通の `content_block_start` として
+    /// 届く**ので，塊の型で見分けるしかない．
+    ///
+    /// **壊れると: 素性が «claude-opus-5 が作った» と嘘をつく．**
+    #[test]
+    fn a_fallback_changes_who_answered_and_is_recorded() {
+        let inner = serde_json::json!({"l0": "ok"}).to_string();
+        let body = sse(&[
+            serde_json::json!({
+                "type": "message_start",
+                "message": {"model": "claude-opus-4-8"},
+            }),
+            serde_json::json!({
+                "type": "content_block_start", "index": 0,
+                "content_block": {
+                    "type": "fallback",
+                    "from": {"model": "claude-opus-5"},
+                    "to": {"model": "claude-opus-4-8"},
+                },
+            }),
+            serde_json::json!({"type": "content_block_stop", "index": 0}),
+            text_start(1),
+            text_delta(1, &inner),
+            serde_json::json!({"type": "message_delta", "delta": {"stop_reason": "end_turn"}}),
+        ]);
+        let got = read_stream(body.as_bytes())
+            .unwrap()
+            .finish(DEFAULT_MAX_TOKENS)
+            .unwrap();
+        assert!(got.fell_back, "肩代わりを見落とした");
+        assert_eq!(
+            got.served_model.as_deref(),
+            Some("claude-opus-4-8"),
+            "依頼したモデルの方を記録している"
+        );
+        assert_eq!(got.l0, "ok", "肩代わりの塊を本文と取り違えた");
+    }
+
+    /// **断りの説明を捨てない** (D171)．
+    ///
+    /// 分類は開いた集合なので，名前だけでは何が引っ掛かったか読めない．
+    ///
+    /// **壊れると: «分類 cyber» としか言えず，直しようがない．**
+    #[test]
+    fn a_refusal_keeps_its_explanation_not_just_its_category() {
+        let body = sse(&[serde_json::json!({
+            "type": "message_delta",
+            "delta": {
+                "stop_reason": "refusal",
+                "stop_details": {
+                    "type": "refusal",
+                    "category": "cyber",
+                    "explanation": "攻撃コードの生成に当たるため",
+                },
+            },
+        })]);
+        let err = read_stream(body.as_bytes())
+            .unwrap()
+            .finish(DEFAULT_MAX_TOKENS)
+            .unwrap_err();
+        let text = err.to_string();
+        assert!(text.contains("cyber"), "分類が消えた: {text}");
+        assert!(text.contains("攻撃コードの生成"), "説明が消えた: {text}");
+    }
+
+    /// **説明が無いときは無いと言う** — 空文字を «説明があった» と読ませない．
+    #[test]
+    fn a_refusal_without_an_explanation_still_reports_its_category() {
+        let body = sse(&[serde_json::json!({
+            "type": "message_delta",
+            "delta": {"stop_reason": "refusal", "stop_details": {"category": "bio"}},
+        })]);
+        match read_stream(body.as_bytes())
+            .unwrap()
+            .finish(DEFAULT_MAX_TOKENS)
+        {
+            Err(GenError::Refused {
+                category,
+                explanation,
+            }) => {
+                assert_eq!(category, "bio");
+                assert_eq!(explanation, None, "無い説明を作った");
+            }
+            other => panic!("断りとして読めていない: {other:?}"),
+        }
     }
 
     /// **壊れると: 思考ブロックを本文と取り違える** (一括の側と同じ不変条件)．
@@ -690,7 +836,8 @@ mod tests {
             read_stream(body.as_bytes())
                 .unwrap()
                 .finish(DEFAULT_MAX_TOKENS)
-                .unwrap(),
+                .unwrap()
+                .l0,
             "ok"
         );
     }
@@ -713,7 +860,7 @@ mod tests {
             .unwrap()
             .finish(DEFAULT_MAX_TOKENS)
         {
-            Err(GenError::Refused { category }) => assert_eq!(category, "cyber"),
+            Err(GenError::Refused { category, .. }) => assert_eq!(category, "cyber"),
             other => panic!("断りとして読めていない: {other:?}"),
         }
     }
@@ -770,7 +917,8 @@ mod tests {
             read_stream(body.as_bytes())
                 .unwrap()
                 .finish(DEFAULT_MAX_TOKENS)
-                .unwrap(),
+                .unwrap()
+                .l0,
             "ok"
         );
     }

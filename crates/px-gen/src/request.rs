@@ -176,7 +176,17 @@ pub struct Provenance {
     pub tool: String,
     pub backend: String,
     pub endpoint: String,
+    /// **依頼したモデル** — 応答したモデルとは限らない ([`Provenance::served_model`])．
     pub model: String,
+    /// **実際にこの絵を作ったモデル** (応答が名乗った名前．D171)．
+    ///
+    /// 道具は `fallbacks` を送っているので，断られた依頼は**別のモデルが
+    /// 肩代わりして返す**ことがある．`model` だけを書くと，素性が
+    /// «この絵を作ったモデル» を取り違える — D157 が素性に求めたのはまさに
+    /// そこである．**読めなかったときは `None`** で，«同じだった» とは書かない．
+    pub served_model: Option<String>,
+    /// 断りを別のモデルが肩代わりしたか (D171)．
+    pub fell_back: bool,
     pub effort: String,
     /// 依頼の鍵 — **これが同じなら同じものを頼んでいる**．
     pub request_key: String,

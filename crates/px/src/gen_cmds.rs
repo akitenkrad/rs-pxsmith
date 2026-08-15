@@ -184,6 +184,26 @@ fn prog(args: &ProgArgs) -> Result<()> {
                 describe_frames(&v.frames)
             );
             println!("    素性 -> {}", session.provenance_path().display());
+            // **誰が答えたかを言う** (D171) — `fallbacks` を送っているので，
+            // 断られた依頼は別のモデルが肩代わりして返すことがある．
+            // «同じだった» と «見ていない» を分ける (D77 ・D104)
+            match &v.served_model {
+                Some(m) if *m != args.model => println!(
+                    "    ** 答えたのは {m} である ** — 頼んだのは {} だが，断られたので\n\
+                     \u{3000}\u{3000}別のモデルが肩代わりした (`fallbacks`)．素性にはこの名前が残る",
+                    args.model
+                ),
+                Some(m) => println!("    答えたモデル: {m}"),
+                None => println!(
+                    "    答えたモデル: **読めなかった** — «頼んだモデルが答えた» とは限らない"
+                ),
+            }
+            if v.fell_back {
+                println!(
+                    "    ** 断りを肩代わりされた ** — 頼んだモデルはこの依頼を断っている．\n\
+                     \u{3000}\u{3000}依頼の中身を見直すこと (肩代わりは «通った» ではない)"
+                );
+            }
             // **advisory を «直った» と読ませない** (D77 ・D104)
             println!(
                 "    ** 通ったのは blocking が 0 だからで，advisory {} 件は残っている ** — \n\

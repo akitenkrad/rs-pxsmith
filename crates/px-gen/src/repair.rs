@@ -65,10 +65,41 @@ pub trait Generator {
     /// 1 回だけ生成する．
     ///
     /// `feedback` は前の試行が落ちた理由 (初回は `None`)．
-    fn generate(&self, req: &GenRequest, feedback: Option<&str>) -> Result<String>;
+    fn generate(&self, req: &GenRequest, feedback: Option<&str>) -> Result<Generated>;
 
     /// 何を叩いているか (素性に残す)．
     fn describe(&self) -> String;
+}
+
+/// 1 回の生成が返したもの — **本文と «誰が答えたか»** (D171)．
+///
+/// 本文だけを返していると，**素性は «依頼したモデル» しか書けない**．
+/// `fallbacks` を送っている以上，断られた依頼は別のモデルが肩代わりしうるので，
+/// それでは素性が «この絵を作ったモデル» を取り違える (D157 が素性に求めた
+/// ものはまさにそれである) ．**応答は自分が誰か名乗っている**ので，
+/// 読めるものを読む (D159 の «読めるなら読む» と同じ側)．
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Generated {
+    /// 取り出した L0 の本文．
+    pub l0: String,
+    /// **応答が名乗ったモデル** — 依頼したモデルと違うことがある．
+    ///
+    /// 分からないときは `None`．**«同じだった» と «見ていない» を混ぜない**
+    /// (D77 ・D104 の作法)．
+    pub served_model: Option<String>,
+    /// **断りを別のモデルが肩代わりしたか** (応答に `fallback` の塊が現れたか)．
+    pub fell_back: bool,
+}
+
+impl Generated {
+    /// 本文だけの結果 (肩代わりの概念が無いバックエンド用)．
+    pub fn plain(l0: impl Into<String>) -> Self {
+        Self {
+            l0: l0.into(),
+            served_model: None,
+            fell_back: false,
+        }
+    }
 }
 
 /// 1 回の試行の顛末．
@@ -119,6 +150,10 @@ pub struct Verified {
     pub attempts: u32,
     /// 残っていた advisory の数．**0 とは限らない** (8.2 は許容する)．
     pub advisory: usize,
+    /// **この絵を実際に作ったモデル** — 依頼したモデルとは限らない (D171)．
+    pub served_model: Option<String>,
+    /// 断りを別のモデルが肩代わりしたか (D171)．
+    pub fell_back: bool,
 }
 
 /// 落ちたときも含めた全部の記録．
@@ -204,7 +239,8 @@ pub fn generate_with_repair(
     let mut feedback: Option<String> = None;
 
     for _ in 0..req.max_attempts {
-        let raw = backend.generate(req, feedback.as_deref())?;
+        let got = backend.generate(req, feedback.as_deref())?;
+        let raw = got.l0;
         let outcome = parse_and_lint(&raw, l0_path);
         feedback = outcome.feedback();
         let accepted = outcome.is_accepted();
@@ -226,6 +262,8 @@ pub fn generate_with_repair(
                     l0: raw,
                     attempts: n,
                     advisory,
+                    served_model: got.served_model,
+                    fell_back: got.fell_back,
                 }),
             });
         }
@@ -259,7 +297,7 @@ mod tests {
     }
 
     impl Generator for Scripted {
-        fn generate(&self, _req: &GenRequest, feedback: Option<&str>) -> Result<String> {
+        fn generate(&self, _req: &GenRequest, feedback: Option<&str>) -> Result<Generated> {
             self.seen.borrow_mut().push(feedback.map(str::to_string));
             let mut lines = self.lines.borrow_mut();
             if lines.is_empty() {
@@ -267,7 +305,7 @@ mod tests {
                     message: "台本が尽きた".to_string(),
                 });
             }
-            Ok(lines.remove(0))
+            Ok(Generated::plain(lines.remove(0)))
         }
 
         fn describe(&self) -> String {

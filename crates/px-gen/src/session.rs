@@ -72,7 +72,7 @@ impl Session {
                 path: path.display().to_string(),
                 source,
             })?;
-            self.write_provenance(req, backend, v.attempts, v.advisory, created_at)?;
+            self.write_provenance(req, backend, v, created_at)?;
         }
         Ok(report)
     }
@@ -81,15 +81,17 @@ impl Session {
         &self,
         req: &GenRequest,
         backend: &dyn Generator,
-        attempts: u32,
-        advisory: usize,
+        verified: &crate::repair::Verified,
         created_at: &str,
     ) -> Result<()> {
+        let (attempts, advisory) = (verified.attempts, verified.advisory);
         let p = Provenance {
             tool: format!("px-gen {}", env!("CARGO_PKG_VERSION")),
             backend: backend.describe(),
             endpoint: req.backend.endpoint.clone(),
             model: req.backend.model.clone(),
+            served_model: verified.served_model.clone(),
+            fell_back: verified.fell_back,
             effort: req.effort.as_str().to_string(),
             request_key: req.key(),
             prompt: req.prompt.clone(),
