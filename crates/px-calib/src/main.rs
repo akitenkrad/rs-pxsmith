@@ -32,6 +32,7 @@ mod diagnose;
 mod dircal;
 mod ingest;
 mod jaggycal;
+mod jaggytruth;
 mod lintcal;
 mod lintgen;
 mod metrics;
@@ -471,6 +472,14 @@ enum Command {
         /// **`px smooth` を実際に掛けて，直った結果を測る**
         #[arg(long)]
         apply: bool,
+    },
+    /// **ジャギー検出に «真値のある場面» を掛ける** — 付録 C 要調査事項 #1 を閉じる
+    JaggyTruth {
+        /// 移動上限 (画素)
+        #[arg(long, default_value_t = jaggycal::DEFAULT_MOVE)]
+        max_move: u32,
+        #[arg(long)]
+        out: Option<PathBuf>,
     },
     /// **`px aa` を良い絵に掛けて壊れないか測る**
     Aa {
@@ -1610,6 +1619,104 @@ fn main() -> Result<()> {
             }
             px_io::atomic::write(&path, text.as_bytes())?;
             println!("\n  {} 行を {} へ書いた", records.len(), path.display());
+        }
+
+        Command::JaggyTruth { max_move, out } => {
+            let s = jaggytruth::run(max_move);
+            println!("== ジャギー検出に真値のある場面を掛けた ==");
+            println!(
+                "  **清書はすべて «凹凸が幾何で決まる» 絵なので，出た検出は全件が誤検出である**"
+            );
+
+            println!("\n  清書 (鳴ってはいけない)");
+            for (kind, (sheets, runs, jaggies)) in jaggytruth::by_kind(&s) {
+                println!(
+                    "    {kind:<4} {sheets:>3} 枚 ・ラン {runs:>5} 本 ・**検出 {jaggies} 件** ({:.2}%)",
+                    if runs == 0 {
+                        0.0
+                    } else {
+                        jaggies as f32 * 100.0 / runs as f32
+                    }
+                );
+            }
+            println!(
+                "    合計   {:>3} 枚 ・ラン {:>5} 本 ・**検出 {} 件** ・鳴った絵 {} 枚",
+                s.clean.len(),
+                s.clean_runs(),
+                s.clean_jaggies(),
+                s.clean_sheets_firing()
+            );
+
+            println!(
+                "\n  **px smooth が清書を書き換えた画素 {} 個 ・壊した絵 {} / {} 枚**",
+                s.clean_moved(),
+                s.clean_sheets_damaged(),
+                s.clean.len()
+            );
+            println!(
+                "    鳴るだけなら助言で済むが，`smooth` は画素を動かす —\n\
+                 \u{3000}\u{3000}**正しく描いた線が書き換えられている**",
+            );
+
+            println!("\n  対照: 段の境目を 1 画素手前へ動かした (崩した場所で鳴るべき)");
+            println!(
+                "    負例 {} 件のうち**実際に谷ができたのは {} 件**",
+                s.defects.len(),
+                s.defects_with_valley()
+            );
+            println!(
+                "    **{} / {} 件で捕捉 ({:.1}%)**",
+                s.caught(),
+                s.defects_with_valley(),
+                if s.defects_with_valley() == 0 {
+                    0.0
+                } else {
+                    s.caught() as f32 * 100.0 / s.defects_with_valley() as f32
+                }
+            );
+
+            println!("\n  比較: 縁の外へ 1 画素出っ張らせた (**谷にならない形**)");
+            println!(
+                "    {} 件のうち谷ができたのは {} 件 ・捕捉 {} 件",
+                s.bumps.len(),
+                s.bumps_with_valley(),
+                s.bumps_caught()
+            );
+            println!(
+                "    **出っ張りは向きの反転を作るので区間が切れ，谷が残らない** —\n\
+                 \u{3000}\u{3000}谷を数える規則では原理的に拾えない (負例に使ってはいけない)"
+            );
+
+            if s.clean_jaggies() > 0 {
+                println!("\n  **鳴った清書** (これが誤検出の中身である)");
+                for c in s.clean.iter().filter(|c| c.jaggies > 0) {
+                    println!(
+                        "    {:<14} ラン {:>4} 中 {:>3} 件 ・smooth が動かした {} 画素",
+                        c.name, c.runs, c.jaggies, c.moved
+                    );
+                }
+            }
+            let missed: Vec<_> = s
+                .defects
+                .iter()
+                .filter(|b| b.has_valley && !b.caught)
+                .collect();
+            if !missed.is_empty() {
+                println!("\n  **見逃した崩し** ({} 件．谷はできている)", missed.len());
+                for b in missed.iter().take(12) {
+                    println!("    {}", b.name);
+                }
+            }
+
+            if let Some(path) = out {
+                let mut text = String::from(jaggytruth::HEADER);
+                text.push('\n');
+                for c in &s.clean {
+                    text.push_str(&format!("{},{},{},{}\n", c.name, c.kind, c.runs, c.jaggies));
+                }
+                px_io::atomic::write(&path, text.as_bytes())?;
+                println!("\n  {} 行を {} へ書いた", s.clean.len(), path.display());
+            }
         }
 
         Command::Aa { dir, outline } => {
