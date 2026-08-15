@@ -349,8 +349,8 @@ fn of_image(dir: &Path, subject: &Subject, params: &GridParams) -> Result<Vec<Re
                 params.phase_bands,
                 params.phase_min_cells,
             ),
-            edge1: edge_fit(&img, c.scale, 1),
-            edge2: edge_fit(&img, c.scale, 2),
+            edge1: edge_fit(&img, c.scale, 1, params),
+            edge2: edge_fit(&img, c.scale, 2, params),
             split_gain: split_gain(&img, c.scale, c.phase),
             split_recon_gain: split_recon_gain(&img, c.scale, c.phase, params.delta),
             drift: phase_drift_spread(

@@ -50,6 +50,11 @@ pub struct ParamGrid {
     pub edge_fit_min_count: usize,
     /// 曲線を肩代わりする残差 (D73)．`None` で肩代わりしない
     pub edge_fit_curve_residual: Option<f32>,
+    /// **境界の峰の非極大抑制の半径** ($s$ に対する割合)．**掃引する** (D173) —
+    /// D72 の «残る的» の 2 番目で，**初期値のまま 1 通りしか試していなかった**
+    pub peak_suppressions: Vec<f32>,
+    /// **峰とみなすエネルギーの下限** (平均に対する倍率)．**掃引する** (D173)
+    pub peak_floors: Vec<f32>,
 }
 
 impl Default for ParamGrid {
@@ -68,6 +73,8 @@ impl Default for ParamGrid {
             edge_fit_order: p.edge_fit_order,
             edge_fit_slope: p.edge_fit_slope,
             edge_fit_residual: p.edge_fit_residual,
+            peak_suppressions: vec![p.peak_suppression],
+            peak_floors: vec![p.peak_floor],
             edge_fit_min_count: p.edge_fit_min_count,
             edge_fit_curve_residual: p.edge_fit_curve_residual,
             phase_tolerance_floors: vec![p.phase_tolerance_floor],
@@ -94,33 +101,41 @@ impl ParamGrid {
                         for &tolerance in &self.phase_tolerances {
                             for &agreement in &self.phase_agreements {
                                 for &contrast in &self.phase_contrast_mins {
-                                    out.push(GridParams {
-                                        max_scale: self.max_scale,
-                                        epsilon,
-                                        delta,
-                                        tau,
-                                        phase_bands: self.phase_bands,
-                                        phase_tolerance: tolerance,
-                                        phase_agreement: agreement,
-                                        phase_contrast_min: contrast,
-                                        phase_require_measurable: self.phase_require_measurable,
-                                        phase_subpixel: self.phase_subpixel,
-                                        phase_tolerance_floor: floor,
-                                        phase_min_cells: self.phase_min_cells,
-                                        // **0 で回す．** 信頼度を行に残しておけば，下限は集計側で
-                                        // いくらでも掃ける (Row::outcome_at)
-                                        min_confidence: 0.0,
-                                        confidence_per_scale: self.confidence_per_scale,
-                                        normalize_epsilon: self.normalize_epsilon,
-                                        // **掃引 1 回につき 1 通り．** 境界の当てはめの
-                                        // 細かい掃引は `replay` の仕事である (CSV の上で
-                                        // 数えられるので，こちらを回す必要が無い)
-                                        edge_fit_order: self.edge_fit_order,
-                                        edge_fit_slope: self.edge_fit_slope,
-                                        edge_fit_residual: self.edge_fit_residual,
-                                        edge_fit_min_count: self.edge_fit_min_count,
-                                        edge_fit_curve_residual: self.edge_fit_curve_residual,
-                                    });
+                                    for &peak_suppression in &self.peak_suppressions {
+                                        for &peak_floor in &self.peak_floors {
+                                            out.push(GridParams {
+                                                peak_suppression,
+                                                peak_floor,
+                                                max_scale: self.max_scale,
+                                                epsilon,
+                                                delta,
+                                                tau,
+                                                phase_bands: self.phase_bands,
+                                                phase_tolerance: tolerance,
+                                                phase_agreement: agreement,
+                                                phase_contrast_min: contrast,
+                                                phase_require_measurable: self
+                                                    .phase_require_measurable,
+                                                phase_subpixel: self.phase_subpixel,
+                                                phase_tolerance_floor: floor,
+                                                phase_min_cells: self.phase_min_cells,
+                                                // **0 で回す．** 信頼度を行に残しておけば，下限は集計側で
+                                                // いくらでも掃ける (Row::outcome_at)
+                                                min_confidence: 0.0,
+                                                confidence_per_scale: self.confidence_per_scale,
+                                                normalize_epsilon: self.normalize_epsilon,
+                                                // **掃引 1 回につき 1 通り．** 境界の当てはめの
+                                                // 細かい掃引は `replay` の仕事である (CSV の上で
+                                                // 数えられるので，こちらを回す必要が無い)
+                                                edge_fit_order: self.edge_fit_order,
+                                                edge_fit_slope: self.edge_fit_slope,
+                                                edge_fit_residual: self.edge_fit_residual,
+                                                edge_fit_min_count: self.edge_fit_min_count,
+                                                edge_fit_curve_residual: self
+                                                    .edge_fit_curve_residual,
+                                            });
+                                        }
+                                    }
                                 }
                             }
                         }

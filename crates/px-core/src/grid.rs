@@ -112,6 +112,19 @@ pub struct GridParams {
     /// 検証セットで比と信頼度の下限を同時に掃くと，1.20〜1.30 が平らな面である．
     /// **1.0 以下でこの検査を外せる．**
     pub phase_contrast_min: f32,
+    /// **境界の峰を拾うときの非極大抑制の半径** — $s$ に対する割合 (D173)．
+    ///
+    /// 初期値は 0.5 ($s/2$) で «補間で境界が 2 画素に広がっても峰を 2 つ数えない»
+    /// ために置いたものだったが，**1 通りしか試していなかった** (D72 が «残る的» と
+    /// して名指しした) ．掃いたら平らな面が [0.60, 0.65] にあり，その中央を採った．
+    /// **0.70 まで上げると A が 26 → 25 に落ちる．**
+    pub peak_suppression: f32,
+    /// **峰とみなすエネルギーの下限** — 画像の平均エネルギーに対する倍率 (D173)．
+    ///
+    /// 初期値は 1.0 (平均そのもの) で «絵の中身に依らない尺度が無いので画像自身の
+    /// 平均を使う» としたものだったが，**1 通りしか試していなかった**．
+    /// 平らな面は [1.2, 1.8] で，その中央を採った．**2.2 まで上げると B が 40 に戻る．**
+    pub peak_floor: f32,
     /// 位相の検査が**測れない候補を棄却する**か．
     ///
     /// 帯が薄くて測れない候補は，これまで素通ししていた (「少ないセルから求めた位相は
@@ -277,6 +290,20 @@ impl Default for GridParams {
             // 検証セットで 0.25 ・0.28 ・0.30 が同じ成績の平らな面になり，その中央を
             // 採った (0.35 のままだと A が 26 → 24 に落ちる — 緩い帯ずれは
             // $2 s_*$ に «閾値を満たす最大の $s$» を渡してしまう)
+            // **境界の峰の拾い方** (D173) ．D72 が «初期値のまま 1 通りしか試して
+            // いない» と名指しした 2 つで，掃いたら B が 40 → 42 / 50 に届いた．
+            //
+            // | 抑制 | 0.55 | **0.60** | **0.65** | 0.70 |
+            // | B | 41 | **42** | **42** | 42 だが A が 26 → 25 |
+            //
+            // | 下限 | 1.0 | **1.2** | **1.5** | **1.8** | 2.2 |
+            // | B | 40 | **42** | **42** | **42** | 40 |
+            //
+            // **平らな面の中央を採った** (phase_tolerance を 0.28 にしたのと同じ作法) ．
+            // 実データ枠は 同梱 完全一致 60 → 61 ・誤答 2 のまま ・`local/` は完全に
+            // 同一 (誤受理 2 のまま) で，**どちらの枠も悪くならない**．
+            peak_suppression: 0.625,
+            peak_floor: 1.5,
             phase_tolerance: 0.28,
             // 検証セットで θ ・許容を同時に掃いて選んだ (平らな面の内側)．
             // 1.0 以上にすると曲線の検査は働かない．
@@ -1530,13 +1557,13 @@ pub struct EdgeFit {
 /// 下限は平均エネルギー (絵の中身に依らない尺度が無いので，画像自身の平均を使う)．
 /// **同点の平坦部は左端を採る** (設計書 6.15 規則 2) ．bilinear の 1 階差分は
 /// セル中心の間で平らになるが，左端を採れば間隔は $s$ のままで，ずれは切片が吸収する．
-fn energy_peaks(energy: &[Option<f64>], s: usize) -> Vec<f32> {
-    let r = (s / 2).max(1);
+fn energy_peaks(energy: &[Option<f64>], s: usize, suppression: f32, floor_scale: f32) -> Vec<f32> {
+    let r = ((s as f32 * suppression).round() as usize).max(1);
     let defined: Vec<f64> = energy.iter().flatten().copied().collect();
     if defined.is_empty() {
         return Vec::new();
     }
-    let floor = defined.iter().sum::<f64>() / defined.len() as f64;
+    let floor = defined.iter().sum::<f64>() / defined.len() as f64 * f64::from(floor_scale);
 
     let mut out = Vec::new();
     for (i, slot) in energy.iter().enumerate() {
@@ -1644,8 +1671,8 @@ fn fit_spacing(peaks: &[f32], s: f32) -> Option<SpacingFit> {
 /// nearest なら 1 階差分が境界で尖るが，bilinear はセル中心の間を直線で結ぶので
 /// 1 階差分が区間ごとに平らになり，尖るのは 2 階差分の方である．どちらで拾うのが
 /// 良いかは測ってから決める．
-pub fn edge_fit(img: &RgbaCanvas, s: u32, order: u32) -> EdgeFit {
-    edge_fit_of(&axis_energies(img, order), s)
+pub fn edge_fit(img: &RgbaCanvas, s: u32, order: u32, params: &GridParams) -> EdgeFit {
+    edge_fit_of(&axis_energies(img, order), s, params)
 }
 
 /// 軸ごとの差分エネルギー．**$s$ に依らないので候補ごとに作り直さない．**
@@ -1660,7 +1687,7 @@ fn axis_energies(img: &RgbaCanvas, order: u32) -> [Vec<Option<f64>>; 2] {
 }
 
 /// 用意した差分エネルギーから当てはめる．
-fn edge_fit_of(energies: &[Vec<Option<f64>>; 2], s: u32) -> EdgeFit {
+fn edge_fit_of(energies: &[Vec<Option<f64>>; 2], s: u32, params: &GridParams) -> EdgeFit {
     let su = (s as usize).max(1);
     let mut out = EdgeFit {
         count: [0; 2],
@@ -1671,7 +1698,7 @@ fn edge_fit_of(energies: &[Vec<Option<f64>>; 2], s: u32) -> EdgeFit {
         residual_folded: [None; 2],
     };
     for (axis, energy) in energies.iter().enumerate() {
-        let peaks = energy_peaks(energy, su);
+        let peaks = energy_peaks(energy, su, params.peak_suppression, params.peak_floor);
         out.count[axis] = peaks.len();
         out.coverage[axis] = peaks.len() as f32 / (energy.len() / su).max(1) as f32;
         if let Some(fit) = fit_spacing(&peaks, su as f32) {
@@ -1744,7 +1771,7 @@ fn edge_fit_within(
     if params.edge_fit_order == 0 {
         return false;
     }
-    let fit = edge_fit_of(energies, s);
+    let fit = edge_fit_of(energies, s, params);
     (0..2).all(|axis| {
         fit.count[axis] >= params.edge_fit_min_count
             && matches!(fit.slope[axis], Some(v) if v.abs() <= params.edge_fit_slope)
@@ -3053,7 +3080,7 @@ mod tests {
     #[test]
     fn the_fitted_spacing_matches_a_real_grid() {
         let img = upscaled(&WIDE, &palette(), 6, (0, 0));
-        let fit = edge_fit(&img, 6, 1);
+        let fit = edge_fit(&img, 6, 1, &GridParams::default());
         for axis in 0..2 {
             let slope = fit.slope[axis].expect("境界を拾えていない");
             assert!(slope.abs() < 0.02, "軸 {axis} の間隔がずれている: {slope}");
@@ -3132,7 +3159,7 @@ mod tests {
     #[test]
     fn a_flat_image_has_no_boundaries() {
         let img = RgbaCanvas::filled(64, 64, Rgba8::rgb(10, 20, 30));
-        let fit = edge_fit(&img, 4, 1);
+        let fit = edge_fit(&img, 4, 1, &GridParams::default());
         assert_eq!(fit.count, [0, 0]);
         assert_eq!(fit.residual, [None, None]);
     }
@@ -3154,7 +3181,7 @@ mod tests {
             energy[k * 4] = Some(9.0);
             energy[k * 4 + 1] = Some(8.0);
         }
-        let peaks = energy_peaks(&energy, 4);
+        let peaks = energy_peaks(&energy, 4, 0.5, 1.0);
         assert_eq!(peaks.len(), 5, "峰を数え違えている: {peaks:?}");
     }
 }

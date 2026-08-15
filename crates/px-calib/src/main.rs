@@ -295,6 +295,12 @@ enum Command {
         /// 曲線を肩代わりする残差 (D73)．**負の値でこの肩代わりを外す**
         #[arg(long)]
         edge_fit_curve_residual: Option<f32>,
+        /// **境界の峰の非極大抑制の半径** ($s$ に対する割合．D173)
+        #[arg(long)]
+        peak_suppression: Option<f32>,
+        /// **峰とみなすエネルギーの下限** (平均に対する倍率．D173)
+        #[arg(long)]
+        peak_floor: Option<f32>,
     },
     /// 再構成検査の統計を測り直す (内側と境界を分けたら真の s を見分けられるか)
     Recon {
@@ -311,6 +317,12 @@ enum Command {
         /// 負例に何が起きたかは判定行からしか読めなかった — 漏れを追う口である
         #[arg(long)]
         real: bool,
+        /// **境界の峰の非極大抑制の半径** ($s$ に対する割合．D173)
+        #[arg(long, default_value_t = px_core::grid::GridParams::default().peak_suppression)]
+        peak_suppression: f32,
+        /// **峰とみなすエネルギーの下限** (平均に対する倍率．D173)
+        #[arg(long, default_value_t = px_core::grid::GridParams::default().peak_floor)]
+        peak_floor: f32,
     },
     /// **掃引を回さずに関門を掛け替える** — recon の CSV から estimate_grid を再現する
     Replay {
@@ -982,9 +994,15 @@ fn main() -> Result<()> {
             edge_fit_order,
             edge_fit_slope,
             edge_fit_min_count,
+            peak_suppression,
+            peak_floor,
         } => {
             let d = px_core::grid::GridParams::default();
             let params = px_core::grid::GridParams {
+                // **境界の峰の拾い方も実データで測れるようにした** (D173) —
+                // 合成側だけ見て採ると «実データの安全側» が測れない
+                peak_suppression: peak_suppression.unwrap_or(d.peak_suppression),
+                peak_floor: peak_floor.unwrap_or(d.peak_floor),
                 epsilon: epsilon.unwrap_or(d.epsilon),
                 delta: delta.unwrap_or(d.delta),
                 tau: tau.unwrap_or(d.tau),
@@ -1083,8 +1101,16 @@ fn main() -> Result<()> {
             split,
             include_resized,
             real,
+            peak_suppression,
+            peak_floor,
         } => {
-            let params = px_core::grid::GridParams::default();
+            // **境界の峰の拾い方を掃けるようにした** (D173) — D72 の «残る的» の
+            // 2 番目で，初期値のまま 1 通りしか試していなかった
+            let params = px_core::grid::GridParams {
+                peak_suppression,
+                peak_floor,
+                ..px_core::grid::GridParams::default()
+            };
             let records = if real {
                 recon::run_real(&dir, &crate::real::read(&dir)?, &params)?
             } else {
