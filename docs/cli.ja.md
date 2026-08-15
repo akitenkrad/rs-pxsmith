@@ -2,14 +2,15 @@
 
 [English](cli.md) | **日本語**
 
-[← README へ戻る](../README.ja.md)
+[← README へ戻る](https://github.com/akitenkrad/rs-pxsmith/blob/main/README.ja.md)
 
-以下の例はインストール済みの `pxsmith` を叩く形です．チェックアウトから走らせる
-ときは `cargo run -p pxsmith --` を頭に付けてください．
+以下の例はインストール済みの `pxsmith` を実行する形で記載しています．リポジトリの
+チェックアウトから実行する場合は，先頭に `cargo run -p pxsmith --` を付けてください．
 
-`.px.toml` は L0 テキスト形式です — スプライトを文字として書き，パレットは
-別の `.hex` ファイルが持ちます．`.aseprite` はバイト単位で往復するので，
-既存の Aseprite の作業の**途中に**置けます（ファイルの所有権を奪いません）．
+`.px.toml` は L0 と呼ぶテキスト形式です．スプライトを文字の並びとして記述し，パレットは
+別の `.hex` ファイルが保持します．`.aseprite` はバイト単位で往復するため，pxsmith は
+既存の Aseprite による作業の途中に配置することができ，ファイルの所有権を奪うことは
+ありません．
 
 ## 基本
 
@@ -37,8 +38,8 @@ pxsmith verify roundtrip sprite.aseprite --via-frame
 
 ## 絵を導出する
 
-陰影は**シルエットから導出**します．塗るのではありません．入力の色は捨てるので，
-反転・中割り・色替えをしても光の向きが壊れません．
+陰影は塗るのではなく，シルエットから導出します．入力の色は捨てるため，反転・中割り・
+色替えを行っても光の向きが壊れることはありません．
 
 ```sh
 # シルエットから陰影を導出する (入力の色は捨てる)
@@ -69,9 +70,9 @@ pxsmith clean indexed.png cleaned.png
 pxsmith conform upscaled.png native.png
 ```
 
-`conform` は，拡大された（さらに JPEG を通ったかもしれない）画像から元の格子を
-復元して等倍へ戻します．格子が一様でないときは**推測せず拒否**します —
-非一様な格子は決定論的には戻せないので，そこは人に返します．
+`conform` は，拡大されさらに JPEG 圧縮を経ているかもしれない画像から元の格子を復元し，
+等倍へ戻します．格子が一様でない場合は推測を行わず拒否します．非一様な格子は決定論的に
+復元することができないため，そこは人の判断に委ねるという方針を採りました．
 
 ## 合成・タイルセット・投影
 
@@ -96,20 +97,21 @@ pxsmith project in.px.toml iso.px.toml --to iso --from top --facing right
 pxsmith guide g.png --projection iso --from top --cell 16 --size 256x256
 ```
 
-`project` は `--from` と `--facing` を**必須**にしています．どの面を倒すのか，
-どちらを向いているのかは画素からは読めないので，推測すると**外れたときだけ
-静かに壊れます**．
+`project` は `--from` と `--facing` を必須の引数としています．どの面を倒すのか，また
+どちらを向いているのかは画素からは読み取れないため，推測に任せると外れた場合にのみ
+静かに壊れることになるからです．
 
 ## 拡縮と回転
 
 ```sh
-pxsmith scale in.px.toml out.px.toml --factor 4          # 厳密．添字の置き換え
+pxsmith scale in.px.toml out.px.toml --factor 4          # 既定は nearest (厳密)
 pxsmith rotate in.px.toml out.px.toml --degrees 30 --algo cleanedge
 ```
 
-整数倍の拡大と 90 度の倍数の回転は，標本ではなく**添字の置き換え**として書いて
-あります．だから 4 回まわすと元の絵にきっちり戻ります．`cleanedge` が効くのは
-**拡大を伴う回転**で，等倍では既定の `nearest` の方が良い — CLI がそう言います．
+整数倍の拡大と 90 度の倍数の回転は，標本の丸めに任せず添字の置き換えとして実装して
+います．そのため 4 回まわすと元の絵に完全に戻ります．`cleanedge` が効果を発揮するのは
+拡大を伴う回転であり，等倍では既定の `nearest` の方が良い結果になります．この点は
+CLI が実行時に説明します．
 
 ## 書き出す
 
@@ -125,9 +127,9 @@ pxsmith view walk.px.toml --frame 2 --onion 2   # オニオンスキン．輪郭
 pxsmith palette report hero.px.toml --top 12    # どの色が面積を担っているか
 ```
 
-`palette report` は 1 つの割合ではなく**4 通り**を並べ，さらに
-「その添字の合計面積」と「1 つながりの塊として最大」を**分けて**出します —
-撒かれた色は主な色ではないのに，合計だけ見るとそう読めてしまうためです．
+`palette report` は単一の割合ではなく 4 通りの閾値を並べ，さらに「その添字の合計面積」と
+「1 つながりの塊としての最大面積」を分けて報告します．広い範囲に撒かれた色は主要な色とは
+言えませんが，合計面積だけを見ると主要な色として読めてしまうためです．
 
 ## チェックアウトからのビルド
 
@@ -138,7 +140,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all
 ```
 
-`cargo-make` のタスクは `Makefile.toml` にあります．
+`cargo-make` のタスクは `Makefile.toml` に定義しています．
 
 ```sh
 cargo make format-all   # taplo + clippy + rustfmt

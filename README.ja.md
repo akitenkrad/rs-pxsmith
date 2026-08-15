@@ -20,30 +20,33 @@
 
 ---
 
-pxsmith は，ドット絵アセットの導出・突き合わせ・検証を**宣言的なパイプライン**
-として行う道具です．描画 UI は持ちません — 元絵は人（または生成モデル）が描き，
-そこから先はすべてコードとして走ります．陰影はシルエットから**導出**し，
-中割りは計算し，タイルセットは切り出して重複を畳み，出来上がったものは
-**27 のルール**に照らしてから出荷します．
+pxsmith は，ドット絵アセットの導出・突き合わせ・検証を宣言的なパイプラインとして
+実行するツールです．描画のための UI は持っておらず，元絵は人あるいは生成モデルが
+描くことを前提としています．そこから先の工程，すなわち陰影の導出，中割りの生成，
+タイルセットの切り出しと重複の統合はすべてコードとして実行され，出来上がった成果物は
+27 個の品質ルールに照らしてから出荷されます．
 
-色は端から端までインデックスカラーです．どの変換も「すでに在る添字から選ぶ」
-形になるので，**パレットにない色が生まれることは検査で防ぐのではなく，
-構造として起こりません**．
+色の表現には一貫してインデックスカラーを用いています．あらゆる変換が「すでにパレットに
+存在する添字を選ぶ」という形をとるため，パレットにない色が生成される事態は検査によって
+防いでいるのではなく，構造上そもそも起こりません．
 
-この道具の閾値は**すべて実素材で何かを測って決めています**．測った結果が
-悪ければ，その数字を書き残して機能を出しません —
-[測って，直さなかったもの](https://github.com/akitenkrad/rs-pxsmith/blob/main/docs/architecture.ja.md#測って直さなかったもの)を見てください．
+このツールに現れる閾値は，すべて実際のドット絵素材に対して何かを測定した結果として
+決められています．測定の結果が芳しくなかった場合には，その数値を記録したうえで機能を
+出荷しないという方針を採りました．どのような測定を行い何を見送ったかは，
+[測って，直さなかったもの](https://github.com/akitenkrad/rs-pxsmith/blob/main/docs/architecture.ja.md#測って直さなかったもの)
+にまとめてあります．
 
 ## インストール
 
-ライブラリは crates.io にあります．
+ライブラリは crates.io で公開しています．
 
 ```sh
 cargo add pxsmith-core pxsmith-io pxsmith-lint
 ```
 
-`pxsmith` コマンドは**公開していません** — `viuer` 経由で `ansi_colours`
-(LGPL-3.0-or-later) を静的リンクするためです．ソースから入れてください．
+`pxsmith` コマンドは公開していません．`viuer` を経由して `ansi_colours`
+(LGPL-3.0-or-later) を静的にリンクしており，ビルド済みバイナリを配布すると再リンク
+手段の提供義務が生じるためです．利用する場合はソースからインストールしてください．
 
 ```sh
 cargo install --git https://github.com/akitenkrad/rs-pxsmith pxsmith
@@ -64,33 +67,38 @@ pxsmith lint hero.px.toml
 pxsmith watch hero.px.toml --zoom 8
 ```
 
-`lint` は「**鳴らなかった**ルール」と「**検査できなかった**ルール」を区別して
-報告します．検査が落ちうる位置にあって初めて，静かな報告が「きれいな絵」の
-証拠になります．
+`lint` は「鳴らなかったルール」と「検査できなかったルール」を区別して報告します．
+検査が落ちうる位置にあって初めて，違反が報告されなかったという事実が「きれいな絵で
+ある」ことの証拠になるためです．
 
 ## ドキュメント
 
 | | |
 | --- | --- |
-| [コマンドライン](https://github.com/akitenkrad/rs-pxsmith/blob/main/docs/cli.ja.md) | 全サブコマンドと，効く引数 |
+| [コマンドライン](https://github.com/akitenkrad/rs-pxsmith/blob/main/docs/cli.ja.md) | 全サブコマンドと，主要な引数 |
 | [レシピ](https://github.com/akitenkrad/rs-pxsmith/blob/main/docs/recipes.ja.md) | 宣言的なビルド形式とキャッシュ |
-| [生成](https://github.com/akitenkrad/rs-pxsmith/blob/main/docs/generation.ja.md) | 言語モデルに絵を頼み，返ってきたものを検証する |
-| [ライブラリ](https://github.com/akitenkrad/rs-pxsmith/blob/main/docs/library.ja.md) | Rust から使う．`pixels!` マクロ |
-| [設計](https://github.com/akitenkrad/rs-pxsmith/blob/main/docs/architecture.ja.md) | クレートの分け方，設計判断，閾値の決め方 |
-| [どう作ったか](https://github.com/akitenkrad/rs-pxsmith/blob/main/docs/engineering.ja.md) | 開発思想と，それを生んだ失敗の記録 |
+| [生成](https://github.com/akitenkrad/rs-pxsmith/blob/main/docs/generation.ja.md) | 言語モデルへの依頼と，返ってきた成果物の検証 |
+| [ライブラリ](https://github.com/akitenkrad/rs-pxsmith/blob/main/docs/library.ja.md) | Rust から利用する方法と `pixels!` マクロ |
+| [設計](https://github.com/akitenkrad/rs-pxsmith/blob/main/docs/architecture.ja.md) | クレートの分割，設計判断，閾値の決定方法 |
+| [どう作ったか](https://github.com/akitenkrad/rs-pxsmith/blob/main/docs/engineering.ja.md) | 開発の思想と，それを生んだ失敗の記録 |
 
-測定の記録は [`docs/status.md`](https://github.com/akitenkrad/rs-pxsmith/blob/main/docs/status.md) と
-[`docs/investigations/`](https://github.com/akitenkrad/rs-pxsmith/tree/main/docs/investigations) にあります — 何を測り，
-数字がいくつで，その結果どの機能をやめたかが書いてあります．
+測定そのものの記録は
+[`docs/status.md`](https://github.com/akitenkrad/rs-pxsmith/blob/main/docs/status.md)
+と
+[`docs/investigations/`](https://github.com/akitenkrad/rs-pxsmith/tree/main/docs/investigations)
+にあります．何を測定し，数値がいくつであり，その結果としてどの機能を断念したのかを
+記録しました．
 
 ## ライセンス
 
-[Apache License 2.0](https://github.com/akitenkrad/rs-pxsmith/blob/main/LICENSE-APACHE) または [MIT license](https://github.com/akitenkrad/rs-pxsmith/blob/main/LICENSE-MIT) の
-どちらかを選べます — Rust クレートの通例の二重ライセンスで，
-どちら側の生態系からでも使えるようにするためです．
+[Apache License 2.0](https://github.com/akitenkrad/rs-pxsmith/blob/main/LICENSE-APACHE)
+と [MIT license](https://github.com/akitenkrad/rs-pxsmith/blob/main/LICENSE-MIT)
+のいずれかを選択できます．Rust クレートで慣例となっている二重ライセンスであり，
+どちらの生態系からでも利用できるようにするための措置です．
 
-`crates/pxsmith-core/src/cleanedge.rs` は torcado の cleanEdge シェーダの移植で，
-その条件のもとで使っています．要求される著作権表示は [NOTICE](https://github.com/akitenkrad/rs-pxsmith/blob/main/NOTICE) にあります．
+`crates/pxsmith-core/src/cleanedge.rs` は torcado による cleanEdge シェーダの移植で
+あり，その条件のもとで利用しています．要求される著作権表示は
+[NOTICE](https://github.com/akitenkrad/rs-pxsmith/blob/main/NOTICE) に記載しました．
 
-`testdata/` の素材は CC0 か MIT で，出所は `testdata/SOURCES.md` に記録して
-います．再配布できない素材はコミットしていません．
+`testdata/` に置いた素材は CC0 または MIT であり，出所は `testdata/SOURCES.md` に
+記録しています．再配布できない素材はコミットしていません．
