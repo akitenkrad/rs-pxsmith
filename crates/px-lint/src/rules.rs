@@ -703,6 +703,61 @@ fn rule_5_chroma_curve(palette: &Palette, report: &mut Report) {
 
 // --- ルール 9: ミクセル ---
 
+/// **ルール 9 が検査できたか** — «鳴らなかった» と «検査していない» を分ける
+/// (D77 ・D104 ・D142 と同じ作法．D164 で足した)．
+///
+/// ルール 9 は一致率が閾値を下回ったときだけ鳴る．一致率は**投票した窓だけ**で
+/// 出るので，投票が 1 つ以下なら定義から 1.0 になり，**鳴りようがない**．
+/// 黙って通すと «検査して問題が無かった» と読まれる．
+#[derive(Clone, Copy, Debug)]
+pub struct MixelCoverage {
+    /// 窓の升の数．
+    pub cells: usize,
+    /// 推定できた (投票した) 窓の数．
+    pub voting: usize,
+    /// 使った窓の一辺．
+    pub window: u32,
+    /// 画布の大きさ．
+    pub size: (u32, u32),
+}
+
+impl MixelCoverage {
+    /// 一致率が 1.0 以外になりうるか．
+    pub fn checked(&self) -> bool {
+        self.voting >= 2
+    }
+
+    /// 検査できなかった理由．**検査できたなら `None`**．
+    pub fn why_not(&self) -> Option<String> {
+        if self.checked() {
+            return None;
+        }
+        let (w, h) = self.size;
+        if self.cells < 2 {
+            return Some(format!(
+                "窓 {} がこの画布 ({w}x{h}) に 1 つしか並ばない",
+                self.window
+            ));
+        }
+        Some(format!(
+            "{} 升のうち格子を推定できた窓が {} つしかない \
+             (等倍のドット絵には 2 以上の格子が無いので票が立たない)",
+            self.cells, self.voting
+        ))
+    }
+}
+
+/// ルール 9 の検査範囲を測る (D164)．
+pub fn mixel_coverage(img: &RgbaCanvas, cfg: &LintConfig) -> MixelCoverage {
+    let local = local_grid(img, cfg.grid_window, &cfg.grid);
+    MixelCoverage {
+        cells: local.data().len(),
+        voting: local.data().iter().filter(|v| v.is_some()).count(),
+        window: cfg.grid_window,
+        size: (img.width(), img.height()),
+    }
+}
+
 fn rule_9_mixels(img: &RgbaCanvas, cfg: &LintConfig, report: &mut Report) {
     let r = rule(9).expect("ルール 9 は定義済み");
     let local = local_grid(img, cfg.grid_window, &cfg.grid);
@@ -2135,6 +2190,41 @@ mod tests {
         }
         let report = lint_grid(&img, &LintConfig::default());
         assert!(has(&report, 9), "{report}");
+    }
+
+    /// **壊れると: ルール 9 が «検査していない» 絵を «問題なし» として通す** (D164)．
+    ///
+    /// 一致率は投票した窓だけで出るので，投票が 1 つ以下なら定義から 1.0 になる．
+    /// **L0 と同じ大きさの画布 (16 〜 48 画素) は既定の窓 32 が 1 つしか並ばない**
+    /// ので，実素材 64 枚に対しルール 9 は 1 度も検査できていなかった．
+    #[test]
+    fn rule_9_says_when_it_could_not_check_at_all() {
+        let mut small = RgbaCanvas::filled(32, 32, Rgba8::TRANSPARENT);
+        for y in 0..32 {
+            for x in 0..32 {
+                let v = ((x * 31 + y * 17) % 4) as u8;
+                small.set(x, y, Rgba8::rgb(v * 60, 40 + v * 50, 200 - v * 40));
+            }
+        }
+        let cov = mixel_coverage(&small, &LintConfig::default());
+        assert!(!cov.checked(), "32x32 の画布で検査できたと言っている");
+        assert!(
+            cov.why_not().is_some_and(|s| s.contains("1 つしか")),
+            "理由が «窓が 1 つ» になっていない: {:?}",
+            cov.why_not()
+        );
+
+        // 窓が並ぶ大きさなら検査できたと言う
+        let mut big = RgbaCanvas::filled(256, 256, Rgba8::TRANSPARENT);
+        for y in 0..256 {
+            for x in 0..256 {
+                let v = ((x / 4 * 31 + y / 4 * 17) % 4) as u8;
+                big.set(x, y, Rgba8::rgb(v * 60, 40 + v * 50, 200 - v * 40));
+            }
+        }
+        let cov = mixel_coverage(&big, &LintConfig::default());
+        assert!(cov.checked(), "256x256 の画布で検査できないと言っている");
+        assert!(cov.why_not().is_none(), "検査できたのに理由が付いている");
     }
 
     /// **原寸のドット絵を «格子崩れ» と呼ばない．**

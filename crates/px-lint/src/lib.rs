@@ -32,7 +32,9 @@
 pub mod rules;
 pub mod sequence;
 
-pub use rules::{LintConfig, lint_canvas, lint_canvas_scoped, lint_frame};
+pub use rules::{
+    LintConfig, MixelCoverage, lint_canvas, lint_canvas_scoped, lint_frame, mixel_coverage,
+};
 pub use sequence::{SequenceCoverage, lint_sequence};
 
 use px_core::math::{IRect, IVec2};

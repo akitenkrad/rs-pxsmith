@@ -583,9 +583,13 @@ pub fn conform(
     // 非一様格子は復元できないので，検出して棄却し人に返す (D29)
     if window > 0 {
         let local = local_grid(&img, window, &params);
+        let voting = local.data().iter().filter(|v| v.is_some()).count();
         match uniformity(&local) {
             Some((scale, ratio)) => {
-                println!("局所格子: 最頻 {scale} / 一致率 {:.1}%", ratio * 100.0);
+                println!(
+                    "局所格子: 最頻 {scale} / 一致率 {:.1}% ({voting} 窓が投票)",
+                    ratio * 100.0
+                );
                 if ratio < uniformity_threshold {
                     bail!(
                         "格子が非一様である (一致率 {:.1}% < {:.1}%)．\
@@ -597,10 +601,32 @@ pub fn conform(
             }
             None => println!("局所格子: 推定できる窓が無い"),
         }
+        // **«一様だった» と «測っていない» を分ける** (D164)
+        if voting < 2 {
+            println!(
+                "  ** 非一様格子の検査をしていない: 投票した窓が {voting} つしかない **\n\
+                 \u{3000}\u{3000}一致率は投票した窓だけで出るので，これでは定義から 1.0 になる"
+            );
+        }
     }
 
     let estimate = estimate_grid(&img, &params)
         .map_err(|e| anyhow::anyhow!("{} の格子を推定できない: {e}", input.display()))?;
+
+    // **窓は倍率の 4 倍要る** (D164)．先に窓を決めているので，推定できた倍率が
+    // 大きいと «一様だと確かめた» が空約束になる — 測ってから言う
+    if window > 0 {
+        let need = px_core::grid::min_window_for(estimate.scale);
+        if window < need {
+            println!(
+                "  ** 非一様格子の検査は当てにならない: 窓 {window} は {} 倍の格子に足りない **\n\
+                 \u{3000}\u{3000}窓の一辺にセルが {} つ入らないと局所推定は当たらない — \
+                 --window {need} 以上で掛け直す",
+                estimate.scale,
+                px_core::grid::MIN_CELLS_PER_WINDOW
+            );
+        }
+    }
     println!(
         "格子: {} 倍 / 位相 ({}, {}) / 信頼度 {:.3} / セル内分散 {:.2e}",
         estimate.scale,
@@ -694,9 +720,14 @@ pub fn lint(input: &Path, json: bool, grid: &GridArgs) -> Result<()> {
 
     let mut report = px_lint::Report::default();
     let mut coverage = None;
+    let mut mixel = None;
     if is_png(input) {
         let img = png::read_rgba(input)?;
         report.extend(px_lint::rules::lint_grid(&img, &cfg));
+        // **«鳴らなかった» と «検査していない» を分ける** (D164)
+        if cfg.grid_window > 0 {
+            mixel = Some(px_lint::mixel_coverage(&img, &cfg));
+        }
     } else {
         let frames = crate::load_frames(input)?;
         for (i, frame) in frames.iter().enumerate() {
@@ -745,6 +776,17 @@ pub fn lint(input: &Path, json: bool, grid: &GridArgs) -> Result<()> {
                     names.join(" ・")
                 );
             }
+        }
+        // **ルール 9 も同じ扱いにする** (D164) — 一致率は投票した窓だけで出るので，
+        // 投票が 1 つ以下なら定義から 1.0 で，**鳴りようがない**
+        if let Some(m) = &mixel
+            && let Some(why) = m.why_not()
+        {
+            println!(
+                "** 掛からなかったルール: 9 ミクセル ({why}) **\n\
+                 \u{3000}\u{3000}等倍のドット絵そのものと，等倍に 2 倍を混ぜた絵は\n\
+                 \u{3000}\u{3000}**窓をどう選んでも鳴らない** — 票が 2 倍側にしか立たない (D164)"
+            );
         }
     }
 
