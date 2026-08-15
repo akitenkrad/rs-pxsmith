@@ -91,7 +91,38 @@ fn real_files_round_trip_byte_for_byte() {
             );
         }
     }
-    eprintln!("{} 件の .aseprite がバイト一致した", files.len());
+    let independent = files.iter().filter(|p| is_independent(p)).count();
+    eprintln!(
+        "{} 件の .aseprite がバイト一致した (うち独立素材 {independent} 件)",
+        files.len()
+    );
+    report_independence(&files);
+}
+
+/// **`aseprite-io` の fixtures 由来でない素材か** (R3 の残り．D167)．
+fn is_independent(path: &Path) -> bool {
+    path.components()
+        .any(|c| c.as_os_str() == std::ffi::OsStr::new("independent"))
+}
+
+/// **«何件通った» と «何を独立に確かめた» を分けて言う** (D77 ・D104 ・D164 の作法)．
+///
+/// 19 件は Aseprite 公式のテストスプライトだが，取得元は **`aseprite-io` 自身の
+/// `tests/fixtures/`** である．つまり `aseprite-io` はこの 19 件に対して
+/// 開発されており，**ここが全部通ることは «忠実である» の独立な証拠にならない**．
+/// 黙って «19 件通った» とだけ言うと，通った数が独立性の証拠に見える．
+fn report_independence(files: &[PathBuf]) {
+    if files.iter().any(|p| is_independent(p)) {
+        return;
+    }
+    eprintln!(
+        "** 独立素材が 0 件 — R3 は閉じていない **\n\
+         \u{3000}\u{3000}この {} 件は aseprite-io 自身の fixtures 由来なので，\n\
+         \u{3000}\u{3000}«aseprite-io が Aseprite に忠実か» を独立に確かめたことにはならない．\n\
+         \u{3000}\u{3000}最新版 Aseprite で作ったファイルを testdata/aseprite/independent/ へ置く\n\
+         \u{3000}\u{3000}(何を作ればよいかは同ディレクトリの README.md にある)",
+        files.len()
+    );
 }
 
 /// 射影 → 無変更の書き戻し → 書き出しでもバイトが変わらないこと．
