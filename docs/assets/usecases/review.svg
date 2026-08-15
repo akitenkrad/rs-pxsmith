@@ -1,0 +1,50 @@
+<svg width="100%" viewBox="0 0 704 158" xmlns="http://www.w3.org/2000/svg" role="img">
+<title>スプライト変更のレビュー</title>
+<desc>バイナリの .aseprite を L0 テキストへ変換し，画素単位の差分としてレビューする流れ．</desc>
+<style>
+  .ts { font-family: -apple-system, "Helvetica Neue", "Hiragino Sans", sans-serif; font-size: 11.5px; fill: #444441; }
+  .tn { font-family: -apple-system, "Helvetica Neue", "Hiragino Sans", sans-serif; font-size: 12.5px; font-weight: 500; fill: #2C2C2A; }
+  .gray-fill   { fill: #F1EFE8; stroke: #5F5E5A; stroke-width: 0.5; }
+  .purple-fill { fill: #EEEDFE; stroke: #534AB7; stroke-width: 0.5; }
+  .teal-fill   { fill: #E1F5EE; stroke: #0F6E56; stroke-width: 0.5; }
+  .arr  { stroke: #5F5E5A; stroke-width: 1; fill: none; }
+  .arrd { stroke: #534AB7; stroke-width: 1.2; fill: none; stroke-dasharray: 5 4; }
+  .arrhead { fill: none; stroke: #5F5E5A; stroke-width: 1.5; }
+  .arrheadacc { fill: none; stroke: #534AB7; stroke-width: 1.5; }
+  @media (prefers-color-scheme: dark) {
+    .ts { fill: #C7C5BD; }
+    .tn { fill: #E5E5E2; }
+    .gray-fill   { fill: #444441; stroke: #B4B2A9; }
+    .purple-fill { fill: #3C3489; stroke: #AFA9EC; }
+    .teal-fill   { fill: #085041; stroke: #5DCAA5; }
+    .arr  { stroke: #B4B2A9; }
+    .arrd { stroke: #AFA9EC; }
+    .arrhead { stroke: #B4B2A9; }
+    .arrheadacc { stroke: #AFA9EC; }
+  }
+</style>
+<defs>
+<marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+  <path class="arrhead" d="M2 1L8 5L2 9" stroke-linecap="round" stroke-linejoin="round"/>
+</marker>
+<marker id="arrowAccent" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+  <path class="arrheadacc" d="M2 1L8 5L2 9" stroke-linecap="round" stroke-linejoin="round"/>
+</marker>
+</defs>
+<!-- edges before boxes -->
+<path class="arr" d="M180 47 H274" marker-end="url(#arrow)"/>
+<path class="arr" d="M430 47 H524" marker-end="url(#arrow)"/>
+<path class="arr" d="M352 70 V118 H102 V70" marker-end="url(#arrow)"/>
+<text class="ts" x="227" y="38" text-anchor="middle">text export</text>
+<text class="ts" x="227" y="134" text-anchor="middle">text import (byte-exact)</text>
+<!-- boxes -->
+<rect class="gray-fill" x="24" y="24" width="156" height="46" rx="8"/>
+<text class="tn" x="102" y="43" text-anchor="middle">.aseprite</text>
+<text class="ts" x="102" y="59" text-anchor="middle">binary</text>
+<rect class="purple-fill" x="274" y="24" width="156" height="46" rx="8"/>
+<text class="tn" x="352" y="43" text-anchor="middle">.px.toml</text>
+<text class="ts" x="352" y="59" text-anchor="middle">L0 text</text>
+<rect class="teal-fill" x="524" y="24" width="156" height="46" rx="8"/>
+<text class="tn" x="602" y="43" text-anchor="middle">diff</text>
+<text class="ts" x="602" y="59" text-anchor="middle">changed pixels, by position</text>
+</svg>
