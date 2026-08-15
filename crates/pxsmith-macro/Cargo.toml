@@ -1,0 +1,26 @@
+[package]
+edition.workspace = true
+name = "pxsmith-macro"
+publish = true
+description = "Compile-time pixel literals - write sprites as text in Rust source and let the compiler check them."
+readme.workspace = true
+keywords = ["pixel-art", "macro", "graphics", "gamedev"]
+categories = ["graphics", "development-tools"]
+license.workspace = true
+repository.workspace = true
+version.workspace = true
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2 = { workspace = true }
+pxsmith-io = { workspace = true }
+quote = { workspace = true }
+syn = { workspace = true, features = ["full"] }
+
+[dev-dependencies]
+pxsmith-core = { workspace = true }
+
+[lints]
+workspace = true

@@ -1,0 +1,26 @@
+[package]
+edition.workspace = true
+name = "pxsmith-view"
+publish.workspace = true
+description = "Terminal preview for pixel art: inline images, silhouette, luma and onion skin."
+readme.workspace = true
+keywords = ["pixel-art", "terminal", "preview", "graphics"]
+categories = ["graphics", "command-line-utilities"]
+license.workspace = true
+repository.workspace = true
+version.workspace = true
+
+[dependencies]
+image = { workspace = true }
+pxsmith-core = { workspace = true }
+thiserror = { workspace = true }
+viuer = { workspace = true }
+
+[features]
+default = []
+# viuer の Sixel 対応を引き継ぐ．端末が Kitty / iTerm2 のいずれでもない環境向け
+icy_sixel = ["viuer/icy_sixel"]
+sixel = ["viuer/sixel"]
+
+[lints]
+workspace = true

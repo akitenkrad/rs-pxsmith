@@ -13,16 +13,16 @@ debug/
 .env
 .DS_Store
 
-# 校正の評価データセット (px-calib gen で作り直せる)．
+# 校正の評価データセット (pxsmith-calib gen で作り直せる)．
 # **先頭の / が要る** — 無いと testdata/grid-eval/ (実データ枠．こちらは追跡する) まで
 # 巻き込む
 /grid-eval/
 
-# 実データ枠の検証結果 (px-calib real / diagnose で作り直せる)
+# 実データ枠の検証結果 (pxsmith-calib real / diagnose で作り直せる)
 testdata/grid-eval/real/results.csv
 testdata/grid-eval/real/diagnose.csv
 
-# lint の測定結果 (px-calib lint で作り直せる)
+# lint の測定結果 (pxsmith-calib lint で作り直せる)
 testdata/grid-eval/seeds/lint.csv
 testdata/lint-cases/negative/lint.csv
 testdata/grid-eval/seeds/jaggy.csv
@@ -31,6 +31,6 @@ testdata/lint-cases/negative/jaggy.csv
 # 再配布できない実データ (game-materials.com 等)．入手元は SOURCES.md に記録する
 testdata/grid-eval/real/local/
 
-# 手で叩いたときの出力置き場 (px gen prog 等)．**先頭の / が要る** —
+# 手で叩いたときの出力置き場 (pxsmith gen prog 等)．**先頭の / が要る** —
 # 無いと crates/*/out/ まで巻き込む
 /out/

@@ -38,13 +38,13 @@ Aseprite 本体が書いたバイト列が要る．
 
 ```sh
 # ここに置いたファイル全部を検査する
-cargo test -p px-io --test aseprite_roundtrip
+cargo test -p pxsmith-io --test aseprite_roundtrip
 
 # 素材が無いことを失敗として扱う (M0 の完了判定)
-PXFORGE_REQUIRE_ASEPRITE_CORPUS=1 cargo test -p px-io --test aseprite_roundtrip
+PXFORGE_REQUIRE_ASEPRITE_CORPUS=1 cargo test -p pxsmith-io --test aseprite_roundtrip
 
 # 個別のファイルを CLI で確かめる
-cargo run -p px -- verify roundtrip path/to/file.aseprite --via-frame
+cargo run -p pxsmith -- verify roundtrip path/to/file.aseprite --via-frame
 ```
 
 ## ライセンス

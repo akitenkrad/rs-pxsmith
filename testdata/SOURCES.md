@@ -14,11 +14,11 @@
 | パス | 内容 | 出典 | ライセンス |
 | --- | --- | --- | --- |
 | `aseprite/aseprite-tests/*.aseprite` (19 件) | Aseprite 本体のテストスプライト．タイルマップ・リンクセル・グループ・スライス・タグ・ユーザデータ props を含む | Aseprite 公式 — https://github.com/aseprite/aseprite/tree/main/tests/sprites (`aseprite-io` 0.2.0 の `tests/fixtures/` 経由で取得) | MIT (Igara Studio S.A. / David Capello)．原文は同ディレクトリの `LICENSE` |
-| `generated/sample.aseprite` | `cargo run -p px-io --example make_sample` の出力 | 自作 | CC0 (自作) |
+| `generated/sample.aseprite` | `cargo run -p pxsmith-io --example make_sample` の出力 | 自作 | CC0 (自作) |
 | `../palettes/sweetie-16.hex` | Sweetie 16 パレット | GrafxKid — https://lospec.com/palette-list/sweetie-16 | CC0 |
-| `grid-eval/real/render/*.png` (25 件) | 実データ枠の `render` 区分．球と床のレイトレーシングを縮小し，合成データと同じ劣化をかけたもの | 自作 — `cargo run -p px-calib -- render` | CC0 (自作) |
+| `grid-eval/real/render/*.png` (25 件) | 実データ枠の `render` 区分．球と床のレイトレーシングを縮小し，合成データと同じ劣化をかけたもの | 自作 — `cargo run -p pxsmith-calib -- render` | CC0 (自作) |
 | `grid-eval/seeds/*.png` (64 件) | **合成データセットの元絵**．Kenney Tiny Dungeon 16x16 (32 件) と Dungeon Crawl 32x32 (32 件) ．**実データ枠の 48 件とは重ならない**ものを選んである | 上と同じ 2 パック | CC0．原文は `grid-eval/real/other/LICENSE-*.txt` |
-| `grid-eval/real/screenshot/000-008.png` (9 件) | 実データ枠の**正例 (組んだ画面)**．Tiled の見本地図を `px-calib scene` で元絵の解像度に描き出し，倍率 2 で拡大して劣化を通したもの．1 件 (`008`) は `Sample.png` が 418x211 の厳密な 3 倍だったので元絵を復元して作った | Kenney 各パックの `Tiled/*.tmx` ・`Map/*.tmx` | CC0．原文は `grid-eval/real/screenshot/LICENSE-kenney.txt` |
+| `grid-eval/real/screenshot/000-008.png` (9 件) | 実データ枠の**正例 (組んだ画面)**．Tiled の見本地図を `pxsmith-calib scene` で元絵の解像度に描き出し，倍率 2 で拡大して劣化を通したもの．1 件 (`008`) は `Sample.png` が 418x211 の厳密な 3 倍だったので元絵を復元して作った | Kenney 各パックの `Tiled/*.tmx` ・`Map/*.tmx` | CC0．原文は `grid-eval/real/screenshot/LICENSE-kenney.txt` |
 | `grid-eval/real/screenshot/neg-*.png` (10 件) | 実データ枠の**負例**．Kenney の紹介用レンダ (918x515)．**非整数倍で拡大され補間も掛かっている**ので整数の格子が無い | Kenney 各パックの `Sample*.png` | 同上 |
 | `grid-eval/real/other/000-023.png` (24 件) | 実データ枠の**正例**．16x16 の元絵をこちらが決めた倍率 (2〜12) で拡大し，合成データと同じ劣化を通したもの | Kenney — Tiny Dungeon https://kenney.nl/assets/tiny-dungeon | CC0．原文は `grid-eval/real/other/LICENSE-kenney-tiny-dungeon.txt` |
 | `grid-eval/real/other/024-047.png` (24 件) | 同上．元絵は 32x32 | Dungeon Crawl Stone Soup — https://opengameart.org/content/dungeon-crawl-32x32-tiles | CC0．原文は `grid-eval/real/other/LICENSE-dungeon-crawl.txt` |
@@ -54,7 +54,7 @@
 | `local/screenshot/neg-*.png` (47 件) | ゲームまてりあるずの**負例**．原寸のまま (1920x1080) ．47 件すべてが正しく棄却されている |
 | `local/other/neg-*.png` (22 件) | DOT ILLUST の**負例**．原寸のまま (幅 500) ．本物のドット絵だが幅 500 へ非整数倍で拡大されており，整数の格子が存在しない．22 件すべてが正しく棄却されている |
 | `local/other/NNN.png` (23 件) | DOT ILLUST の**正例**．元絵 (12x14〜39x19) を厳密に復元し，こちらが決めた倍率 (2〜12) で拡大し直したもの．**中身は本物のドット絵**である |
-| `local/manifest.json` | その目録．`cargo run -p px-calib --release -- real --dir testdata/grid-eval/real/local` で採点する |
+| `local/manifest.json` | その目録．`cargo run -p pxsmith-calib --release -- real --dir testdata/grid-eval/real/local` で採点する |
 | `local/_sources/screenshot/` (47 件) | 上記の元ファイル |
 | `local/_sources/other/` (23 件) | 同上 |
 | `local/_sources/ai-output/` (28 件) | 同梱した AI 出力の負例の**原寸**．切り出すと消える誤受理があるため残してある (1024 画素角以上でのみ現れる) |
@@ -62,7 +62,7 @@
 > [!warning] 「ドット絵風」は目視では判定できない
 > 縮小表示ではブロックが並んで見えるが，拡大すると縁が滑らかで境界が無い．
 > **画風であって格子ではない**．隣接行の近似一致率も当てにならない — 平坦な領域が
-> 広いと 90% を超える．`px-calib ingest` の判定 (縁が境界へ集中しているか) で
+> 広いと 90% を超える．`pxsmith-calib ingest` の判定 (縁が境界へ集中しているか) で
 > 確かめること．
 >
 > 検査した 75 件 (配布素材 47 ・AI 出力 28) は，**隣接行の完全一致率が 1 件も 0 を

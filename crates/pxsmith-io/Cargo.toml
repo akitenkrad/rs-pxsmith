@@ -1,0 +1,26 @@
+[package]
+edition.workspace = true
+name = "pxsmith-io"
+publish = true
+description = "Readers and writers for pixel-art formats: .aseprite round-trip, the L0 text format, PNG and .hex palettes."
+readme.workspace = true
+keywords = ["pixel-art", "aseprite", "graphics", "parser"]
+categories = ["graphics", "parser-implementations"]
+license.workspace = true
+repository.workspace = true
+version.workspace = true
+
+[dependencies]
+aseprite-io = { workspace = true }
+gif = { workspace = true }
+image = { workspace = true }
+pxsmith-core = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+toml = { workspace = true }
+
+[dev-dependencies]
+pxsmith-core = { workspace = true }
+
+[lints]
+workspace = true

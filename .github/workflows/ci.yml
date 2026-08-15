@@ -45,6 +45,6 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - run: cargo test -p px-io --test aseprite_roundtrip
+      - run: cargo test -p pxsmith-io --test aseprite_roundtrip
         env:
           PXFORGE_REQUIRE_ASEPRITE_CORPUS: "1"

@@ -12,12 +12,12 @@
 - **19 件に現れない書き方は，誰も試していない**
 - `aseprite-io` に «この 19 件だけ偶然通る» 誤りがあっても検出できない
 
-`px verify roundtrip` と `aseprite_roundtrip.rs` が守っているのは
+`pxsmith verify roundtrip` と `aseprite_roundtrip.rs` が守っているのは
 «読んで書いたらバイトが戻る» ことであって，**«Aseprite が書いたものと同じ»
 ことではない**．後者を確かめるには，**Aseprite 自身に書かせたファイル**が要る．
 
 > [!note] **読み手の側は独立化してある** (D167)．
-> `crates/px-io/tests/aseprite_independent_parse.rs` に，公開仕様
+> `crates/pxsmith-io/tests/aseprite_independent_parse.rs` に，公開仕様
 > (`ase-file-specs.md`) だけから書いた 2 つ目の読み手がある．
 > `aseprite-io` の解釈 (画布 ・コマ数 ・表示時間 ・レイヤの並びと種別 ・
 > パレット ・セルの有無) をそこで突き合わせている．
@@ -55,7 +55,7 @@
 | **タグの向き** | forward ・reverse ・ping-pong はある | **ping-pong reverse** と繰り返し回数 |
 | **9 スライス** | スライスは 5 件あるが 9-patch は未確認 | スライスに 9-patch と中心矩形を設定する |
 
-数え直すには `crates/px-io/tests/aseprite_independent_parse.rs` の読み手が使える．
+数え直すには `crates/pxsmith-io/tests/aseprite_independent_parse.rs` の読み手が使える．
 
 ### 3. 置き方
 
@@ -78,6 +78,6 @@ tag-pingpong.aseprite
 
 ## 埋まったら
 
-1. `cargo test -p px-io` を通す (往復とバイト一致 ・独立読み手の突き合わせ)
+1. `cargo test -p pxsmith-io` を通す (往復とバイト一致 ・独立読み手の突き合わせ)
 2. `docs/status.md` の «R3 に残っている部分» を書き換える
 3. 実装計画書のリスク表 R3 を閉じる

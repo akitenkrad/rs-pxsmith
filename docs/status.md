@@ -6,10 +6,10 @@
 
 | 完了条件 | 状態 | 実体 |
 | --- | --- | --- |
-| Cargo workspace (`px-core` / `px-io` / `px`) が `cargo test` を通る | 済 | `crates/` |
-| データモデル (`IndexedCanvas` / `Palette` / `Ramp` / `Layer` / `Frame`) | 済 | `px-core` |
-| パレットの不変条件 (アルファ 2 値・`lab` の同期・明度順正規化と逆置換の往復) | 済 | `px-core/src/palette.rs` |
-| `EditOp` / `Patch` の骨格 (apply / revert の往復) | 済 | `px-core/src/edit.rs` |
+| Cargo workspace (`pxsmith-core` / `pxsmith-io` / `pxsmith`) が `cargo test` を通る | 済 | `crates/` |
+| データモデル (`IndexedCanvas` / `Palette` / `Ramp` / `Layer` / `Frame`) | 済 | `pxsmith-core` |
+| パレットの不変条件 (アルファ 2 値・`lab` の同期・明度順正規化と逆置換の往復) | 済 | `pxsmith-core/src/palette.rs` |
+| `EditOp` / `Patch` の骨格 (apply / revert の往復) | 済 | `pxsmith-core/src/edit.rs` |
 | `quantette` の API 確認 (重み付き距離) | 済 | `docs/investigations/quantette-weighted-distance.md` |
 | CI (fmt / clippy / test) | 済 | `.github/workflows/ci.yml` |
 | **`.aseprite` の往復が実ファイル群でバイト一致** | 済 (条件付き) | `testdata/aseprite/aseprite-tests/` 19 件 |
@@ -18,7 +18,7 @@
 
 ### `.aseprite` 往復検証の状態
 
-- 仕組み: `crates/px-io/tests/aseprite_roundtrip.rs`，`px verify roundtrip`
+- 仕組み: `crates/pxsmith-io/tests/aseprite_roundtrip.rs`，`pxsmith verify roundtrip`
 - 素材: Aseprite 公式テストスプライト **19 件** (MIT)．`aseprite-io` 0.2.0 の
   `tests/fixtures/` 経由で取得．タイルマップ・リンクセル・グループ・スライス・
   タグ・ユーザデータ props を含む
@@ -40,7 +40,7 @@ CI を回している)．**この «独立でなさ» を 2 つに分けて，�
 **バイト一致は «理解した» の証明ではない．** 未知のチャンクを不透明な塊として
 持ち回って書き戻すだけでもバイトは一致し，**`project` は «解釈した側» を読む**ので
 レイヤの取り違えは往復試験を素通りして絵だけが静かに変わる．そこで
-`crates/px-io/tests/aseprite_independent_parse.rs` に**仕様から書いた 2 つ目の
+`crates/pxsmith-io/tests/aseprite_independent_parse.rs` に**仕様から書いた 2 つ目の
 読み手**を置き，画布 ・コマ数 ・**コマごとの表示時間** ・レイヤの並びと種別と名前 ・
 **グループがどれか** ・パレット ・透明添字 ・**コマごとのセルの有無**を突き合わせる．
 **19 件すべてで食い違い 0．**
@@ -71,8 +71,8 @@ CI を回している)．**この «独立でなさ» を 2 つに分けて，�
 
 | 論点 | 判断 |
 | --- | --- |
-| `Document` の置き場所 | 設計書 3.1 はデータモデル節に置くが，`aseprite-io` に依存するため `px-io` に置いた．`px-core` を I/O から切り離す方針 (2.1) を優先した |
-| `px-core` の `aseprite-io` 依存 | `BlendMode` の再輸出 (D53) のためだけに依存する．読み書きは行わない |
+| `Document` の置き場所 | 設計書 3.1 はデータモデル節に置くが，`aseprite-io` に依存するため `pxsmith-io` に置いた．`pxsmith-core` を I/O から切り離す方針 (2.1) を優先した |
+| `pxsmith-core` の `aseprite-io` 依存 | `BlendMode` の再輸出 (D53) のためだけに依存する．読み書きは行わない |
 | `EditOp` / `Patch` の適用先 | 設計書に容れ物の型が無いので `&mut [Frame]` とした．`FrameId` がその添字，`LayerId` がフレーム内のレイヤ添字 |
 | `merge_back` の書き戻し粒度 | **変わっていないレイヤには触れない**．触れないことがバイト一致往復とリンクセル保存の条件になる |
 | 保持層へ書き戻せない項目 | `aseprite-io` 0.2 にフレーム長・レイヤ属性の設定 API が無い．黙って落とさず `IoError::UnsupportedWriteback` を返す (R15 の具体例) |
@@ -84,11 +84,11 @@ CI を回している)．**この «独立でなさ» を 2 つに分けて，�
 | 完了条件 | 状態 | 実体 |
 | --- | --- | --- |
 | 端末要件の確認 (R1・R18) | 済 | `TERM_PROGRAM=iTerm.app` — inline images protocol が使える．Terminal.app への退避は不要 |
-| L0 テキスト形式のスキーマ確定 | 済 | `px-io/src/l0.rs` |
-| `px text` (双方向変換が画素一致) | 済 | `px text export` / `import`，`tests/l0_roundtrip.rs` |
-| `px watch` (保存から表示まで 1 秒未満) | 済 | **実測 79 ms** (うち 60 ms は意図的なデバウンス) |
-| `px diff` (変化ピクセル数と位置) | 済 | `px-view/src/diff.rs` |
-| `pixels!` proc-macro | 済 | `px-macro`．行長不一致はコンパイルエラー，`include_str!` でパレット変更を追跡 |
+| L0 テキスト形式のスキーマ確定 | 済 | `pxsmith-io/src/l0.rs` |
+| `pxsmith text` (双方向変換が画素一致) | 済 | `pxsmith text export` / `import`，`tests/l0_roundtrip.rs` |
+| `pxsmith watch` (保存から表示まで 1 秒未満) | 済 | **実測 79 ms** (うち 60 ms は意図的なデバウンス) |
+| `pxsmith diff` (変化ピクセル数と位置) | 済 | `pxsmith-view/src/diff.rs` |
+| `pixels!` proc-macro | 済 | `pxsmith-macro`．行長不一致はコンパイルエラー，`include_str!` でパレット変更を追跡 |
 
 ### 前提検証の結果
 
@@ -122,10 +122,10 @@ CI を回している)．**この «独立でなさ» を 2 つに分けて，�
 | API 検証 (`smooth` の骨格試作) | 済 | `geom/jaggy.rs` |
 | 誤検出率の測定 | 済 (**M3 で測り直し，2026-08-15 に真値のある場面で閉じた**) | `docs/investigations/jaggy-false-positives.md`．M1a のラン数は輪郭追跡の不具合で 5 倍過大だった (D82) ．**付録 C #1 は D163 で閉じた** — 下 |
 
-### 直線だけ守った — `px smooth` が正しい線を書き換えるのを止めた (2026-08-15 ・D168 ・D169)
+### 直線だけ守った — `pxsmith smooth` が正しい線を書き換えるのを止めた (2026-08-15 ・D168 ・D169)
 
 **R22 の扱いを決めた**: 検出器は触らず (ルール 8 は advisory なので助言のまま)，
-**画素を動かす `px smooth` の側だけが手を引く**．
+**画素を動かす `pxsmith smooth` の側だけが手を引く**．
 
 **先に測ったら，選ぶ前の見立てが 2 つ外れた** (D168) ．壊れているのは主に**円板**
 (56 画素 ・13 枚 対 階段 28 画素 ・21 枚) で，さらに**谷の局所の形は偽と真を
@@ -151,18 +151,18 @@ CI を回している)．**この «独立でなさ» を 2 つに分けて，�
 説明できる区間**に乗っていたもので，`smooth` は実素材でも正しい線を書き換えていた．
 
 > [!warning] **端から端まで通して 1 件出た．** 単体試験が緑になった後も
-> `px lint` が «`px smooth` で直せる» と言い続けていた — **助言が道具の挙動と
+> `pxsmith lint` が «`pxsmith smooth` で直せる» と言い続けていた — **助言が道具の挙動と
 > 食い違う**ので文言を変えた．**負例も 2 度続けて外した** (5 度目 ・6 度目) —
 > どちらも例外に届く前に止まる形で，**道具ではなく試験が誤っていた**．
 
 **円板 (60 画素 ・13 枚) は守らないと決めた** — 下の節を見よ (D170)．
-測る口は `px-calib jaggy-truth` (深さと両隣の差の分布も出す)．
+測る口は `pxsmith-calib jaggy-truth` (深さと両隣の差の分布も出す)．
 
 ### 円板は守らない — 上限を測って «実装しない» を選んだ (2026-08-15 ・D170)
 
 D169 が残した円板の谷は «傾きの違う 2 つの直線区間の継ぎ目» に見える．
 **認識器を書く前に，継ぎ目に見える谷を全部許したときの上限だけ測った**
-(`px-calib jaggy-seam`) ．谷を挟んで左右に窓を伸ばし，**両側が直線になる取り方が
+(`pxsmith-calib jaggy-seam`) ．谷を挟んで左右に窓を伸ばし，**両側が直線になる取り方が
 1 つでもあれば継ぎ目**とみなす — 窓の取り方を全部試すので，どんな認識器も
 これより多くは救えない．
 
@@ -189,7 +189,7 @@ D169 が残した円板の谷は «傾きの違う 2 つの直線区間の継ぎ
 
 > [!warning] **«負例の捕捉 53 / 69» は «直せる» という意味ではない．**
 > あれは**検出**の数字で，D169 の例外は検出を変えないので**その指標では
-> 何を許しても «影響なし» と読める**．**`px smooth` が崩した場所を実際に
+> 何を許しても «影響なし» と読める**．**`pxsmith smooth` が崩した場所を実際に
 > 直せるのは 31 / 69** である (崩した場所に谷ができる 41 ・うち候補が無くて
 > 直らない 11 ・**D169 の直線の例外で動かせない 1** ・数え上げが説明できない 2)．
 
@@ -213,8 +213,8 @@ D169 が残した円板の谷は «傾きの違う 2 つの直線区間の継ぎ
 > `is_digital_straight_span` の引数にし，試験で固定した．
 
 ```sh
-cargo run -p px-calib --release -- jaggy-seam            # 上限の全 16 通り
-cargo run -p px-calib --release -- jaggy-seam --out out/seam.csv
+cargo run -p pxsmith-calib --release -- jaggy-seam            # 上限の全 16 通り
+cargo run -p pxsmith-calib --release -- jaggy-seam --out out/seam.csv
 ```
 
 ### ジャギー検出の誤検出で分かったこと (2026-08-15 ・D163．付録 C #1 を閉じた)
@@ -222,7 +222,7 @@ cargo run -p px-calib --release -- jaggy-seam --out out/seam.csv
 実素材 61 枚の測定 (24714 本中 146 件) には**正解ラベルが無く，誤検出率になって
 いなかった** — «このくぼみは作者の意図か滑らせ損ねか» が誰にも分からないからである．
 そこで**縁の凹凸が全部幾何で決まる絵**を作った (円板 ・有理数の傾きの階段) ．
-**ここに出た検出は全件が定義から誤検出**になる．測る口は `px-calib jaggy-truth`．
+**ここに出た検出は全件が定義から誤検出**になる．測る口は `pxsmith-calib jaggy-truth`．
 
 | 群 | 枚数 | ラン | 検出 | 率 |
 | --- | ---: | ---: | ---: | ---: |
@@ -230,7 +230,7 @@ cargo run -p px-calib --release -- jaggy-seam --out out/seam.csv
 | **階段 (短い走りが孤立)** | 10 | 339 | **95** | **28.02%** |
 | 階段 (短い走りが隣接) | 10 | 385 | **0** | **0.00%** |
 
-> [!warning] **鳴るだけではない — `px smooth` が清書を 88 画素 ・17 / 58 枚 書き換える．**
+> [!warning] **鳴るだけではない — `pxsmith smooth` が清書を 88 画素 ・17 / 58 枚 書き換える．**
 > 助言なら «うるさい» で済むが，`smooth` は画素を動かすので**正しく描いた線が壊れる**．
 
 **どの傾きで鳴るかは閾値ではなく数え上げで決まる．** 傾き $a / b$ の階段は 1 周期に
@@ -258,8 +258,8 @@ $$\text{谷ができる} \iff 2\,(b \bmod a) \geq a$$
 > «へこみ» の道具で «出っ張り» は守備範囲外**である．
 
 ```sh
-cargo run -p px-calib --release -- jaggy-truth   # 真値のある場面 (円板 ・階段 ・対照)
-cargo run -p px-calib --release -- jaggy         # 実素材 61 枚 (ラベル無し)
+cargo run -p pxsmith-calib --release -- jaggy-truth   # 真値のある場面 (円板 ・階段 ・対照)
+cargo run -p pxsmith-calib --release -- jaggy         # 実素材 61 枚 (ラベル無し)
 ```
 
 G4 (局所格子推定) は格子推定器そのものなので M2 で `conform` と同時に実装する．
@@ -283,13 +283,13 @@ G4 (局所格子推定) は格子推定器そのものなので M2 で `conform`
 
 | 完了条件 | 状態 | 実体 |
 | --- | --- | --- |
-| `Generator` trait + キャッシュ (ハッシュキーによる再利用) | **済 (D156 ・D158)** | `px-gen/src/repair.rs` の `Generator`，`request.rs` の `GenRequest::key`．**M5 のキャッシュにそのまま乗る** — `op = "gen.prog"` は普通のステップとして貯まる |
-| provenance manifest (モデル ・プロンプト ・seed の記録) | **済．ただし seed は書けない (D157)** | `px-gen/src/session.rs`．`<name>.gen.json`．**seed の欄は落とし，なぜ無いかを書いた** |
-| `px gen prog` (検証付き生成ループ．blocking のみ判定) | **済 (D156)．本物の API で実測済み (D162)** | `px-gen/src/repair.rs`．設計書 8.2 の擬似コードそのまま．**応答は流で受ける** (`anthropic.rs`) — 一括だと 60 秒で切れる |
-| `px gen image` (外部 API ・`conform` + `denoise-dither` 自動適用) | **書かない (D156)** | 8.1 «汎用拡散モデルの出力は非一様格子になることがあり，その場合は棄却する» のとおり**成功率がモデル依存で上限が読めない**．`--allow-generate` の側は済 (D158) |
+| `Generator` trait + キャッシュ (ハッシュキーによる再利用) | **済 (D156 ・D158)** | `pxsmith-gen/src/repair.rs` の `Generator`，`request.rs` の `GenRequest::key`．**M5 のキャッシュにそのまま乗る** — `op = "gen.prog"` は普通のステップとして貯まる |
+| provenance manifest (モデル ・プロンプト ・seed の記録) | **済．ただし seed は書けない (D157)** | `pxsmith-gen/src/session.rs`．`<name>.gen.json`．**seed の欄は落とし，なぜ無いかを書いた** |
+| `pxsmith gen prog` (検証付き生成ループ．blocking のみ判定) | **済 (D156)．本物の API で実測済み (D162)** | `pxsmith-gen/src/repair.rs`．設計書 8.2 の擬似コードそのまま．**応答は流で受ける** (`anthropic.rs`) — 一括だと 60 秒で切れる |
+| `pxsmith gen image` (外部 API ・`conform` + `denoise-dither` 自動適用) | **書かない (D156)** | 8.1 «汎用拡散モデルの出力は非一様格子になることがあり，その場合は棄却する» のとおり**成功率がモデル依存で上限が読めない**．`--allow-generate` の側は済 (D158) |
 
 > [!note] **通った (2026-08-15)．M6 の «実測していない» は無くなった．**
-> `px gen prog` が**端から端まで 1 発で通った** — 1 回目で blocking 0 ・
+> `pxsmith gen prog` が**端から端まで 1 発で通った** — 1 回目で blocking 0 ・
 > advisory 2 ・**80.4 秒**．出た絵は宝箱として読め，宣言した添字しか使っていない．
 >
 > | 未確認だったもの | 結果 |
@@ -366,8 +366,8 @@ G4 (局所格子推定) は格子推定器そのものなので M2 で `conform`
 > 返ってきたものが依頼に対応していることを保つ．
 
 > [!warning] **生成の輪がフレーム間のルールを掛けていなかった．**
-> `px lint` は設計書 7.1 の 22 〜 27 を掛け，**6 ルール中 5 つが blocking** (27 だけ advisory) なのに，
-> 輪は 1 コマずつしか見ていなかった — **`px gen prog --frames N` は «自分の検査に
+> `pxsmith lint` は設計書 7.1 の 22 〜 27 を掛け，**6 ルール中 5 つが blocking** (27 だけ advisory) なのに，
+> 輪は 1 コマずつしか見ていなかった — **`pxsmith gen prog --frames N` は «自分の検査に
 > 落ちる列» を «通った» と言える**状態だった．中割りに穴を開けた 3 コマ
 > (ルール 22 はオイラー標数の数え上げなので閾値が無い) で試験を書き，
 > **直す前は 1 回目で受理されること**も確かめてから直した．
@@ -387,7 +387,7 @@ G4 (局所格子推定) は格子推定器そのものなので M2 で `conform`
 | 1 回目 | **blocking 5 件** — ルール 23 (揺れる線) 1 件 ・**ルール 25 (孤立列の残留) 4 件** |
 | 2 回目 | **通った．advisory も 0 件** |
 
-2 回で 112 秒．出力を `px lint` に掛けても **0 / 0** で，道具と検査が食い違っていない．
+2 回で 112 秒．出力を `pxsmith lint` に掛けても **0 / 0** で，道具と検査が食い違っていない．
 **助言は «回数» ではなく «中身» で効いている** — 渡すのは番号 ・名前 ・本文なので，
 モデルは «何を直すか» を読める (D129 «ルール 3 とだけ書いても直せない» の裏返し) ．
 
@@ -403,15 +403,16 @@ G4 (局所格子推定) は格子推定器そのものなので M2 で `conform`
 > «どうせ全部 `key` だろう» という読みは外れた．
 
 ```sh
-ANTHROPIC_API_KEY="$KEY" cargo run -p px -- gen prog out/anim.px.toml \
+ANTHROPIC_API_KEY="$KEY" cargo run -p pxsmith -- gen prog out/anim.px.toml \
     --prompt "左右に揺れる小さな旗．旗の部分が平行移動で揺れる" \
     --palette 1a1c2c,f4f4f4,b13e53 --size 16x16 --frames 4
 ```
 
 ### crates.io の準備 — 出す前に測ったら出せなかった (2026-08-15 ・D174)
 
-**まだ出していない** (利用者判断) ．準備を整え，`cargo publish --dry-run` を
-回して分かったことを残す．
+**以下は改名前の記録である** — ここに出る `px-*` は当時のパッケージ名で，
+いまは `pxsmith-*` である (D175．次の節) ．準備を整え，
+`cargo publish --dry-run` を回して分かったことを残す．
 
 | 名前 | crates.io |
 | --- | --- |
@@ -419,9 +420,6 @@ ANTHROPIC_API_KEY="$KEY" cargo run -p px -- gen prog out/anim.px.toml \
 | **`px`** | **取られている** (0.0.0) |
 | `px-io` ・`px-lint` ・`px-recipe` ・`px-macro` ・`px-view` ・`px-gen` | 空き |
 | **`pxforge` ・`pxforge-*`** | **全部空き** |
-
-出すときは **`[package] name` だけを替え，`[lib] name` を `px_core` のまま残せば
-ソースは 1 行も変わらない**．
 
 > [!warning] **名前が取られているのは表示の問題ではなかった．**
 > 梱包した tarball を検証するとき path 依存は登録所の依存に置き換わり，
@@ -431,12 +429,146 @@ ANTHROPIC_API_KEY="$KEY" cargo run -p px -- gen prog out/anim.px.toml \
 
 > [!warning] **`px-recipe` が通ったのが一番悪い．** px-core を**一度も使って
 > いない**ので，他人のクレートへの依存を宣言したまま何のエラーも出さずに
-> 公開されるところだった．**`px` も `px-macro` を使っていなかった**．
+> 公開されるところだった．**`pxsmith` も `px-macro` を使っていなかった**．
 > どちらも落とした (D80 «構造的に空» の親戚 — «誰も使わない依存») ．
 
 整えたもの: 各クレートの `description` (必須欄) ・`keywords` ・`categories` ・
 `readme`，**path 依存の `version`**，公開名の決め方を `Cargo.toml` のコメントに．
-**`publish = false` は残してある．**
+
+### 群ごと `pxsmith*` へ改名した (2026-08-15 ・D175)
+
+D174 が測った «名前が衝突したままでは出せない» を，**名前を替えて閉じた**．
+`px-core` の衝突は `^0.1.0` が他人の 0.1.7 に当たる構造的な問題なので，
+**替える以外の直し方が無い**．
+
+#### 決め方
+
+`pxforge` は空いていたが，`pixforge` と `pixelforge` は**取られていた**ので，
+pix 系で forge を残す道は塞がっている．**`pxsmith` は本体も `pxsmith-*` の群
+(core / io / lint / recipe / macro / gen / view / calib) も全部空いていた**．
+
+#### 替えたものと替えなかったもの
+
+**2 周に分けて替えた．** 1 周目 (D175) はパッケージ名 ・ディレクトリ ・
+ライブラリ名まで — bin 名は «登録所に登録されない名前なので衝突しようがなく，
+打つ側を長くする理由が無い» として据え置いた．**2 周目 (D176) で bin 名も替えた**
+(利用者判断) ．名前が 1 つに揃うことを，`px` と打てる短さより重く見る．
+
+| 替えた | 替えなかった |
+| --- | --- |
+| ディレクトリ `crates/px-core` → `crates/pxsmith-core` | **L0 の拡張子 `.px.toml`** |
+| パッケージ名 `px-core` → `pxsmith-core` | **単位としての `px`** (「1 px の骨格線」) |
+| **ライブラリ名 `px_core` → `pxsmith_core`** | D174 が記録した**他人の**名前 (`px-core` 0.3.1 ・`px` 0.0.0) |
+| **bin 名 `px` → `pxsmith` ・`px-calib` → `pxsmith-calib`** (D176) | `testdata/.../manifest.json` の来歴文字列 |
+| 一時ディレクトリの接頭辞 (`px-gif-` → `pxsmith-gif-` 等 5 種) | |
+| clap の `#[command(name = ...)]` | |
+
+**拡張子は道具の名前ではなく形式の名前**であり，替えると既存の資産が読めなくなる．
+manifest の «px-calib render で作った» は**そのバイナリが作った**という記録なので，
+bin 名を替えたいまも**当時の名前のまま正しい**．
+
+> [!warning] **一括置換は記録を壊す — 2 周とも踏んだ．**
+> `px-core` という文字列は «うちのクレート» と **«crates.io で他人が使っている
+> 名前»** の両方を指すので，素直に置換すると D174 の «他人の px-core 0.1.7 に
+> 当たる» が «他人の pxsmith-core 0.1.7» という**嘘**になる．
+> **2 周目でも同じことが起きた** — `` `px` `` → `` `pxsmith` `` が
+> «px 0.0.0 は取られている» を書き換えた．
+> **同じ文字列が «自分の名前» と «他人の名前» の両方であるとき，
+> 置換のたびに記録を確かめ直すこと．**
+
+> [!warning] **`px` は単位でもあった．**
+> 「1 px の骨格線」(`shade.rs` ・`distance.rs` ・`term.rs`) ・
+> 「下限 3 px ・比 1.25」(`grid-calibration.md`) がある．
+> `s/px /pxsmith /` は**これを壊す**ので，**サブコマンド名を 30 個 + 39 個
+> 列挙して** `px (text|palette|…|verify)` の形でだけ置換した．
+> `--help` から引いたので，書き落としが無い．
+
+> [!warning] **拡張子で網を張ると拡張子の無いファイルが落ちる．**
+> 1 周目の置換は `'*.rs' '*.toml' '*.md' '*.yml'` で網を張ったので
+> **`NOTICE` が漏れ**，存在しない `crates/px-core/src/cleanedge.rs` を
+> 指したままだった (下のライセンスの節で気付いた) ．
+
+> [!warning] **`CARGO_BIN_EXE_px` も漏れた．こちらはコンパイルエラーになる．**
+> 統合試験は `Command::new(env!("CARGO_BIN_EXE_px"))` で自分のバイナリを起こす．
+> この変数名は **bin 名から cargo が生成する**ので，bin 名を替えた瞬間に
+> `environment variable not defined at compile time` で落ちる．
+> `px` の後ろが `_` でも空白でもないため，コマンド用の規則にもトークン規則にも
+> 掛からなかった．**単体試験では出ず，`clippy --all-targets` で出た．**
+
+### リポジトリ名も `rs-pxsmith` にした (2026-08-15 ・D177)
+
+GitHub の `akitenkrad/rs-pxforge` を **`akitenkrad/rs-pxsmith` へ改名**し，
+`origin` の URL ・`[workspace.package] repository` ・**ローカルの作業
+ディレクトリ名**を揃えた．
+
+`repository` は**梱包した `Cargo.toml` に入って crates.io に出る**ので，
+出す前に直しておく必要がある — GitHub は旧 URL のリダイレクトを残すが，
+**登録所に載る文字列は後から直せない** (公開済みのバージョンは書き換えられない) ．
+梱包を開いて `repository = "https://github.com/akitenkrad/rs-pxsmith"` を確かめた．
+
+> [!warning] **ディレクトリを移すと，キャッシュした試験バイナリが旧パスを指したまま残る．**
+> 移動後に `cargo test --workspace` を回したら **948 件が 14 件に落ちた** —
+> 実素材を読む試験が «種が 1 枚も無い
+> (`/Users/…/`**`rs-pxforge`**`/crates/pxsmith/../../testdata/…`)» で落ちていた．
+> 素材の位置は `CARGO_MANIFEST_DIR` から引くが，これは**コンパイル時に焼き込まれる
+> 定数**であり，**cargo のフィンガープリントはディレクトリの改名を検知しない**ので
+> 再ビルドが起きない．`cargo clean` で直る (78 GiB 消えた) ．
+>
+> **通った件数を数えていなければ気付かない** — 落ちた試験があると
+> `--workspace` はそこで止まるので，**末尾だけ読むと «ok» に見える**
+> (最後に走ったのは通った試験である) ．D138 «飛ばした件を数える» と同じ側．
+
+#### 確かめたもの
+
+| 見たもの | 結果 |
+| --- | --- |
+| `cargo test --workspace` | **948 件通過 ・0 失敗** (改名前と同数) |
+| `cargo fmt --all --check` | クリーン (名前が 5 文字伸びて 100 桁を越えた行を整形した) |
+| `cargo clippy --workspace --all-targets -- -D warnings` | クリーン |
+| **端から端まで CLI** | `pxsmith lint` ・`pxsmith text export` → `import` ・`pxsmith verify roundtrip` ・`pxsmith-calib --help` が通る |
+| CI の必須ジョブ | `cargo test -p pxsmith-io --test aseprite_roundtrip` が 2 件通過 |
+| **`cargo publish --workspace --dry-run`** | **ライブラリ 6 つすべて通過** — D174 で落ちた `px-io` (23 件) ・`px-lint` (58 件) が消えた |
+
+**D174 の «別のプロジェクトに対してコンパイルされる» は名前を替えて消えた．**
+cargo 1.94 の `--workspace` は一時レジストリ (`target/package/tmp-registry`) を
+作って**まだ公開していない依存を自分の梱包で解決する**ので，公開順の
+`px-macro` 待ちも起きない — D174 が «梱包できない» と書いたのは
+1 クレートずつ回していたからである．
+
+#### 梱包の中身を見て 1 件出た — **ライセンス表示が入っていなかった**
+
+> [!warning] **`cargo publish --dry-run` が通っても «出してよい» ではない．**
+> 6 つとも dry-run を通ったので出せる状態に見えたが，**梱包した tarball には
+> `README.md` しか入っていなかった** — `LICENSE-MIT` ・`LICENSE-APACHE` ・
+> **`NOTICE` がどれも無い**．
+>
+> **`pxsmith-core` は cleanEdge (MIT) の移植を含む** (`cleanedge.rs`．D146) ．
+> MIT は «上記の著作権表示を複製物に含めること» を要求し，ソースにも
+> «著作権表示は `NOTICE` に置いてある» と書いてあるのに，
+> **その `NOTICE` が配られない**状態だった．自分の `MIT OR Apache-2.0` も同じで，
+> `license` 欄は宣言であって本文ではない．
+>
+> **cargo は梱包にパッケージの外のファイルを入れない** ので，
+> ワークスペース根の 3 つを各クレートへ **symlink した** — cargo は symlink を
+> 実体化して梱包するので (実測: 1054 バイトの本文が入る)，git 上は複製にならない．
+> `NOTICE` は cleanEdge を持つ `pxsmith-core` にだけ置く．
+>
+> **`NOTICE` は改名の置換からも漏れていた** — 拡張子が無いので
+> `'*.rs' '*.toml' '*.md' '*.yml'` の網に掛からず，`crates/px-core/src/cleanedge.rs`
+> という**存在しないパス**を指したままだった．**拡張子で網を張ると
+> 拡張子の無いファイルが落ちる．**
+
+| クレート | 同梱 |
+| --- | --- |
+| `pxsmith-core` | README ・LICENSE-MIT ・LICENSE-APACHE ・**NOTICE** |
+| 他 5 つ | README ・LICENSE-MIT ・LICENSE-APACHE |
+
+```sh
+cargo run -p pxsmith -- lint examples/sprites/hero_body.px.toml
+cargo run -p pxsmith-calib --release -- mixel-exact
+cargo publish --workspace --dry-run          # 出す前に必ず回す (D174)
+tar tzf target/package/pxsmith-core-0.1.0.crate | grep -E 'LICENSE|NOTICE'
+```
 
 ### M2 の区分 B が目標を超えた (2026-08-15 ・D173)
 
@@ -459,14 +591,14 @@ D72 が «残る的» として名指しした **境界の峰の拾い方** — 
 > [!warning] **テストセットでは確かめられない** — 2026-08-13 に 1 度使って
 > M2 を閉じたため．根拠は «検証セット ＋ 実データ 2 枠» である．
 
-> [!warning] **`px-calib sweep` の既定軸は出荷の運転点を含まない**
+> [!warning] **`pxsmith-calib sweep` の既定軸は出荷の運転点を含まない**
 > ($\varepsilon$ を割合として掃くため) ので，報告をそのまま読むと B 0 / 50 に
 > 見える．**区分を数えるのは `replay` の仕事である．**
 
 ### ルール 9 を厳密な升判定へ替えた — D37 を改訂 (2026-08-15 ・D172)
 
 D164 は «ルール 9 は書籍の言うミクセルを窓をどう選んでも検出できない» と測って
-止めていた．**替える前に上限を測り** (`px-calib mixel-exact`)，その数字で決めた．
+止めていた．**替える前に上限を測り** (`pxsmith-calib mixel-exact`)，その数字で決めた．
 
 **厳密判定は «測れなかった» と «測ったら 1 だった» を分けられる** — 平らな窓は
 どの升でも条件を満たすので «何も言っていない» と名乗れる．統計的推定器は
@@ -482,25 +614,25 @@ D164 は «ルール 9 は書籍の言うミクセルを窓をどう選んでも
 
 窓 8 だと検出は 19 / 36 へ上がるが清書 5 / 18 ・実素材 5 / 64 が誤爆する．
 **16 が «誤爆 0» の上限**である．**統計側の数字は 1 桁も動いていない**
-(`px-calib mixel` は D164 の表と一致する) ．
+(`pxsmith-calib mixel` は D164 の表と一致する) ．
 
 **D37 «同一の推定器を共有する» を «入力が違うので道具を分ける» に改訂した** —
-`px lint` は劣化していない等倍 PNG を受け取るので厳密判定が使えるが，
-`px conform` は JPEG や補間を通った絵を受け取るので使えない．
+`pxsmith lint` は劣化していない等倍 PNG を受け取るので厳密判定が使えるが，
+`pxsmith conform` は JPEG や補間を通った絵を受け取るので使えない．
 
 > [!warning] **端から端まで通して 1 件出た．しかも blocking である．**
 > 升が 2 通りあるだけで鳴らす形にしたら，**一様に 4 倍へ拡大しただけの絵が
 > blocking になった** (30 枚中 23 枚) — 平らな場所では $2s$ の升でも揃うためで，
 > `grid-calibration.md` の «$2s_*$ への転落» と同じ現象である．
-> `px lint` は渡された PNG が等倍か拡大かを**知らない**ので宣言に頼れない．
+> `pxsmith lint` は渡された PNG が等倍か拡大かを**知らない**ので宣言に頼れない．
 >
 > **書籍の定義に戻って絞った** — ミクセルとは «**等倍の絵**に拡大が混ざる» こと
 > なので，**$k = 1$ が混ざっていることを要求する**．誤爆は **23 / 30 → 0 / 30**，
 > 検出は 11 / 36 のまま．一様な拡大の «格子が場所により違う» はルール 2 ・
-> `px conform` の持ち場なので，**D37 の分担はここで保たれる**．
+> `pxsmith conform` の持ち場なので，**D37 の分担はここで保たれる**．
 
 > [!warning] **`LintConfig` の `uniformity` と `grid_window` は死んでいた．**
-> ルール 2 は `GridParams` を，`px conform` は自前の閾値を使う — この 2 欄は
+> ルール 2 は `GridParams` を，`pxsmith conform` は自前の閾値を使う — この 2 欄は
 > **ルール 9 専用だった**．設定しても何も変わらない欄になるので消した．
 
 > [!warning] **CLI の門の理由が消えた．** «`--max-scale` が 2 未満ならルール 9 を
@@ -512,7 +644,7 @@ D164 は «ルール 9 は書籍の言うミクセルを窓をどう選んでも
 D164 で足した «検査していない» の報告をそのまま使う．
 
 ```sh
-cargo run -p px-calib --release -- mixel-exact
+cargo run -p pxsmith-calib --release -- mixel-exact
 ```
 
 ### `Refused` は良性の依頼から踏めない (2026-08-15 ・D171)
@@ -666,7 +798,7 @@ cargo run -p px-calib --release -- mixel-exact
 
 > [!note] **L0 は自己完結していない — だからモデルは色を作れない**
 > L0 のパレットは**外の `.hex` への参照**で，本文には色が書けない
-> (`px_io::l0::L0PaletteSpec`) ．そこで**道具が宣言されたパレットから `.hex` を
+> (`pxsmith_io::l0::L0PaletteSpec`) ．そこで**道具が宣言されたパレットから `.hex` を
 > 先に書き，モデルは添字の文字だけを書く**．
 >
 > これは制限ではなく**保証**である — D2 ・D4 ・D94 の «色を作らない» が，
@@ -675,18 +807,18 @@ cargo run -p px-calib --release -- mixel-exact
 > [!warning] **仕様は引いてから書く — また踏んだ** (D111)
 > システムプロンプトの L0 の説明を記憶で書いて外した．L0 には `inline`
 > パレットも `pixels` 配列も**無い** (パレットは参照，画素は `data` の 1 本の
-> 文字列である) ．`px_io::l0` のスキーマを読んでから書き直した．
+> 文字列である) ．`pxsmith_io::l0` のスキーマを読んでから書き直した．
 > **試験が落ちて初めて気付いた** — 生成の輪はプロンプトが間違っていても
 > «モデルが下手» に見えるので，ここは特に危ない．
 
 > [!warning] **枝を足した瞬間に門が破れた** (D158)
 > D31 の門は `op == "gen"` の**完全一致**で書いてあった．op はサブコマンドの
-> 木から引く (D130) ので，`px gen prog` を足した瞬間に **`gen.prog` という
+> 木から引く (D130) ので，`pxsmith gen prog` を足した瞬間に **`gen.prog` という
 > 実行できる op が生えて門を素通りする** — `--allow-generate` 無しで外部 API を
 > 叩けてしまう．`gen` とその配下すべてに掛かるよう直し，**CLI を起こす試験**で
 > 固定した (門は CLI 側にあり，ライブラリ試験では通らない道である) ．
 
-> [!warning] **`px run build.toml` が落ちていた — 手引きが載せているそのままの形で**
+> [!warning] **`pxsmith run build.toml` が落ちていた — 手引きが載せているそのままの形で**
 > `Path::new("build.toml").parent()` は `None` ではなく **`Some("")`** を返すので，
 > `unwrap_or(".")` の守りは**一度も働いていなかった**．そして空の場所へは移れない．
 > **起きない場合を守って，起きる場合を素通りさせていた**形で，D80 ・D145
@@ -711,31 +843,31 @@ cargo run -p px-calib --release -- mixel-exact
 ```sh
 # **非対話シェルには .zshrc の export が届かない** ので鍵は明示的に渡す
 KEY=$(sed -n '162p' ~/.zshrc | sed 's/^[^=]*=//' | tr -d '"'"'"' \r')
-ANTHROPIC_API_KEY="$KEY" cargo run -p px -- gen prog out/chest.px.toml \
+ANTHROPIC_API_KEY="$KEY" cargo run -p pxsmith -- gen prog out/chest.px.toml \
     --prompt "木の宝箱．正面から" \
     --palette 1a1c2c,566c86,8a6a4a,b13e53,f4f4f4 --size 16x16
 
-cargo run -p px -- gen prog out/chest.px.toml --prompt "木の宝箱" \
+cargo run -p pxsmith -- gen prog out/chest.px.toml --prompt "木の宝箱" \
     --palette 1a1c2c,f4f4f4 --size 16x16 --dry-run   # 組み立てた依頼が出る (鍵は要らない)
-cargo run -p px -- run build.toml --allow-generate   # op = "gen.prog" が走る
+cargo run -p pxsmith -- run build.toml --allow-generate   # op = "gen.prog" が走る
 ```
 
 ## M7: 投影 ・拡縮回転 ・確認機能 (**閉じた．8 件中 8 件**)
 
 | 完了条件 | 状態 | 実体 |
 | --- | --- | --- |
-| `px scale` / `px rotate` (cleanEdge 必須 ・RotSprite は timebox) | **済 (D146 〜 D148)** | `px-core/src/resample.rs` ・`cleanedge.rs`．**R17 を閉じた** — cleanEdge は残し，RotSprite は書いていない |
-| `px project --to` (iso / dimetric45 / oblique) | **済 (D149 〜 D151)** | `px-core/src/project.rs`．**設計書 6.13 の «または» は別の変換だった**．`resample::affine` に乗る |
-| `px guide --projection` | **済 (D152)** | `px-core/src/guide.rs`．**刻みは整数の組で持つ**．«2 枚 / 4 枚» を数えて確かめた |
-| `px view --silhouette` | **済** | `px/src/main.rs` の `DisplayArgs` |
-| `px view --luma` | **済** | 同上 |
-| `px view --onion` (**輪郭のみ**) | **済 (D153)** | `px-view/src/onion.rs`．**D52 が書いていない «理由» を数えた** (隠す量が塗り潰しの 15.8%) |
-| `px palette report` | **済 (D154)** | `px-core/src/palreport.rs`．**書籍の «2 〜 3 色» は «面積の半分» で読んだときの話だった** |
-| **lint 追加 (19 ・20 ・21)** | **済 (D143 〜 D145)** | `px-lint/src/rules.rs`．**これで 7 章の 27 ルールが揃った** |
+| `pxsmith scale` / `pxsmith rotate` (cleanEdge 必須 ・RotSprite は timebox) | **済 (D146 〜 D148)** | `pxsmith-core/src/resample.rs` ・`cleanedge.rs`．**R17 を閉じた** — cleanEdge は残し，RotSprite は書いていない |
+| `pxsmith project --to` (iso / dimetric45 / oblique) | **済 (D149 〜 D151)** | `pxsmith-core/src/project.rs`．**設計書 6.13 の «または» は別の変換だった**．`resample::affine` に乗る |
+| `pxsmith guide --projection` | **済 (D152)** | `pxsmith-core/src/guide.rs`．**刻みは整数の組で持つ**．«2 枚 / 4 枚» を数えて確かめた |
+| `pxsmith view --silhouette` | **済** | `px/src/main.rs` の `DisplayArgs` |
+| `pxsmith view --luma` | **済** | 同上 |
+| `pxsmith view --onion` (**輪郭のみ**) | **済 (D153)** | `pxsmith-view/src/onion.rs`．**D52 が書いていない «理由» を数えた** (隠す量が塗り潰しの 15.8%) |
+| `pxsmith palette report` | **済 (D154)** | `pxsmith-core/src/palreport.rs`．**書籍の «2 〜 3 色» は «面積の半分» で読んだときの話だった** |
+| **lint 追加 (19 ・20 ・21)** | **済 (D143 〜 D145)** | `pxsmith-lint/src/rules.rs`．**これで 7 章の 27 ルールが揃った** |
 
 ### 投影で分かったこと (2026-08-14)
 
-測る口は `px-calib project`．**設計書 6.13 は 6 行しかない節だが，主張が 3 つ
+測る口は `pxsmith-calib project`．**設計書 6.13 は 6 行しかない節だが，主張が 3 つ
 入っていて，そのうち 2 つが外れた．**
 
 > [!warning] **6.13 の «または» で並んだ 2 手順は，同じ変換ではない** (D149)
@@ -785,11 +917,11 @@ cargo run -p px -- run build.toml --allow-generate   # op = "gen.prog" が走る
 > 向いている方向に合わせる (逆にしない)» は，向きが絵から決まらない以上，
 > 推測すると外れたときだけ静かに壊れる．D111) ．
 
-> [!warning] **端から端まで CLI で通して 1 件出た — しかも `px rotate` に前からあった**
+> [!warning] **端から端まで CLI で通して 1 件出た — しかも `pxsmith rotate` に前からあった**
 > 全面不透明なタイルを投影すると «不透明な画素 1024 -> 1058» と出る．**増えた分が
 > 絵なのか埋め草なのか読めない** — 透明添字を宣言していない絵には «何も無い» が
 > 無いので，広げた画布は**実色 (添字 0) で埋まる** (D109 «透明添字はパレットの
-> アルファではない» の裏側) ．`px rotate` でも 1024 -> 1936 と出ていた．
+> アルファではない» の裏側) ．`pxsmith rotate` でも 1024 -> 1936 と出ていた．
 >
 > **処方せず数えて報告する** (D92 ・D107) — `ResampleReport::filled_opaque` を足し，
 > `scale` ・`rotate` ・`project` の 3 つが同じ言い方をする．**単体試験では出ない．**
@@ -802,9 +934,9 @@ cargo run -p px -- run build.toml --allow-generate   # op = "gen.prog" が走る
 > なので採らない (D93 «画布は結果であって入力ではない») ．
 
 ```sh
-cargo run -p px -- project in.px.toml out.px.toml --to iso --from top --facing right
-cargo run -p px -- guide g.png --projection iso --from top --cell 16 --size 256x256 --checker
-cargo run -p px-calib --release -- project   # 2 手順の突き合わせ ・段の刻み ・自分の検査
+cargo run -p pxsmith -- project in.px.toml out.px.toml --to iso --from top --facing right
+cargo run -p pxsmith -- guide g.png --projection iso --from top --cell 16 --size 256x256 --checker
+cargo run -p pxsmith-calib --release -- project   # 2 手順の突き合わせ ・段の刻み ・自分の検査
 ```
 
 ### ガイドグリッドで分かったこと (2026-08-14)
@@ -848,12 +980,12 @@ cargo run -p px-calib --release -- project   # 2 手順の突き合わせ ・段
 
 > [!note] **ここでは色を作ってよい．** D94 «色を作らない» は絵を作る道具の
 > 不変条件であって，確認用の表示には掛からない — 出力は RGBA でパレットへ
-> 書き戻さない (`px view --luma` が明度を灰色へ写しているのと同じ側) ．
+> 書き戻さない (`pxsmith view --luma` が明度を灰色へ写しているのと同じ側) ．
 > 前のコマは寒色 ・後のコマは暖色にし，遠いコマほど薄くする．
 > **端で足りなかったコマは «重ねなかった» と分けて数える** (D77 ・D104) ．
 
 ```sh
-cargo run -p px -- view walk.px.toml --frame 2 --onion 2
+cargo run -p pxsmith -- view walk.px.toml --frame 2 --onion 2
 ```
 
 ### パレットレポートで分かったこと (2026-08-14)
@@ -882,12 +1014,12 @@ cargo run -p px -- view walk.px.toml --frame 2 --onion 2
 > どちらで見ているかを言う．
 
 ```sh
-cargo run -p px -- palette report hero.px.toml --top 12 --main 3
+cargo run -p pxsmith -- palette report hero.px.toml --top 12 --main 3
 ```
 
 ### 拡縮 ・回転で分かったこと (2026-08-14)
 
-測る口は `px-calib rotate`．**R17 (RotSprite 自前実装の品質不達) を閉じた．**
+測る口は `pxsmith-calib rotate`．**R17 (RotSprite 自前実装の品質不達) を閉じた．**
 
 > [!note] **cleanEdge は色を作らない — だから添字のまま移植できた** (D146)
 > インデックスカラーで混ぜたらパレットに無い色ができるので (D2 ・D4 ・D94) ，
@@ -936,14 +1068,14 @@ cargo run -p px -- palette report hero.px.toml --top 12 --main 3
 > cleanEdge が測って効くと分かった以上，timebox を使う先が無い．
 
 ```sh
-cargo run -p px -- rotate in.px.toml out.px.toml --degrees 30 --algo cleanedge
-cargo run -p px -- scale in.px.toml out.px.toml --factor 4     # 既定は nearest (厳密)
-cargo run -p px-calib --release -- rotate   # 往復の真値 ・対照 ・ジャギー
+cargo run -p pxsmith -- rotate in.px.toml out.px.toml --degrees 30 --algo cleanedge
+cargo run -p pxsmith -- scale in.px.toml out.px.toml --factor 4     # 既定は nearest (厳密)
+cargo run -p pxsmith-calib --release -- rotate   # 往復の真値 ・対照 ・ジャギー
 ```
 
 ### 形 ・接触系 3 ルールで分かったこと (2026-08-14)
 
-測る口は `px-calib lint-shape`．**付録 C 要調査事項 #2 (形の乱雑さの閾値) を閉じた．**
+測る口は `pxsmith-calib lint-shape`．**付録 C 要調査事項 #2 (形の乱雑さの閾値) を閉じた．**
 
 > [!warning] **ルール 19 を色の領域ごとに掛けると良い絵の 93.8% が鳴る** (D143)
 > 設計書の «連結成分の周囲長/面積比» を $P^2/A$ で素直に実装した結果である
@@ -970,7 +1102,7 @@ cargo run -p px-calib --release -- rotate   # 往復の真値 ・対照 ・ジ�
 > > (b) 色どうしの入れ替えでは**シルエットが 1 画素も変わらない** — 影の分布が
 > > 完全に一致した．シルエットを測るなら**不透明と透明を入れ替える**．
 
-> [!warning] **ルール 20 をそのまま実装すると `px shade` の出力が 75% 鳴る** (D144)
+> [!warning] **ルール 20 をそのまま実装すると `pxsmith shade` の出力が 75% 鳴る** (D144)
 > 中身は面積 240 と 196 の**陰影の帯**で，中間の帯がくびれた場所で角が出会った
 > だけである — 1 つの面の階調であって部品どうしの接触ではない．
 >
@@ -978,7 +1110,7 @@ cargo run -p px-calib --release -- rotate   # 往復の真値 ・対照 ・ジ�
 > 場合で，**何も挟まずに出会っている**ことが要点である．そこで
 > **触れている点の «脇» 2 つが両方とも背景の組**に限った．
 >
-> | | `px shade` の出力 | 良い絵 | 負例の捕捉 |
+> | | `pxsmith shade` の出力 | 良い絵 | 負例の捕捉 |
 > | --- | --- | --- | --- |
 > | 角で触れていれば鳴らす | **30 / 40** | 9.4% | 6 / 7 |
 > | **脇が背景の組だけ** | **0 / 40** | **0.0%** | **6 / 7** |
@@ -1011,52 +1143,52 @@ cargo run -p px-calib --release -- rotate   # 往復の真値 ・対照 ・ジ�
 既にある advisory (6 が 39.1% ・11 が 32.8% ・18 が 31.2%) と同程度である．
 
 ```sh
-cargo run -p px-calib --release -- lint         # 27 ルールを良い絵に掛ける
-cargo run -p px-calib --release -- lint-shape   # 19 の量 2 通り ・20 と 21 の下限
+cargo run -p pxsmith-calib --release -- lint         # 27 ルールを良い絵に掛ける
+cargo run -p pxsmith-calib --release -- lint-shape   # 19 の量 2 通り ・20 と 21 の下限
 ```
 
 ## M4: 合成 ・タイル ・アニメーション (**閉じた．20 件中 20 件**)
 
 | 完了条件 | 状態 | 実体 |
 | --- | --- | --- |
-| `px compose` (アンカー付きパーツ合成 ・variants 展開) | **済 (D93 ・D94)** | `px-core/src/compose.rs`．`px/src/compose_cmds.rs`．`--part path@自分=基準` ・`--for-each 変数=値,値` |
-| **`px compose --part-delay`** | **済 (D95)** | `--delay-mode {hold,wrap}`．**既定は `hold`** |
-| 方向展開 (反転 + 陰影再導出で 8 方向) | **済 (D96 〜 D98)** | `px-core/src/direction.rs`．`px/src/direction_cmds.rs`．**ルール 7 を blocking で掛ける側**．`--reshade` は明示 |
-| `px tileset extract --dedupe` 3 モード | **済 (D99 〜 D101)** | `px-core/src/tileset.rs`．`px/src/tileset_cmds.rs`．削減率を必ず報告 ・反転に頼る升にルール 7 |
-| `px tileset autotile` | **済 (D102 〜 D104)** | `px-core/src/autotile.rs`．47 枚 ・象限 5 状態 ・設計書 4.3 の 4 段の解決規則 ・自動ミラーにルール 7 |
+| `pxsmith compose` (アンカー付きパーツ合成 ・variants 展開) | **済 (D93 ・D94)** | `pxsmith-core/src/compose.rs`．`px/src/compose_cmds.rs`．`--part path@自分=基準` ・`--for-each 変数=値,値` |
+| **`pxsmith compose --part-delay`** | **済 (D95)** | `--delay-mode {hold,wrap}`．**既定は `hold`** |
+| 方向展開 (反転 + 陰影再導出で 8 方向) | **済 (D96 〜 D98)** | `pxsmith-core/src/direction.rs`．`px/src/direction_cmds.rs`．**ルール 7 を blocking で掛ける側**．`--reshade` は明示 |
+| `pxsmith tileset extract --dedupe` 3 モード | **済 (D99 〜 D101)** | `pxsmith-core/src/tileset.rs`．`px/src/tileset_cmds.rs`．削減率を必ず報告 ・反転に頼る升にルール 7 |
+| `pxsmith tileset autotile` | **済 (D102 〜 D104)** | `pxsmith-core/src/autotile.rs`．47 枚 ・象限 5 状態 ・設計書 4.3 の 4 段の解決規則 ・自動ミラーにルール 7 |
 | ディザタイルの位相バリアント (D45) | **済 (D105 〜 D107)** — **測って主張を反証し，処方は採らなかった**．代わりに継ぎ目の破れを数える (`autotile::seam_doubled`) |
-| 象限インポータ (`--from-template` 3 レイアウト ・L0 書き出し) | **済 (D108 ・D109)** | `px tileset import`．`quadrants-5` / `quadrants-20` / **`blob-47` (突き合わせ付き)** |
-| **正規 JSON (設計書 4.4)** | **済 (D110)** | `px-core/src/tilejson.rs`．`terrain` (bitmask → タイル) と `map` (升 → タイル) ．`autotile --map` / `extract --map` が**同じ型**を書く |
-| **`px export tiled`** | **済 (D111)** | `px-core/src/export.rs`．`.tsx` / `.tmx`．反転は GID の上位 3 ビット |
-| `px export godot` | **書かない (D111)** | terrain set の «peering bit» と 8 近傍 bitmask の対応が未確認．**仕様を引いてから** |
-| **`px sheet pack`** | **済 (D112 ・D113)** | `px-core/src/sheet.rs`．シート + JSON メタ．**`px export tiled --sheet` が並べ方をここから引く** (`--columns` は取り上げた) |
-| **`px anim tween`** | **済 (D114 ・D115)** | `px-core/src/tween.rs`．**R11 を «重心を先に取り除く» で解いた**．共通 bbox パディング ・トポロジー変化を報告 |
-| **`px anim ease --fps --hold`** | **済 (D116 ・D117)** | `px-core/src/anim.rs`．**未決事項 #5 を閉じた** (60 FPS 1 コマ = 17 ms) |
-| **`px anim cycle`** | **済 (D118 ・D119)** | 2 軸 API ・プリセット 4 種 ・既定 3 フレーム ・`--reverse-derive`．**16 通りのうち 12 通り** (rotate は書かない) |
-| **`px anim smear`** | **済 (D120 ・D121)** | `px-core/src/smear.rs`．**設計書の掃引は union と同じ集合だった** (包含定理) ．重心を先に取り除く |
-| **`px anim extrapolate`** | **済 (D122)** | `px-core/src/tween.rs`．予備動作 / オーバーシュート．**平行移動なら真値と画素単位一致** |
-| **`px anim squash`** | **済 (D123 ・D128)** | `px-core/src/deform.rs`．体積 ($h \times w$) 保存．**幅は体積の式から引く** ・**画布を広げる** |
-| **`px anim subpixel`** | **済 (D124 ・D125)** | `px-core/src/subpixel.rs`．接線法 (既定) と高速法．$f$ は «どれだけ色を渡すか» |
-| **`px anim afterimage`** | **済 (D126)** | `px-core/src/afterimage.rs`．**設計書が 1 語しか決めていないので他の判断から引いた** |
+| 象限インポータ (`--from-template` 3 レイアウト ・L0 書き出し) | **済 (D108 ・D109)** | `pxsmith tileset import`．`quadrants-5` / `quadrants-20` / **`blob-47` (突き合わせ付き)** |
+| **正規 JSON (設計書 4.4)** | **済 (D110)** | `pxsmith-core/src/tilejson.rs`．`terrain` (bitmask → タイル) と `map` (升 → タイル) ．`autotile --map` / `extract --map` が**同じ型**を書く |
+| **`pxsmith export tiled`** | **済 (D111)** | `pxsmith-core/src/export.rs`．`.tsx` / `.tmx`．反転は GID の上位 3 ビット |
+| `pxsmith export godot` | **書かない (D111)** | terrain set の «peering bit» と 8 近傍 bitmask の対応が未確認．**仕様を引いてから** |
+| **`pxsmith sheet pack`** | **済 (D112 ・D113)** | `pxsmith-core/src/sheet.rs`．シート + JSON メタ．**`pxsmith export tiled --sheet` が並べ方をここから引く** (`--columns` は取り上げた) |
+| **`pxsmith anim tween`** | **済 (D114 ・D115)** | `pxsmith-core/src/tween.rs`．**R11 を «重心を先に取り除く» で解いた**．共通 bbox パディング ・トポロジー変化を報告 |
+| **`pxsmith anim ease --fps --hold`** | **済 (D116 ・D117)** | `pxsmith-core/src/anim.rs`．**未決事項 #5 を閉じた** (60 FPS 1 コマ = 17 ms) |
+| **`pxsmith anim cycle`** | **済 (D118 ・D119)** | 2 軸 API ・プリセット 4 種 ・既定 3 フレーム ・`--reverse-derive`．**16 通りのうち 12 通り** (rotate は書かない) |
+| **`pxsmith anim smear`** | **済 (D120 ・D121)** | `pxsmith-core/src/smear.rs`．**設計書の掃引は union と同じ集合だった** (包含定理) ．重心を先に取り除く |
+| **`pxsmith anim extrapolate`** | **済 (D122)** | `pxsmith-core/src/tween.rs`．予備動作 / オーバーシュート．**平行移動なら真値と画素単位一致** |
+| **`pxsmith anim squash`** | **済 (D123 ・D128)** | `pxsmith-core/src/deform.rs`．体積 ($h \times w$) 保存．**幅は体積の式から引く** ・**画布を広げる** |
+| **`pxsmith anim subpixel`** | **済 (D124 ・D125)** | `pxsmith-core/src/subpixel.rs`．接線法 (既定) と高速法．$f$ は «どれだけ色を渡すか» |
+| **`pxsmith anim afterimage`** | **済 (D126)** | `pxsmith-core/src/afterimage.rs`．**設計書が 1 語しか決めていないので他の判断から引いた** |
 | **書く側も拡張子を見る** | **済 (D127)** | `px/src/main.rs` の `save_frames`．読む側だけが `.px.toml` を見ていた |
-| **`px lint` (sequence) フレーム間 6 ルール** | **済 (D139 〜 D142)** | `px-lint/src/sequence.rs`．ルール 22 〜 27．keyframe 限定は `lint_frame` が `FrameKind::is_keyframe` で掛けている |
-| **`px atmos`** | **済 (D135 〜 D138)** | `px-core/src/atmos.rs`．**添字の置き換え**．空の色と霞の厚みは宣言 ・線の上にある色だけへ寄せる ・速度係数は記録するだけ |
+| **`pxsmith lint` (sequence) フレーム間 6 ルール** | **済 (D139 〜 D142)** | `pxsmith-lint/src/sequence.rs`．ルール 22 〜 27．keyframe 限定は `lint_frame` が `FrameKind::is_keyframe` で掛けている |
+| **`pxsmith atmos`** | **済 (D135 〜 D138)** | `pxsmith-core/src/atmos.rs`．**添字の置き換え**．空の色と霞の厚みは宣言 ・線の上にある色だけへ寄せる ・速度係数は記録するだけ |
 
 > [!note] **2026-08-14 — M4 が閉じた (20 / 20)．**
 > 実装計画書の M4 節と 1 行ずつ突き合わせた結果は下のとおり．
 >
 > | 実装計画書 M4 の完了条件 (20 行) | 状態 |
 > | --- | --- |
-> | `px compose` ・`--part-delay` ・方向展開 ・`tileset extract` ・`tileset autotile` ・ディザの位相 ・象限インポータ ・`sheet pack` | 済 (D93 〜 D113) |
-> | `px anim tween` ・`ease` ・`cycle` ・`afterimage` ・`subpixel tangent` ・`subpixel fast` ・`squash` ・`extrapolate` ・`smear` | 済 (D114 〜 D128) |
-> | `px export godot` / `tiled` | **`tiled` だけ済 (D111)** — Godot の terrain set は仕様を引くまで書かない．**«書いていない» と報告している**ので «済» ではなく «半分» と数える |
-> | **`px atmos`** | **済 (D135 〜 D138)** |
-> | **`px lint` (sequence) フレーム間 6 ルール ・静止画 lint の keyframe 限定** | **済 (D139 〜 D142)** |
+> | `pxsmith compose` ・`--part-delay` ・方向展開 ・`tileset extract` ・`tileset autotile` ・ディザの位相 ・象限インポータ ・`sheet pack` | 済 (D93 〜 D113) |
+> | `pxsmith anim tween` ・`ease` ・`cycle` ・`afterimage` ・`subpixel tangent` ・`subpixel fast` ・`squash` ・`extrapolate` ・`smear` | 済 (D114 〜 D128) |
+> | `pxsmith export godot` / `tiled` | **`tiled` だけ済 (D111)** — Godot の terrain set は仕様を引くまで書かない．**«書いていない» と報告している**ので «済» ではなく «半分» と数える |
+> | **`pxsmith atmos`** | **済 (D135 〜 D138)** |
+> | **`pxsmith lint` (sequence) フレーム間 6 ルール ・静止画 lint の keyframe 限定** | **済 (D139 〜 D142)** |
 
 > [!warning] **2026-08-14 — «M4 完了» と報告したのは誤りだった．**
 > このファイルと `docs/handoff.md` が持っていた M4 の表に，**実装計画書の
-> 完了条件 20 件のうち 2 件が載っていなかった** (`px lint` の sequence 6 ルールと
-> `px atmos`) ．表を突き合わせずに «全部済んだ» と読んでいた．
+> 完了条件 20 件のうち 2 件が載っていなかった** (`pxsmith lint` の sequence 6 ルールと
+> `pxsmith atmos`) ．表を突き合わせずに «全部済んだ» と読んでいた．
 >
 > **正は実装計画書の M4 節である．** 派生した表を進捗の判断に使うなら，
 > 閉じる前に元の表と 1 行ずつ突き合わせること — D110 «正規出力が 2 つあるのは
@@ -1075,15 +1207,15 @@ cargo run -p px-calib --release -- lint-shape   # 19 の量 2 通り ・20 と 2
 平行移動が真値と画素単位で一致する» と実測しているので，**同じ道具が既に «動きの
 本体» として使っている量**をそのまま持ってくる (D139) ．
 
-測る口は `px-calib lint-seq`．正例 5 群 ・負例 5 種 ・**385 本**．
+測る口は `pxsmith-calib lint-seq`．正例 5 群 ・負例 5 種 ・**385 本**．
 
 | 群 | 何本 | 22 | 23 | 24 | 25 | 26 | 27 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | **正例** `translate` (剛体の平行移動) | 35 | 0 | 0 | 0 | 0 | 0 | 0 |
 | **正例** `hold` (1 枚を並べただけ) | 35 | 0 | 0 | 0 | 0 | 0 | 0 |
-| **正例** `tween` (`px anim tween` の中割り) | 35 | 0 | 0 | 0 | 0 | 0 | 0 |
+| **正例** `tween` (`pxsmith anim tween` の中割り) | 35 | 0 | 0 | 0 | 0 | 0 | 0 |
 | **正例** `dithertravel` (ディザが付いてくる) | 35 | 0 | 0 | 0 | 0 | 0 | 0 |
-| **正例** `squash` (`px anim squash` の潰し) | 35 | 0 | 0 | 0 | 0 | 0 | **2** |
+| **正例** `squash` (`pxsmith anim squash` の潰し) | 35 | 0 | 0 | 0 | 0 | 0 | **2** |
 | 負例 `topology` | 35 | **35** | 35 | 5 | 17 | 0 | 0 |
 | 負例 `wobble` | 35 | 0 | **34** | 4 | 35 | 0 | 0 |
 | 負例 `ditherstuck` | 35 | 0 | 0 | **28** | 0 | 0 | 0 |
@@ -1095,7 +1227,7 @@ cargo run -p px-calib --release -- lint-shape   # 19 の量 2 通り ・20 と 2
 
 > [!warning] **潰しは «軌跡に対して非単調» で正しい — 設計書どおりに書くと道具が
 > 自分の検査に落ちる** (D140)
-> `px anim squash` の潰しと伸ばし (0 → −0.1 → −0.2 → −0.1 → 0) は**設計上
+> `pxsmith anim squash` の潰しと伸ばし (0 → −0.1 → −0.2 → −0.1 → 0) は**設計上
 > 非単調**なので，7.3 の定義をそのまま実装すると**潰し 35 本すべてが blocking**に
 > なる — 書籍が教える技法を禁じることになる．しかも掃引しても分かれない
 > (潰しの方が揺れより比が大きいので閾値の向きが逆) ．
@@ -1127,7 +1259,7 @@ cargo run -p px-calib --release -- lint-shape   # 19 の量 2 通り ・20 と 2
 > 見る大きさだけが違う) ．
 
 > [!note] **閾値が要ったのは 3 つだけ** (D142)
-> 22 (オイラー標数) ・25 (`px anim subpixel` の下限から引く) ・26 は**数え上げ**なので
+> 22 (オイラー標数) ・25 (`pxsmith anim subpixel` の下限から引く) ・26 は**数え上げ**なので
 > 校正しない (D92) ．
 >
 > | ルール | 値 | 正例で鳴る | 負例で捕捉 | 引いた先 |
@@ -1142,15 +1274,15 @@ cargo run -p px-calib --release -- lint-shape   # 19 の量 2 通り ・20 と 2
 > [!warning] **`kind` と `subpixel_exclude` を持てるのは L0 だけ — 同じ形の 6 度目**
 > `.aseprite` で書き出すとルール 22 ・26 は **1 度も働かない**．D81 ・D119 ・D135 と
 > 同じ穴なので，**«鳴らなかった» と «検査していない» を分けて報告する** (D77 ・D104) —
-> `px lint` が掛からなかったルールとその理由を併記する．
+> `pxsmith lint` が掛からなかったルールとその理由を併記する．
 >
 > ```
 > ** 掛からなかったフレーム間ルール: 22 (kind = inbetween のフレームが無い) **
 > ```
 
 ```sh
-cargo run -p px -- lint walk.px.toml          # 2 コマ以上なら 22 〜 27 も掛かる
-cargo run -p px-calib --release -- lint-seq   # 正例 5 群 ・負例 5 種 ・掃引
+cargo run -p pxsmith -- lint walk.px.toml          # 2 コマ以上なら 22 〜 27 も掛かる
+cargo run -p pxsmith-calib --release -- lint-seq   # 正例 5 群 ・負例 5 種 ・掃引
 ```
 
 [^pl2]: Pixel Logic 第九章 (PAGE:234) «揺れる線»．
@@ -1159,7 +1291,7 @@ cargo run -p px-calib --release -- lint-seq   # 正例 5 群 ・負例 5 種 ・
 
 **設計書は «空気遠近法» の 1 語と «`depth` からレイヤ速度係数を出力» の 1 行しか
 決めていない．** 残像 (D126) ・生成過程 GIF (D134) と同じで，他の判断から引ける
-形に落とした．測る口は `px-calib atmos`．
+形に落とした．測る口は `pxsmith-calib atmos`．
 
 > [!warning] **«最も近い色» では線から外れる — それは «霞んだ» ではなく «色が変わった»** (D135)
 >
@@ -1172,7 +1304,7 @@ cargo run -p px-calib --release -- lint-seq   # 正例 5 群 ・負例 5 種 ・
 > | 0.60 | 76.9% | **20.7%** | 38.2% | 0.42 |
 > | 1.00 | 76.9% | **59.0%** | 29.6% | 0.36 |
 >
-> **置き換え先がパレットに在るのは 76.9%** — `px aa` の 81.3% (D83) ・サブピクセルの
+> **置き換え先がパレットに在るのは 76.9%** — `pxsmith aa` の 81.3% (D83) ・サブピクセルの
 > 53.6% (D124) と同じ量である．**«在るかどうか» は寄せ具合に依らない** (D124 で
 > 移動率 $f$ が候補の数を変えなかったのと同じ性質) ．
 >
@@ -1195,7 +1327,7 @@ cargo run -p px-calib --release -- lint-seq   # 正例 5 群 ・負例 5 種 ・
 > | 置き換え先が在った | 58.2% | 68.4% | **76.9%** | 85.2% | 91.1% | 91.9% |
 >
 > 滑らかで折れ曲がりが無く，0.32 では制約なしと同じ 91.9% に飽和する．
-> だから `px aa` (D83) ・`px anim subpixel` (D124) と**同じ «2 色の間» の定義**を
+> だから `pxsmith aa` (D83) ・`pxsmith anim subpixel` (D124) と**同じ «2 色の間» の定義**を
 > 引く — 道具の中で «間» の意味が 2 つある方が害が大きい (D110) ．
 
 > [!warning] **端から端まで CLI で通して 1 件出た** (M4 で 9 件目．D138)
@@ -1216,19 +1348,19 @@ cargo run -p px-calib --release -- lint-seq   # 正例 5 群 ・負例 5 種 ・
 > 書いていないかを言う**．**パスはメタからの相対**にする (D131 と同じ理由) ．
 
 ```sh
-cargo run -p px -- atmos 'out/${name}.px.toml' \
+cargo run -p pxsmith -- atmos 'out/${name}.px.toml' \
     --input fg.px.toml --input mid.px.toml --input bg.px.toml \
     --sky 41a6f6 --haze midground=0.3 --haze background=0.6 \
     --speed background=0.25 --scroll-meta out/scene.scroll.json
-cargo run -p px-calib --release -- atmos   # 在る割合 ・真値 ・許容 ・段の数
+cargo run -p pxsmith-calib --release -- atmos   # 在る割合 ・真値 ・許容 ・段の数
 ```
 
 ### 合成で分かったこと (2026-08-13)
 
 **設計書は «アンカー付きパーツ合成» としか決めていない．置き方は実測で決めた**
-(`px-calib compose`) ．
+(`pxsmith-calib compose`) ．
 
-> [!warning] **画布は «広げる»．`px outline` (D84) と逆の答えになった** (D93)
+> [!warning] **画布は «広げる»．`pxsmith outline` (D84) と逆の答えになった** (D93)
 >
 > | 群 | 枚数 | 縁に接する | 最小余白の中央 | 最大 |
 > | --- | --- | --- | --- | --- |
@@ -1250,7 +1382,7 @@ cargo run -p px-calib --release -- atmos   # 在る割合 ・真値 ・許容 �
 > **決め手は «色が変わっていないか» である．** 1 画素も変わっていないなら，
 > 増えた違反は**重ねた絵が本当にそうなっている** — 帽子を載せれば胴体の縁が
 > 1 画素覗くことがあり，それは lint が言うとおり孤立ピクセルである．
-> `crates/px/tests/compose_real_art.rs` が実素材 12 x 3 x ずらし 5 = 180 組で
+> `crates/pxsmith/tests/compose_real_art.rs` が実素材 12 x 3 x ずらし 5 = 180 組で
 > 全画素を突き合わせる．**道具を直すのではなく，道具が正しいことを証明して
 > lint の結果を報告に回した** (D58 とは向きが違う判断) ．
 
@@ -1279,7 +1411,7 @@ cargo run -p px-calib --release -- atmos   # 在る割合 ・真値 ・許容 �
 ### 方向展開で分かったこと (2026-08-13)
 
 **設計書 4.3 と実装計画書はどちらも «反転すると矛盾する ・再導出すれば直る» を
-前提にしていた．測ったら片方だけ成り立った** (`px-calib direction`) ．
+前提にしていた．測ったら片方だけ成り立った** (`pxsmith-calib direction`) ．
 
 > [!warning] **1 度目の測り方を外した — «正例が先» をまた踏んだ** (D70 と同じ穴)
 > 宣言する光源をプリセットの既定にすると，**実素材は «元の絵» の時点で 240 件中
@@ -1308,7 +1440,7 @@ cargo run -p px-calib --release -- atmos   # 在る割合 ・真値 ・許容 �
 >
 > | 群 | 反転しただけ (鳴る) | 反転 + 再導出 (鳴る) | 書き換えた画素 |
 > | --- | --- | --- | --- |
-> | `px shade` の出力 | **244 / 244** | **0 / 244** | 中央 62.5% ・最大 87.8% |
+> | `pxsmith shade` の出力 | **244 / 244** | **0 / 244** | 中央 62.5% ・最大 87.8% |
 > | 実素材 (手描き) | 28 / 60 | **0 / 60** | **中央 100% ・最大 100%** |
 >
 > 設計書の «再導出すれば直る» は成り立つ．しかし**手描きの絵は 1 画素残らず
@@ -1320,10 +1452,10 @@ cargo run -p px-calib --release -- atmos   # 在る割合 ・真値 ・許容 �
 > 鏡像が自分自身**である．**8 方向は «描いた 5 枚 + 反転した 3 枚»** で埋まり，
 > `N` ・`S` を描かなければ 6 方向で止まる — **黙って埋めずに «描いていない» と報告する**．
 
-**判定は CLI に置いた．** `px-core` は絵を作るだけで，ルール 7 を掛けるのは
-`px-lint` を呼べる `px direction` である (`px-lint` → `px-core` の依存の向きを崩さない)．
-`px validate` と同じ形である．ルール 7 の平均明度勾配は
-`px_lint::rules::mean_lightness_direction` として公開したが，**その絵を検査するのに
+**判定は CLI に置いた．** `pxsmith-core` は絵を作るだけで，ルール 7 を掛けるのは
+`pxsmith-lint` を呼べる `pxsmith direction` である (`pxsmith-lint` → `pxsmith-core` の依存の向きを崩さない)．
+`pxsmith validate` と同じ形である．ルール 7 の平均明度勾配は
+`pxsmith_lint::rules::mean_lightness_direction` として公開したが，**その絵を検査するのに
 使ってはいけない** (同語反復) — 使ってよいのは «別の絵を検査するとき» だけである．
 
 ### タイル同値判定で分かったこと (2026-08-13)
@@ -1391,7 +1523,7 @@ cargo run -p px-calib --release -- atmos   # 在る割合 ・真値 ・許容 �
 > 落ちていたのは «平均した勾配が 0» の方である．
 >
 > **対称な絵は反転しても同じ絵なので，光源と矛盾のしようがない — 見逃しではない．**
-> 理由を分けられるように `px_lint::rules::shading_sample_count` を足し，報告を
+> 理由を分けられるように `pxsmith_lint::rules::shading_sample_count` を足し，報告を
 > «標本不足 0 / 対称 7» に直した．
 >
 > > [!note] **対称は «左右» だけではない．** 試験を «測れない ⇒ 左右対称» と
@@ -1408,7 +1540,7 @@ cargo run -p px-calib --release -- atmos   # 在る割合 ・真値 ・許容 �
 ### ディザの位相 — 設計書の主張が測ると逆だった (2026-08-13)
 
 > [!warning] **«偶数幅だと反復で連結する» は逆である** (D105)
-> 市松を並べて継ぎ目で同色が隣り合う行を数えた (`px-calib dither`) ．
+> 市松を並べて継ぎ目で同色が隣り合う行を数えた (`pxsmith-calib dither`) ．
 >
 > | 一辺 | 偶奇 | 同一タイルの反復 | 鏡像を隣に置く |
 > | --- | --- | --- | --- |
@@ -1494,7 +1626,7 @@ Wang set へ写していない**» と併記する．
 
 **D92 ・D101 と同じ «数え上げ» なので校正しない** — 枚数だけで決まる．
 
-> [!warning] **`px export tiled` から `--columns` を取り上げた** (D112)
+> [!warning] **`pxsmith export tiled` から `--columns` を取り上げた** (D112)
 > 並べ方を決める場所が 2 つあると必ず食い違う (D110 と同じ形) ．
 > `--sheet` でメタを読み，列数 ・升 ・隙間 ・画像の名前と寸法を**そこから引く**．
 > 引くついでに**突き合わせる** — 升がタイルの一辺と違う ・タイルの枚数が
@@ -1507,7 +1639,7 @@ Wang set へ写していない**» と併記する．
 > 固定した．載る範囲の実素材で升の中身を全画素突き合わせている) ．
 
 > [!warning] **端から端まで通して 1 件出た** (今セッション 1 度目)
-> メタの既定を `tiles.json` にしていたため，**`px tileset extract --map` が
+> メタの既定を `tiles.json` にしていたため，**`pxsmith tileset extract --map` が
 > 書いた正規 JSON を黙って上書きした**．既定を `.sheet.json` にし，
 > **シートのメタでないファイルには上書きしない**ようにした．
 
@@ -1559,7 +1691,7 @@ Wang set へ写していない**» と併記する．
 **結果は必ず $A \cap B$ と $A \cup B$ の間にある** (符号の規約から出る代数．
 実素材でも破れないことを試験で固定) ．**トポロジーは保証できない** — 別の絵
 どうし 45 件のうち **11 件でオイラー標数が両端のどちらとも違う**ので，
-`px anim tween` が t ごとに成分数と穴の数を出して報告する．
+`pxsmith anim tween` が t ごとに成分数と穴の数を出して報告する．
 
 ### タイミングで分かったこと — 未決事項 #5 を閉じた (2026-08-14)
 
@@ -1591,7 +1723,7 @@ Wang set へ写していない**» と併記する．
 ### 周期アニメで分かったこと (2026-08-14)
 
 **16 通りのうち 12 通りを書き，`Rotate` の 4 通りは書かない** (D118) ．
-回転は `px rotate` (設計書 6.13) の仕事で，ここに書くと**回転の実装が 2 つになる**
+回転は `pxsmith rotate` (設計書 6.13) の仕事で，ここに書くと**回転の実装が 2 つになる**
 (D110 と同じ形の誤り) ．`Ramp` の変調は**ランプの宣言 (`--ramp`) を要求する** —
 絵だけから «どの色がどのランプの何段目か» は決まらない (D89 と同じ理由) ．
 
@@ -1609,7 +1741,7 @@ Wang set へ写していない**» と併記する．
 > `kind` がある) が，`.aseprite` に書いて読み直すと `key` に戻る —
 > **D81 «ランプの宣言が残らない» とまったく同じ形の穴で 3 度目**である．
 > 実測で advisory が 21 件 (`.aseprite`) 対 **16 件 (L0)** と変わる．
-> 欄を持っているのは L0 だけなので，`px anim` は L0 でも書けるようにし，
+> 欄を持っているのは L0 だけなので，`pxsmith anim` は L0 でも書けるようにし，
 > `.aseprite` のときは «スコープが効かない» と併記する．
 
 ### おばけで分かったこと — 設計書の掃引は union と同じ集合だった (2026-08-14)
@@ -1650,7 +1782,7 @@ Wang set へ写していない**» と併記する．
 
 標本 16 (1 歩 2 画素) でも 3 枚が切れる — «$\Delta t \lVert 変位 \rVert
 \lesssim 1$» は**ちょうどの条件**であって，余裕のある目安ではない．
-測る口は `px-calib smear`．
+測る口は `pxsmith-calib smear`．
 
 ### 外挿で分かったこと — 心配していたことは起きなかった (2026-08-14)
 
@@ -1699,7 +1831,7 @@ $h' = h/k$ ・$w' = wk$ なら実数では $h'w' = hw$ がちょうど成り立�
 > [!warning] **透明の宣言が無い絵を «空» と読んでいた** (D128)
 > `IndexedCanvas::opaque_bbox` は透明添字が無いと `None` を返す．そのまま
 > «空の画布» と読むと，**背景タイルのように隙間の無い絵をすべて拒む**．
-> **端から端まで通す試験が捕まえた** — `px-calib` の方は失敗した件を黙って
+> **端から端まで通す試験が捕まえた** — `pxsmith-calib` の方は失敗した件を黙って
 > 飛ばしていたので気付かなかった (`let Ok(..) else { continue }`) ．
 > **測る口が «飛ばした件» を数えていないと，落ちていることが見えない．**
 
@@ -1712,7 +1844,7 @@ $h' = h/k$ ・$w' = wk$ なら実数では $h'w' = hw$ がちょうど成り立�
 **$f$ は «どれだけ色を渡すか» に写す．水を注ぐ規則 1 つで設計書 6.10 の表 4 行が
 すべて出る** (D124) — 場合分けを 4 つ書く必要は無かった．中間色はランプではなく
 **パレットから引く** (`nearest_between`) ．ランプの宣言はファイルに残らないので
-(D81) ，`px aa` が D83 で採ったのと同じ形である — **D81 と同じ形が 4 度目**．
+(D81) ，`pxsmith aa` が D83 で採ったのと同じ形である — **D81 と同じ形が 4 度目**．
 
 | 方法 ・範囲 | 鎖 | 候補 | 中間色が無い | 動いた画素 | **輪郭が動いた** | blocking 増 |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -1759,7 +1891,7 @@ $200\% \to 1\text{px} \to 50\%$ で**構造的に $f = 0.5$** なので，
 **確率のまま渡さない．** 事前には読めないが**事後には確実に読める**ので，
 `SubpixelReport::silhouette_moved` を足して**毎回報告する**
 (D101 ・D107 ・D138 «処方せず報告する») ．取り方は 1 か所に置き (D110)，
-`px-calib` は道具が数えた値を読む — **測る口の数字は 1 桁も動かなかった**．
+`pxsmith-calib` は道具が数えた値を読む — **測る口の数字は 1 桁も動かなかった**．
 
 > [!warning] **報告を足したら，前からあった «常に出る警告» と二重になった．**
 > `--method fast` には «61 枚中 32 枚で動いた» が**実際に動いたかに関わらず**
@@ -1784,8 +1916,8 @@ $f$ は候補の «数» を変えない (`nearest_between` は «間にある�
 | 端の埋め方を選ばせる (`--edge wrap` は既定にしない) | D95 — ループのときだけ正しい |
 | 効かなかったことを黙らない | D77 ・D118 |
 
-`px shade` に描かせた 3 コマの列で測った (ランプが宣言されている状態を作るため．
-D77 が第 3 群として `px shade` の出力を使ったのと同じやり方) ．
+`pxsmith shade` に描かせた 3 コマの列で測った (ランプが宣言されている状態を作るため．
+D77 が第 3 群として `pxsmith shade` の出力を使ったのと同じやり方) ．
 
 | 1 コマのずらし | 長さ 1 で見えた枚数 | 見えた画素 (中央) | 隠れた画素 (中央) |
 | --- | --- | --- | --- |
@@ -1801,8 +1933,8 @@ D77 が第 3 群として `px shade` の出力を使ったのと同じやり方)
 
 > [!warning] **読む側は拡張子を見るのに，書く側が見ていなかった** (D127)
 > `load_frames` は `.px.toml` を L0 として読むが，**書き出す側は 5 か所とも
-> `.aseprite` を書いていた**．`px shade out.px.toml` は «中身が `.aseprite` の
-> ファイル» を作り，それを `px anim smear` に渡すと «UTF-8 でない» で落ちる．
+> `.aseprite` を書いていた**．`pxsmith shade out.px.toml` は «中身が `.aseprite` の
+> ファイル» を作り，それを `pxsmith anim smear` に渡すと «UTF-8 でない» で落ちる．
 > **端から端まで CLI で通して見つけた** (M4 で 7 件目) ．`save_frames` に寄せ，
 > パレットの参照も**隣のファイル名だけ**にした (絶対パスだと移した瞬間に読めない) ．
 
@@ -1810,15 +1942,15 @@ D77 が第 3 群として `px shade` の出力を使ったのと同じやり方)
 
 | 完了条件 | 状態 | 実体 |
 | --- | --- | --- |
-| レシピ形式の確定 | **済 (D129)** | `px-recipe/src/recipe.rs`．`[project] format` ・`[vars]` ・`[[step]]`．**版が違えば読まない** |
-| 式評価器 | **済 (D129)** | `px-recipe/src/expr.rs`．変数 ・算術 ・文字列連結 ・比較 ・三項 ・直積展開．**`&&` `\|\|` `!` は書いていない** |
+| レシピ形式の確定 | **済 (D129)** | `pxsmith-recipe/src/recipe.rs`．`[project] format` ・`[vars]` ・`[[step]]`．**版が違えば読まない** |
+| 式評価器 | **済 (D129)** | `pxsmith-recipe/src/expr.rs`．変数 ・算術 ・文字列連結 ・比較 ・三項 ・直積展開．**`&&` `\|\|` `!` は書いていない** |
 | 組込み述語 6 種 | **済** | `px/src/run_cmds.rs`．`has_dither` ・`color_count` ・`size` ・`has_transparency` ・`is_indexed` ・`lint_clean` |
-| `px run` (依存グラフ) | **済 (D130)** | `px-recipe/src/graph.rs`．**op → コマンド行は clap から引く** (表を書かない) |
-| 差分ビルド | **済 (D131 ・D132)** | `px-recipe/src/key.rs` ・`cache.rs`．BLAKE3 の連鎖 ・`--no-cache` ・`--gc` |
+| `pxsmith run` (依存グラフ) | **済 (D130)** | `pxsmith-recipe/src/graph.rs`．**op → コマンド行は clap から引く** (表を書かない) |
+| 差分ビルド | **済 (D131 ・D132)** | `pxsmith-recipe/src/key.rs` ・`cache.rs`．BLAKE3 の連鎖 ・`--no-cache` ・`--gc` |
 | 決定論性テスト | **済** | `px/tests/recipe_real_art.rs`．`RAYON_NUM_THREADS` 1 / 2 / 4 / 8 でバイト一致 |
-| `px recipe expand` | **済 (D133)** | CSV / JSON → **行ごとに `[[step]]` を書き下す** (直積ではない) |
+| `pxsmith recipe expand` | **済 (D133)** | CSV / JSON → **行ごとに `[[step]]` を書き下す** (直積ではない) |
 | ドキュメント | **済** | README を M4 ・M5 まで更新．レシピの節と使用例を足した |
-| 生成過程 GIF | **済 (D134)** | `px-io/src/gif.rs` ・`px run --progress`．**祖先の連鎖だけ**を並べる |
+| 生成過程 GIF | **済 (D134)** | `pxsmith-io/src/gif.rs` ・`pxsmith run --progress`．**祖先の連鎖だけ**を並べる |
 | `op = "gen"` | **書かない** | M6 の仕事．既定はキャッシュ参照のみ (D31) — 無ければそう言って落ちる |
 
 ### レシピで分かったこと (2026-08-14)
@@ -1851,7 +1983,7 @@ D92 «数え上げで決まることは校正しない» と同じ性質の仕�
 **全サブコマンドが op として引けることを数え上げる試験**を置いた．
 
 > [!warning] **clap の «id» と «長い名前» は同じとは限らない．**
-> `px compose` の `--part` は id が `parts` である (`Vec` の欄名) ．
+> `pxsmith compose` の `--part` は id が `parts` である (`Vec` の欄名) ．
 > id で引いたら «そんな引数は無い» になった — **利用者が打つ名前 (長い名前) で
 > 引く**．試験が 2 本落ちて分かった．
 
@@ -1892,9 +2024,9 @@ $h_{i-1}$ は一直線を前提にしているが，レシピは有向非巡回�
 **約 30 倍**．変えた 1 件の連鎖 (shade → aa) だけがちょうど作り直される．
 
 > [!warning] **キャッシュ当たりが «壊れた木» を作っていた** (D132)
-> `px shade out.px.toml` は隣に `out.px.hex` も書く (D127) ．レシピの `output` に
+> `pxsmith shade out.px.toml` は隣に `out.px.hex` も書く (D127) ．レシピの `output` に
 > 書いていないので，**宣言した分だけ貯めると，次の当たりで `.px.toml` だけが
-> 戻る** — `px run` は «3 件当たり» と言って 0 で終わるのに，出力が読めない．
+> 戻る** — `pxsmith run` は «3 件当たり» と言って 0 で終わるのに，出力が読めない．
 > **端から端まで通して見つけた．**
 >
 > 直し方を 2 つに分けた．**戻すのは «実際に書かれたファイルを全部貯める»** で
@@ -1903,7 +2035,7 @@ $h_{i-1}$ は一直線を前提にしているが，レシピは有向非巡回�
 
 ### 行は直積ではない (2026-08-14)
 
-`px recipe expand` は最初，列ごとに `[vars]` の列を作っていた．**これは動かない**
+`pxsmith recipe expand` は最初，列ごとに `[vars]` の列を作っていた．**これは動かない**
 (D133) — CSV の行は «s と tint の組» なのに，`[vars]` に分けた時点で組が消え，
 `base = "${tint}"` が列そのものになって `--base 8A6A4A,4A6A8A` が出る．
 
@@ -1941,16 +2073,16 @@ $h_{i-1}$ は一直線を前提にしているが，レシピは有向非巡回�
 
 | 完了条件 | 状態 | 実体 |
 | --- | --- | --- |
-| `LightingModel` / `LightSource` | **済** (照度の解析解と分岐ごとの $t$ 正規化) | `px-core/src/shade.rs`．型は `ramp.rs` (光源 5 型 ・3 ランプ ・プリセット 5 種) |
-| `px shade` | **済** (CLI まで配線した) | `px/src/shape_cmds.rs`．`--base` / `--preset` / `--steps` / `--curve` / `--light` (5 型) / `--ao` / `--bounce-reach` / `--emit-palette` |
-| **自己整合性テスト** (`shade` の出力が `lint` を通る) | **済．落ちて，ルール 3 を直した** | `px/tests/shade_self_consistency.rs` (実素材 64 枚 x 5 プリセット) ・`px-lint/tests/shade_self_consistency.rs` (合成した形) |
-| **ルール 13 (pillow shading)** | **済．閾値も決めた (0.85)** | `px-lint` の `pillow_correlation`．測定の口は `px-calib pillow` |
-| `px smooth` | **済** | `px-core/src/smooth.rs`．**当てる候補を «ジャギーが減ったか» で選ぶ**．`Turn(chain)` は曲率場から取れないので «続いた坂» で判定する (D80) |
-| `px aa` | **済** | `px-core/src/aa.rs`．曲率符号で明暗を決め，中間色は**中点の両側**へ置く (D83) ．**冪等ではない** — 掛けるのは 1 度だけ |
-| `px outline --style` | **済** | `px-core/src/outline.rs`．5 分類 + 選択的輪郭線 ・背景想定 (D36) ．**既定は内側に描く** (D84) |
-| `px lint` (形 ・陰影系の残り 6 ルール) | **済** (4 ・6 ・7 ・8 ・12 ・14) | `px-lint`．**スコープの仕組みも入れた** — `keyframe` のルールは `kind` が key / breakdown のフレームにしか掛からない (7.1 ・D47) |
+| `LightingModel` / `LightSource` | **済** (照度の解析解と分岐ごとの $t$ 正規化) | `pxsmith-core/src/shade.rs`．型は `ramp.rs` (光源 5 型 ・3 ランプ ・プリセット 5 種) |
+| `pxsmith shade` | **済** (CLI まで配線した) | `px/src/shape_cmds.rs`．`--base` / `--preset` / `--steps` / `--curve` / `--light` (5 型) / `--ao` / `--bounce-reach` / `--emit-palette` |
+| **自己整合性テスト** (`shade` の出力が `lint` を通る) | **済．落ちて，ルール 3 を直した** | `px/tests/shade_self_consistency.rs` (実素材 64 枚 x 5 プリセット) ・`pxsmith-lint/tests/shade_self_consistency.rs` (合成した形) |
+| **ルール 13 (pillow shading)** | **済．閾値も決めた (0.85)** | `pxsmith-lint` の `pillow_correlation`．測定の口は `pxsmith-calib pillow` |
+| `pxsmith smooth` | **済** | `pxsmith-core/src/smooth.rs`．**当てる候補を «ジャギーが減ったか» で選ぶ**．`Turn(chain)` は曲率場から取れないので «続いた坂» で判定する (D80) |
+| `pxsmith aa` | **済** | `pxsmith-core/src/aa.rs`．曲率符号で明暗を決め，中間色は**中点の両側**へ置く (D83) ．**冪等ではない** — 掛けるのは 1 度だけ |
+| `pxsmith outline --style` | **済** | `pxsmith-core/src/outline.rs`．5 分類 + 選択的輪郭線 ・背景想定 (D36) ．**既定は内側に描く** (D84) |
+| `pxsmith lint` (形 ・陰影系の残り 6 ルール) | **済** (4 ・6 ・7 ・8 ・12 ・14) | `pxsmith-lint`．**スコープの仕組みも入れた** — `keyframe` のルールは `kind` が key / breakdown のフレームにしか掛からない (7.1 ・D47) |
 | lint 閾値の決定 | **済** | 全ルールを正例 (CC0 64 枚) と負例 (`lint-gen` 13 種 x 8 枚) で決めた (下表) |
-| `px validate` | **済 (D92)** | `px-core/src/validate.rs`．プロファイル + 6 項目．組み込み 5 種と TOML |
+| `pxsmith validate` | **済 (D92)** | `pxsmith-core/src/validate.rs`．プロファイル + 6 項目．組み込み 5 種と TOML |
 
 ### 形 ・陰影系 6 ルールで分かったこと (2026-08-13)
 
@@ -1961,10 +2093,10 @@ $h_{i-1}$ は一直線を前提にしているが，レシピは有向非巡回�
 | --- | --- | --- | --- | --- |
 | 4 アウトライン角の重なり | blocking | 3.1% (2 / 64) | 3 / 8 | 内側の割合 x 重なり数を掃引 (D87) |
 | 6 単色影 | **advisory** | 39.1% (25 / 64) | 7 / 8 | 色相差を掃引．**35 度では 41 / 64 が止まる** (D86) |
-| 7 反転同値の陰影不整合 | blocking | 0% | **256 / 256** | `px shade` の出力とその左右反転で決めた (D89) |
+| 7 反転同値の陰影不整合 | blocking | 0% | **256 / 256** | `pxsmith shade` の出力とその左右反転で決めた (D89) |
 | 8 ジャギー | **advisory** | 56.2% (36 / 64) | **分かれない** | 4 通りの切り方で測って群が重なった (D85) |
 | 12 バンディング | advisory | 4.7% (3 / 64) | 8 / 8 | そろうラン数を掃引．8 が膝 (D90) |
-| 14 AA 過多 | advisory | **1.6% (1 / 64)** | 1 / 8 | 特徴量を 4 通り試し，**`px shade` の出力の上**に置いた (D88) |
+| 14 AA 過多 | advisory | **1.6% (1 / 64)** | 1 / 8 | 特徴量を 4 通り試し，**`pxsmith shade` の出力の上**に置いた (D88) |
 
 > [!warning] **2 つのルールは «群が分かれない» という結果で終わった**
 > ジャギー (8) と AA 過多 (14) は，**良い絵と欠陥のある絵を分ける切り方が無い**．
@@ -1978,16 +2110,16 @@ $h_{i-1}$ は一直線を前提にしているが，レシピは有向非巡回�
 
 > [!warning] **端から端まで CLI で通して初めて 1 件見つかった** (D81 の教訓)
 > ルール 14 の閾値を «良い絵の 95% 点のすぐ上» (0.35) に置いたら，
-> **`px shade` の出力が 38.8% で鳴った**．陰影の «段» は端の 2 色の間にあり端より
+> **`pxsmith shade` の出力が 38.8% で鳴った**．陰影の «段» は端の 2 色の間にあり端より
 > 狭く使われるので，**中間色の定義にそのまま当てはまる**．
 >
 > 試験は捕まえられなかった — 実素材の試験はどれも **blocking の数**を見ており，
-> ルール 14 は advisory だからである．`px shade` → `px smooth` → `px aa` →
-> `px outline` → `px lint` を 1 度通したら出た．
+> ルール 14 は advisory だからである．`pxsmith shade` → `pxsmith smooth` → `pxsmith aa` →
+> `pxsmith outline` → `pxsmith lint` を 1 度通したら出た．
 >
-> D58 ・D77 と同じ作法で `px shade` の出力を第 3 群として測り直し (64 枚 x
+> D58 ・D77 と同じ作法で `pxsmith shade` の出力を第 3 群として測り直し (64 枚 x
 > 5 プリセットで中央 21.0% ・**最大 52.7%**) ，**その上の 0.55** に置いた．
-> 良い絵 1 / 64 ・`px shade` 0 / 320 ・負例 1 / 8 である．
+> 良い絵 1 / 64 ・`pxsmith shade` 0 / 320 ・負例 1 / 8 である．
 > **advisory のルールにも自己整合性の試験を書いた.**
 
 > [!note] **負例の «作り方» で 3 回つまずいた**
@@ -1995,7 +2127,7 @@ $h_{i-1}$ は一直線を前提にしているが，レシピは有向非巡回�
 > | --- | --- | --- |
 > | ジャギー (8) | 境界画素の 40% を隣の色と入れ替える | **刻みすぎ**．ラン長がすべて 1 になると $r_{i-1} > r_i < r_{i+1}$ が成り立たず**谷が消える**．負例の方が良い絵より静かになった |
 > | ジャギー (8) | ラン長列を見て «両隣以下の段» を 1 画素削る | 種 64 枚に «3 ラン以上の単調区間» がほとんど無く (16x16 のタイルで 18 区間に 34 ラン) ，**1 件も削れなかった** |
-> | AA 過多 (14) | `px aa` を過剰な設定で 4 巡掛ける | `px aa` は**角にしか置かない**ので縁が埋まらない．3.9 〜 10.2% にしかならず良い絵の 90% 点 (11.2%) を下回った |
+> | AA 過多 (14) | `pxsmith aa` を過剰な設定で 4 巡掛ける | `pxsmith aa` は**角にしか置かない**ので縁が埋まらない．3.9 〜 10.2% にしかならず良い絵の 90% 点 (11.2%) を下回った |
 >
 > どれも «ルールが緩い» ではなく**生成の穴**だった (D70 の «負例が鳴らないときは
 > まず生成を疑う») ．最後は段幅の揃わない階段を描き ・縁を全部ぼかす形にした．
@@ -2003,8 +2135,8 @@ $h_{i-1}$ は一直線を前提にしているが，レシピは有向非巡回�
 > [!warning] **自分の出力が自分の検査に落ちたのは 2 回．どちらもルール 4 である**
 > | 落ちたもの | 中身 | 直し方 |
 > | --- | --- | --- |
-> | `px aa` の出力 | `kenney_tile_0101` は**幅 2 画素の枠**を持つタイル．AA が内側の画素を塗り替えると «内側の割合» が 5% を下回り，枠がまるごと «重なった縁取り» になった (blocking 0 → 20) | 重なりが縁取りの大半を占めるなら «太い縁» とみなす (占有の**上限** 0.7) |
-> | `px outline --style black` の出力 | 急な階段 (1 列で 2 行下がる縁) を内側へ 1 画素で縁取ると環の画素が積み重なり，`crawl_salamander` で 3 か所の $2 \times 2$ ができた | 重なりが縁取りのごく一部なら «段の折り返し» とみなす (占有の**下限** 0.06) |
+> | `pxsmith aa` の出力 | `kenney_tile_0101` は**幅 2 画素の枠**を持つタイル．AA が内側の画素を塗り替えると «内側の割合» が 5% を下回り，枠がまるごと «重なった縁取り» になった (blocking 0 → 20) | 重なりが縁取りの大半を占めるなら «太い縁» とみなす (占有の**上限** 0.7) |
+> | `pxsmith outline --style black` の出力 | 急な階段 (1 列で 2 行下がる縁) を内側へ 1 画素で縁取ると環の画素が積み重なり，`crawl_salamander` で 3 か所の $2 \times 2$ ができた | 重なりが縁取りのごく一部なら «段の折り返し» とみなす (占有の**下限** 0.06) |
 >
 > **どちらも D58 の優先順位どおり道具を正としてルールを直した．** 捕捉は
 > 6 / 8 → 3 / 8 に落ちるが，自分の出力を止める検査は使えない．
@@ -2012,9 +2144,9 @@ $h_{i-1}$ は一直線を前提にしているが，レシピは有向非巡回�
 > [!note] **ルール 7 は «光源が宣言されたとき» にしか掛からない**
 > 絵だけを見て «光源方向» は決まらない — 決めるなら絵から推定することになり，
 > **推定した向きと絵が合うかを見るのは同語反復**である．宣言する側 (自動ミラー ・
-> `px shade`) があるときだけ働く．
+> `pxsmith shade`) があるときだけ働く．
 >
-> 閾値は `px shade` の出力とその左右反転で決めた．**平行光源の 4 プリセットでは
+> 閾値は `pxsmith shade` の出力とその左右反転で決めた．**平行光源の 4 プリセットでは
 > そのまま 0.714 〜 1.000 対 反転 $-0.472$ 〜 0.386 と群が重ならない**ので隙間の
 > 中央 0.55 を採る (誤爆 0 / 256 ・捕捉 256 / 256) ．
 >
@@ -2036,7 +2168,7 @@ $h_{i-1}$ は一直線を前提にしているが，レシピは有向非巡回�
 > 外へ 1 画素太らせると，画像の縁に接している絵ははみ出して切れる —
 > CC0 の実物 61 枚のうち **56 枚が縁に接しており，26 枚は外に 1 画素の余地も無い**
 > (画面いっぱいのタイル) ．内側に描けば**シルエットが 1 画素も動かない**ので，
-> `px conform` で戻した格子やタイルの継ぎ目を壊さない．外側は `--outer` で選ぶ．
+> `pxsmith conform` で戻した格子やタイルの継ぎ目を壊さない．外側は `--outer` で選ぶ．
 
 5 分類は `black` / `tinted` (内側の色を暗く) / `contrast` (**背景想定**に対して明暗を
 逆に) / `shaded` (光の側は明るく) / `none` (剥がす) ．`--selective` で光の当たる側を
@@ -2054,7 +2186,7 @@ $h_{i-1}$ は一直線を前提にしているが，レシピは有向非巡回�
 | 色を作りながら割り当てていた | **作るのが先，割り当ては最後のパレットに対して**．作りながらだと «その時点で最も近い色» が 2 度目に変わる |
 | **予算を «作った数» に掛けていた** | 2 度目は上位が既にあるぶん予算が余り，**次の候補を作ってしまう**．予算は «上位いくつを見るか» に掛ける |
 
-良い絵 61 枚 x 4 分類の結果 (`px-calib outline`) ．
+良い絵 61 枚 x 4 分類の結果 (`pxsmith-calib outline`) ．
 
 | 分類 | 描いた画素 | 作った色 | 2 度目 | シルエット移動 | blocking 増 |
 | --- | --- | --- | --- | --- | --- |
@@ -2075,14 +2207,14 @@ $h_{i-1}$ は一直線を前提にしているが，レシピは有向非巡回�
 大半は既にある色で足りる (無ければ中点の色を作って足す) ．
 
 > [!warning] **中間色は «割合» ではなく «中点からの距離» で置く** (D83)
-> 最初は端から 35% ・65% に置いた．**すると `px clean --remove-aa` が外せない** —
+> 最初は端から 35% ・65% に置いた．**すると `pxsmith clean --remove-aa` が外せない** —
 > 除去の側は «2 色の**中点**から 0.05 以内» を中間色とみなすので，色差の大きい組で
 > 範囲を外れる．往復の試験が落ちて分かった．
 >
 > 除去の側を «線分の上» まで広げる案も測ったが，**良い絵で AA とみなす画素が
 > 5.76% → 7.16% に増える** (色 297 → 350) ．**付ける側を合わせる方が代償が小さい．**
 
-> [!warning] **`px aa` は冪等ではない．** AA は輪郭の形を変えるので，2 度目には
+> [!warning] **`pxsmith aa` は冪等ではない．** AA は輪郭の形を変えるので，2 度目には
 > その先に新しい角ができる．量は巡ごとに 1/3 程度へ減るが 0 にはならない．
 >
 > | 段の長さの下限 | 置いた画素 | 割合 | 2 巡目 | 3 巡目 | 4 巡目 |
@@ -2099,7 +2231,7 @@ $h_{i-1}$ は一直線を前提にしているが，レシピは有向非巡回�
 > 下限 2 では画面の 8% が中間色になる — lint ルール 14 (AA 過多) の相手であり，
 > 設計書 6.5 の «多すぎるより少ない方が良い» に反するので 3 を採った．
 
-良い絵 61 枚に掛けた結果 (`px-calib aa`) — **シルエットが動いた絵 0 枚 ・lint の
+良い絵 61 枚に掛けた結果 (`pxsmith-calib aa`) — **シルエットが動いた絵 0 枚 ・lint の
 blocking が増えた絵 0 枚**．置いた画素 836 ・作った色 64 ・触った絵 59 枚．
 
 ### ジャギー正規化で分かったこと (2026-08-13)
@@ -2110,7 +2242,7 @@ blocking が増えた絵 0 枚**．置いた画素 836 ・作った色 64 ・触
 | --- | --- |
 | **輪郭追跡が止まらない** (D82) | 幅 1 画素の部分を持つ形で上限まで回る．32x32 の絵 1 枚がチェーン 14 万本．**M1a の誤検出率 0.1% は分母が 5 倍膨らんでいた** (正しくは 279 ラン中 1 件 = 0.4%) |
 | **`Turn(chain)` が常に空** (D80) | 単調区間の中では距離場の曲率がどのランでも正で符号が反転しない．**理想の単谷形 `[4, 3, 2, 3, 4]` までジャギーと判定していた** |
-| ランプの宣言がファイルに残らない (D81) | `px shade` → `px lint` を CLI で繋ぐとルール 3 の除外が効かない．**色差で同じことを見る** |
+| ランプの宣言がファイルに残らない (D81) | `pxsmith shade` → `pxsmith lint` を CLI で繋ぐとルール 3 の除外が効かない．**色差で同じことを見る** |
 
 > [!warning] **`Turn(chain)` は曲率場からは取れない (D60 の見直し)**
 > 設計書 6.4 / D60 は «反転点は G2 の曲率場から求める» とするが，**実測すると
@@ -2129,7 +2261,7 @@ blocking が増えた絵 0 枚**．置いた画素 836 ・作った色 64 ・触
 `[3, 2, 3, 3]` になり**新しい谷ができる**．候補 (両端の外側 1 画素) を当てて，
 **触る添字だけ数え直して減ったものだけを採る**．
 
-CC0 の実物 61 枚に掛けた結果 (`px-calib jaggy --apply`) ．
+CC0 の実物 61 枚に掛けた結果 (`pxsmith-calib jaggy --apply`) ．
 
 | | 値 |
 | --- | --- |
@@ -2142,16 +2274,16 @@ CC0 の実物 61 枚に掛けた結果 (`px-calib jaggy --apply`) ．
 
 ### 自己整合性 — 落ちたのはルール 13 ではなくルール 3 だった (2026-08-13)
 
-設計書 6.2 が心配していたのは «`px shade` の出力が pillow shading (ルール 13) に
+設計書 6.2 が心配していたのは «`pxsmith shade` の出力が pillow shading (ルール 13) に
 自分で引っかかる» ことだった．**実測すると逆で，心配していない方が落ちた．**
 
 | 群 | $\rho = \mathrm{corr}(d, L)$ の中央値 | 最大 |
 | --- | --- | --- |
 | 良い絵 (CC0 61 枚) | 0.266 | 0.871 |
 | 負例 (縁からの距離だけで塗った 6 枚) | 0.973 | 0.992 |
-| **`px shade` の出力 (64 枚 x 5 プリセット)** | **$-0.135$** | **$-0.020$** |
+| **`pxsmith shade` の出力 (64 枚 x 5 プリセット)** | **$-0.135$** | **$-0.020$** |
 
-**`px shade` は 320 通りすべてで負の相関だった．** $\langle n, \ell \rangle$ で決める
+**`pxsmith shade` は 320 通りすべてで負の相関だった．** $\langle n, \ell \rangle$ で決める
 明るさは «縁からの距離» ではなく «縁の向き» に従うので，光の縁と影の縁がどちらも
 $d \approx 0$ で両極端に来て相関が潰れる．**D58 の心配は実測では起きない．**
 
@@ -2171,7 +2303,7 @@ $d \approx 0$ で両極端に来て相関が潰れる．**D58 の心配は実測
 ### 陰影導出でまず作ったもの (2026-08-13)
 
 設計書 6.2 のうち**画素あたりの規則**を `shade.rs` に実装した — «$n$ が与えられた
-ときに何色になるか» だけを引き受け，距離場と稜線の処理は `px shade` 側に残す．
+ときに何色になるか» だけを引き受け，距離場と稜線の処理は `pxsmith shade` 側に残す．
 
 | 実装したもの | 中身 |
 | --- | --- |
@@ -2204,7 +2336,7 @@ $d \approx 0$ で両極端に来て相関が潰れる．**D58 の心配は実測
 > **埋めたい相手のちょうど真ん中で失敗する**．設計書 6.2 のとおり «コピー» する．
 
 > [!warning] **校正の測定は透明を «最も近い不透明色» で塗り潰していた** (D79)
-> `px-calib` が PNG を添字にするとき `Palette::nearest` を引いていたが，**この関数は
+> `pxsmith-calib` が PNG を添字にするとき `Palette::nearest` を引いていたが，**この関数は
 > 透明色を色距離の対象から外す** — アルファ 0 の画素に引くと近くの不透明色が返る．
 > 背景が黙って «暗い面» になった状態で lint を掛けており，キャンバスに透明添字も
 > 付いていなかった．
@@ -2241,20 +2373,20 @@ $d \approx 0$ で両極端に来て相関が潰れる．**D58 の心配は実測
 | **画面いっぱいのタイル 26 枚** | **25.00%** | **0.00%** |
 
 **閾値 0.25 はそのままでよかった** (0.40 まで上げると深い凹みでも 0% になる) ．
-測る口は `px-calib ao`．
+測る口は `pxsmith-calib ao`．
 
 > [!note] **合成した形だけ見ていたら «閾値が高すぎる» と読み違えていた．**
 > 凸 ・凹の合成形はどちらも画像の端に触れない．実素材を混ぜ，しかも**画面いっぱいの
 > 絵とシルエットのある絵を分けて**数えて初めて «26 枚が全部 25.0%» が見えた．
 
-### `px validate` — 出力先の制約は «測って決めるもの» ではない (2026-08-13 ・D92)
+### `pxsmith validate` — 出力先の制約は «測って決めるもの» ではない (2026-08-13 ・D92)
 
 設計書が決めていたのは «実機制約検証» と «違反時に非ゼロ終了» の 2 行だけである．
 
 | | 見るもの | 判断の性質 |
 | --- | --- | --- |
-| `px lint` | 絵として良いか | 主観が混ざる．閾値は素材から校正する |
-| `px validate` | その出力先に載るか | **数え上げで決まる．閾値は出力先の仕様** |
+| `pxsmith lint` | 絵として良いか | 主観が混ざる．閾値は素材から校正する |
+| `pxsmith validate` | その出力先に載るか | **数え上げで決まる．閾値は出力先の仕様** |
 
 **ここの数値は校正の対象ではない** — 根拠は出典であって統計ではない．検査するのは
 こちらで数えられる 6 項目 (`colors` / **`colors-per-tile`** / `tile-size` / `size` /
@@ -2272,34 +2404,34 @@ VRAM のタイル本数) ．
 
 | 完了条件 | 状態 | 実体 |
 | --- | --- | --- |
-| `px conform` の中核 | 済 | `grid.rs`．積分画像による位相探索，再構成検査，信頼度，全探索フォールバック |
+| `pxsmith conform` の中核 | 済 | `grid.rs`．積分画像による位相探索，再構成検査，信頼度，全探索フォールバック |
 | 局所格子推定 (G4) | 済 (**窓は 2026-08-15 に測った．D164**) | `grid.rs` の `local_grid` / `uniformity`．非一様の棄却を含む．**窓は $4s$** (`MIN_CELLS_PER_WINDOW`) — 下 |
-| `px quantize` | 済 | `quantize.rs`．Wu / k-means，$w_L = 1$ 固定 |
-| `px quantize --strategy` | 済 | `reduce_colors` (D49 の 3 段階) |
-| `px palette apply` | 済 | Bayer 順序ディザ ($w_L$ 可変)．誤差拡散はオプトイン |
-| `px palette extract` / `merge` | 済 | `Palette::extract_from` / `merged`．`share_endpoints` 対応 |
-| `px palette ramp` | 済 | `ramp.rs`．彩度カーブ 5 種，明→黄・暗→紫，純黒回避，光源プリセット 5 種 |
-| `px clean` | 済 | `clean.rs`．pixel-perfect 補正・孤立ピクセル除去・AA 除去 |
-| `px clean --denoise-dither` | 済 | ランダムディザの検出と Bayer への正規化 |
-| CLI への配線 | 済 | `px quantize` / `palette apply\|extract\|merge\|ramp` / `clean` / `conform` / `lint` |
-| `px lint` (色・格子・ディザ系 11 ルール) | 済 | `px-lint`．1 ・2 ・3 ・5 ・9 ・10 ・11 ・15 ・16 ・17 ・18 (**M3 で 4 ・6 ・7 ・8 ・12 ・13 ・14 を足して 18 ルール**) |
-| **lint の適用範囲と閾値 (D70)** | 済 | 正例 (CC0 64 枚) と負例 (`px-calib lint-gen`．7 種 x 8 枚) の両方で決めた．**blocking が鳴らない良い絵 0 → 59 / 64**．ルール 2 は advisory |
-| 校正ツール `px-calib` | 済 | `crates/px-calib`．`gen` / `sweep` / `report` |
-| 評価データセット (合成 500 件) | 済 | `px-calib gen`．正解つき．**元絵は CC0 の実物 64 件** (`testdata/grid-eval/seeds/`) |
+| `pxsmith quantize` | 済 | `quantize.rs`．Wu / k-means，$w_L = 1$ 固定 |
+| `pxsmith quantize --strategy` | 済 | `reduce_colors` (D49 の 3 段階) |
+| `pxsmith palette apply` | 済 | Bayer 順序ディザ ($w_L$ 可変)．誤差拡散はオプトイン |
+| `pxsmith palette extract` / `merge` | 済 | `Palette::extract_from` / `merged`．`share_endpoints` 対応 |
+| `pxsmith palette ramp` | 済 | `ramp.rs`．彩度カーブ 5 種，明→黄・暗→紫，純黒回避，光源プリセット 5 種 |
+| `pxsmith clean` | 済 | `clean.rs`．pixel-perfect 補正・孤立ピクセル除去・AA 除去 |
+| `pxsmith clean --denoise-dither` | 済 | ランダムディザの検出と Bayer への正規化 |
+| CLI への配線 | 済 | `pxsmith quantize` / `palette apply\|extract\|merge\|ramp` / `clean` / `conform` / `lint` |
+| `pxsmith lint` (色・格子・ディザ系 11 ルール) | 済 | `pxsmith-lint`．1 ・2 ・3 ・5 ・9 ・10 ・11 ・15 ・16 ・17 ・18 (**M3 で 4 ・6 ・7 ・8 ・12 ・13 ・14 を足して 18 ルール**) |
+| **lint の適用範囲と閾値 (D70)** | 済 | 正例 (CC0 64 枚) と負例 (`pxsmith-calib lint-gen`．7 種 x 8 枚) の両方で決めた．**blocking が鳴らない良い絵 0 → 59 / 64**．ルール 2 は advisory |
+| 校正ツール `pxsmith-calib` | 済 | `crates/pxsmith-calib`．`gen` / `sweep` / `report` |
+| 評価データセット (合成 500 件) | 済 | `pxsmith-calib gen`．正解つき．**元絵は CC0 の実物 64 件** (`testdata/grid-eval/seeds/`) |
 | 位相の検査 (D62 ・D65 ・D68) | 済 | `grid.rs` の `phase_parts`．帯 4 (**足りなければ 3 ・2 と減らす**) ・許容 $s \cdot 0.28$ ・下限 0 画素 ・**曲線の食い違い 0.18** ・**測れない候補は棄却**．副画素の位相は `phase_subpixel` で試せる (既定 `false`) |
 | **セル境界の当てはめ (D71)** | 済 | `grid.rs` の `edge_fit` / `edge_fit_ok`．2 階差分の極大を副画素で拾い，直線を当てる．**帯ずれだけを肩代わりする** (曲線は残す) — 通す側にしか働かない．曲線の肩代わりは `edge_fit_curve_residual` で試せる (**既定 `None`**．D73 で測って採らなかった) |
 | 信頼度の対照群 (D63) | 済 | $\hat{s}$ より大きい $s$ に限定 |
 | 信頼度の下限を $\hat{s}$ で割る (D67) | 済 | `GridParams::confidence_per_scale`．**base 0.095** (D72 で 0.10 から．掃引の刻みが粗く間を測っていなかった) |
 | 半セルずらしの検査 (D69) | 済 | `grid.rs` の `phase_contrast_ok`．比 1.12 (軸の平均) ．**格子が «在る» ことを確かめる唯一の関門** — 他はすべて «セルの中が揃っているか» を見ている |
-| 実データ枠の受け皿 | 済 (同梱 148 件 + `local/` 92 件) | `testdata/grid-eval/real/`．`px-calib render` / `scene` / `ingest` / `real` |
+| 実データ枠の受け皿 | 済 (同梱 148 件 + `local/` 92 件) | `testdata/grid-eval/real/`．`pxsmith-calib render` / `scene` / `ingest` / `real` |
 | 負例の受け皿 (棄却が正解) | 済 | `real::Item::no_grid`．`ingest --keep-refused` |
 | **数値の校正** | **完了．テストセット 200 件を 1 度だけ適用した** (2026-08-13) ．検証 マクロ 84.4% / テスト 79.8%．**B は未達のまま閉じた** | `docs/investigations/grid-calibration.md` |
-| 掃引を回さずに関門を掛け替える | 済 | `px-calib replay`．`recon` の CSV から `estimate_grid` を再現する (食い違い 2 / 300) ．数千通りが 6 秒．**区分ごとの関門の内訳と «関門を通ったのに取り逃した件» も出す** (D72) |
-| D66 の区分を数える | 済 | `px-calib report` が A ・B ・C ・D を出す (以前は手作業で数えていた) |
-| 誤棄却の解剖 | 済 | `px-calib diagnose`．真の $s$ をどの関門が落としたかを見る．**`failed_gates` 欄に落ちた関門をすべて並べる** (最初の 1 つだけだと犯人を取り違える) |
-| 再構成統計の測定 | 済 | `px-calib recon` (**`--real` で実データ枠も同じ CSV に出せる**．D74)．統計の分離能を均衡正解率で比べる．**画像分散 ・大きさ ・位相 ・曲線の食い違いも書き出すので，CSV だけで `estimate_grid` の答えを再現できる** (関門の掛け替えを掃引なしで数えられる) |
-| 合成データの種 | 済 (CC0 の実物 64 件) | `testdata/grid-eval/seeds/`．`px-calib gen --seeds` |
-| **局所推定の窓サイズ (付録 C #4)** | **済 (2026-08-15 ・D164)．窓は $4s$** | `docs/investigations/local-grid-window.md`．測る口は `px-calib mixel` — 下 |
+| 掃引を回さずに関門を掛け替える | 済 | `pxsmith-calib replay`．`recon` の CSV から `estimate_grid` を再現する (食い違い 2 / 300) ．数千通りが 6 秒．**区分ごとの関門の内訳と «関門を通ったのに取り逃した件» も出す** (D72) |
+| D66 の区分を数える | 済 | `pxsmith-calib report` が A ・B ・C ・D を出す (以前は手作業で数えていた) |
+| 誤棄却の解剖 | 済 | `pxsmith-calib diagnose`．真の $s$ をどの関門が落としたかを見る．**`failed_gates` 欄に落ちた関門をすべて並べる** (最初の 1 つだけだと犯人を取り違える) |
+| 再構成統計の測定 | 済 | `pxsmith-calib recon` (**`--real` で実データ枠も同じ CSV に出せる**．D74)．統計の分離能を均衡正解率で比べる．**画像分散 ・大きさ ・位相 ・曲線の食い違いも書き出すので，CSV だけで `estimate_grid` の答えを再現できる** (関門の掛け替えを掃引なしで数えられる) |
+| 合成データの種 | 済 (CC0 の実物 64 件) | `testdata/grid-eval/seeds/`．`pxsmith-calib gen --seeds` |
+| **局所推定の窓サイズ (付録 C #4)** | **済 (2026-08-15 ・D164)．窓は $4s$** | `docs/investigations/local-grid-window.md`．測る口は `pxsmith-calib mixel` — 下 |
 
 ### 局所格子推定の窓で分かったこと (2026-08-15 ・D164．付録 C #4 を閉じた)
 
@@ -2341,12 +2473,12 @@ $2s_*$ への転落が戻る) ．`local_grid` の構造的な下限は $2s$ だ�
 > に触るので測って止めた** (D163 が D32 に対して取ったのと同じ扱い) ．
 >
 > 判定は変えず，**«鳴らなかった» と «検査していない» を分けて報告する**ようにした
-> (D77 ・D104 ・D142 の作法) ．`px lint` は掛からなかった理由を出し，
-> `px conform` は投票窓の数と «窓が $4s$ に足りない» を言う．
+> (D77 ・D104 ・D142 の作法) ．`pxsmith lint` は掛からなかった理由を出し，
+> `pxsmith conform` は投票窓の数と «窓が $4s$ に足りない» を言う．
 
 ```sh
-cargo run -p px-calib --release -- mixel --sheets 8 --out out/mixel.csv
-cargo run -p px-calib --release -- mixel --dump out/mixel   # 場面を PNG で出して CLI に食わせる
+cargo run -p pxsmith-calib --release -- mixel --sheets 8 --out out/mixel.csv
+cargo run -p pxsmith-calib --release -- mixel --dump out/mixel   # 場面を PNG で出して CLI に食わせる
 ```
 
 ### 実装中に分かったこと
@@ -2386,7 +2518,7 @@ cargo run -p px-calib --release -- mixel --dump out/mixel   # 場面を PNG で�
 
 ### 位相ずれ検査を入れた結果 (D62)
 
-区画に分けて測り直したところ (`px-calib bands`) ，**当初の提案 (不一致率を区画で見る) は
+区画に分けて測り直したところ (`pxsmith-calib bands`) ，**当初の提案 (不一致率を区画で見る) は
 外れ**で 76.6% → 77.3% にしかならなかった — 帯ごとの不一致率は絵の中身に左右される．
 当たったのは**帯ごとに最も合う位相**で，中身に依らず，格子が本物ならどの帯でも同じ値に
 なる．これを推定器へ入れた (D62) ．
@@ -2452,7 +2584,7 @@ $\hat{s} = 2$** である．候補が落ちた後に「2 倍の格子」とい�
 
 ### $\varepsilon$ の実測 (校正の予備調査)
 
-`degrade` で作った劣化画像に `px conform` をかけて，$\varepsilon$ を変えたときの
+`degrade` で作った劣化画像に `pxsmith conform` をかけて，$\varepsilon$ を変えたときの
 挙動を見た (6 倍拡大，位相 (2,3) でクロップ)．
 
 | 補間法 | $\varepsilon$ | 結果 |
@@ -2479,12 +2611,12 @@ $\varepsilon$ を補間法ごとに変えるのか，1 つの値と再構成検�
 - 失うのは numpy / matplotlib の手軽さだけ．ECE も risk-coverage 曲線も数十行の
   集計なので，**指標を CSV へ書き出し**て作図は任意のツールに任せる
 
-代わりに `crates/px-calib/` (Rust の校正ツール) を作る．出荷物ではない．
+代わりに `crates/pxsmith-calib/` (Rust の校正ツール) を作る．出荷物ではない．
 
 ## 次の作業
 
 0. **M3 の lint は閉じた (2026-08-13)．** 形 ・陰影系の 6 ルール (4 ・6 ・7 ・8 ・
-   12 ・14) を実装し，正例 ・負例で閾値を決めた．**残るは `px validate` と
+   12 ・14) を実装し，正例 ・負例で閾値を決めた．**残るは `pxsmith validate` と
    `--ao` の閾値 0.25 の決め直し**である
 0b. **M2 の校正は閉じた (2026-08-13)．** テストセット 200 件を 1 度だけ適用し，
    **A 14 / 16 (87.5%) ・B 24 / 34 (70.6%) ・C 5 / 17 ・D 10 / 200 (5.0%)**．
@@ -2502,7 +2634,7 @@ $\varepsilon$ を補間法ごとに変えるのか，1 つの値と再構成検�
 3. ~~`testdata/lint-cases/` の正例・負例を揃えて lint の閾値を決める~~ → **済 (D70)**．
    良い絵 64 枚に掛けたら blocking が鳴らない絵が 0 枚だったので，ルール 2 ・3 の
    適用範囲と定義を直し，ルール 2 は advisory へ落とした (0 → 59 / 64) ．
-   負例は `px-calib lint-gen` で生成できる
+   負例は `pxsmith-calib lint-gen` で生成できる
 4. **テストセット 200 件で 1 度だけ確認する** (完了条件 A ・B ・D を満たしてから)
 
 ## 並行して進める調達
@@ -2537,11 +2669,11 @@ M2 の完了条件を直接ゲートする**ので M0 のうちから少しず�
 
 `local/` の負例 22 件は**本物のドット絵**である (色数 3〜31 ・元絵 12x14〜39x19) ．
 配布サイトが幅 500 画素へ非整数倍で拡大しており，整数の格子が存在しない —
-`px conform` が実際に受け取る入力に最も近い．**原寸なら 22 件すべて正しく棄却する．**
+`pxsmith conform` が実際に受け取る入力に最も近い．**原寸なら 22 件すべて正しく棄却する．**
 
 **画面を組んだ正例はタイル単体よりずっとよく当たる** (9 件中 6 件 対 48 件中 17 件) ．
 面積が広く升目が多いぶん証拠が増えるためで，タイル単体の成績は実運用より悲観的に
-出ていることになる．素材は CC0 素材に付属する Tiled の見本地図を `px-calib scene` で
+出ていることになる．素材は CC0 素材に付属する Tiled の見本地図を `pxsmith-calib scene` で
 元絵の解像度に描き出したもので，同梱されている紹介用レンダ (918x515) は非整数倍かつ
 補間つきなので**使っていない** (18 件中 17 件は元絵を復元できなかった) ．
 
@@ -2659,7 +2791,7 @@ D66 の区分では **B が 60% → 72%，C が 20% → 24% で，A (92.3%) と 
 `local/` 92 件が完全一致 6 → 8 ・誤答 0 のまま．**$\theta$ を緩めるだけなら実データの
 誤答は 4 → 20 に増える**ので，曲線が効いていることは実データでも独立に確かめられている．
 
-`px conform` の clap 既定値が校正値と食い違っていた ($\varepsilon$ が 0.02 対 0.2) ので
+`pxsmith conform` の clap 既定値が校正値と食い違っていた ($\varepsilon$ が 0.02 対 0.2) ので
 `GridParams::default()` から引く形に直した — **CLI だけ校正前の閾値で動いていた．**
 
 軸のまとめ方を max から平均にすると検証セットで 2 件得をするが**採らない** —
@@ -2730,7 +2862,7 @@ $\hat{s} = 2 \ldots 3$ では 0.005 の差が実際の下限の 0.002 の差に�
 
 **0.095 はどの枠も 1 件も後退しない «無償の +1» である．** 0.09 は B の目標 80% を
 満たすが，`local/` 92 件で誤答 0 → 1 ・誤受理 2 → 3 と後退するので採らない
-(`local/` は `px conform` が実際に受け取る入力に最も近い枠であり，D66 の要件は
+(`local/` は `pxsmith conform` が実際に受け取る入力に最も近い枠であり，D66 の要件は
 «黙って誤答しないこと» の方である) ．
 
 **取り戻す 1 件と失う 1 件は分離できない** — 検証 0007 ($\hat{s} = 3$ ・0.0305) と
@@ -2747,7 +2879,7 @@ $\hat{s} = 2 \ldots 3$ では 0.005 の差が実際の下限の 0.002 の差に�
 | 案 | 結果 |
 | --- | --- |
 | 曲線の正規化を $(A - M) + \lambda A$ に一般化 | **既存の閾値の付け替えでしかない** ($\lambda$ 0.15 ・曲線 0.18 と $\lambda$ 0 ・曲線 0.30 が件数まで一致) ．`replay --curve-lambda` に残置 |
-| 境界の当てはめに $\varepsilon$ ・再構成を肩代わりさせる | **B に 1 件も効かない** (的が C にある) ．再構成の肩代わりは replay 上で C を +2〜3 ・D 据え置きにするが，C に目標値は無いので `px-core` へは入れていない |
+| 境界の当てはめに $\varepsilon$ ・再構成を肩代わりさせる | **B に 1 件も効かない** (的が C にある) ．再構成の肩代わりは replay 上で C を +2〜3 ・D 据え置きにするが，C に目標値は無いので `pxsmith-core` へは入れていない |
 
 **`replay` の甘さは関門を緩めるほど広がる**ことも分かった — 既定では B が +1
 (再現 40 ・本物 39) だが，曲線を 0.18 → 0.30 へ緩めると +3 になる (再現 41 ・本物 38) ．

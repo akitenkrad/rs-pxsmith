@@ -1,0 +1,30 @@
+[package]
+edition.workspace = true
+name = "pxsmith-calib"
+publish.workspace = true
+description = "Measurement harness for pxsmith - calibrates thresholds against labelled data. Not for publication."
+readme.workspace = true
+keywords = ["pixel-art"]
+categories = ["graphics"]
+license.workspace = true
+repository.workspace = true
+version.workspace = true
+
+[[bin]]
+name = "pxsmith-calib"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true }
+flate2 = { workspace = true }
+image = { workspace = true }
+pxsmith-core = { workspace = true }
+pxsmith-io = { workspace = true }
+pxsmith-lint = { workspace = true }
+rayon = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

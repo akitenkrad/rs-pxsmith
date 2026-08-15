@@ -4,7 +4,7 @@
 ここはそのずれを測るための素材置き場である (実装計画書 M2 — 20〜30 件・**別枠で報告**) ．
 
 ```sh
-cargo run -p px-calib --release -- real
+cargo run -p pxsmith-calib --release -- real
 ```
 
 ## 何が実データか
@@ -41,7 +41,7 @@ cargo run -p px-calib --release -- real
 「格子あり」の評価に使えないので，`ingest` で仕立てる．
 
 ```sh
-cargo run -p px-calib --release -- ingest ~/Downloads/pixel_*.png
+cargo run -p pxsmith-calib --release -- ingest ~/Downloads/pixel_*.png
 ```
 
 | 段 | 内容 |
@@ -62,7 +62,7 @@ cargo run -p px-calib --release -- ingest ~/Downloads/pixel_*.png
 | 縮小後が 12〜64 画素角の外 | 小さすぎ / 大きすぎ．大きい画像で周期 2 なら雑音を拾っている |
 
 **拒否されたものは捨てないこと．** 「ドット絵風だが格子が無い」入力は，
-`px conform` が黙って答えを返さないかを試す**負例**として価値がある．
+`pxsmith conform` が黙って答えを返さないかを試す**負例**として価値がある．
 
 主な引数: `--scale N` (倍率．省略時は 2〜12 を巡回) ・`--crop DX,DY` (位相) ・
 `--category` ・`--license` ・`--keep-refused` (下記) ．
@@ -70,7 +70,7 @@ cargo run -p px-calib --release -- ingest ~/Downloads/pixel_*.png
 ## 格子の無い画像から正例を作る
 
 ```sh
-cargo run -p px-calib --release -- ingest --force-period 32 --degrade ~/Downloads/*.png
+cargo run -p pxsmith-calib --release -- ingest --force-period 32 --degrade ~/Downloads/*.png
 ```
 
 段 1 が読めなくても正例は作れる．**正解は段 3 でこちらが決める倍率**だからである．
@@ -93,8 +93,8 @@ cargo run -p px-calib --release -- ingest --force-period 32 --degrade ~/Download
 ## 素材を並べた画面から正例にする
 
 ```sh
-cargo run -p px-calib --release -- scene --out scenes kenney_*/Tiled/*.tmx
-cargo run -p px-calib --release -- ingest --native --degrade --native-max 512 scenes/*.png
+cargo run -p pxsmith-calib --release -- scene --out scenes kenney_*/Tiled/*.tmx
+cargo run -p pxsmith-calib --release -- ingest --native --degrade --native-max 512 scenes/*.png
 ```
 
 CC0 素材には**作者が組んだ見本地図** (Tiled の `.tmx`) が付いてくる．`scene` がそれを
@@ -111,7 +111,7 @@ CC0 素材には**作者が組んだ見本地図** (Tiled の `.tmx`) が付い�
 ## 元絵で配られている素材から正例にする
 
 ```sh
-cargo run -p px-calib --release -- ingest --native --degrade kenney_tiny-dungeon/Tiles/*.png
+cargo run -p pxsmith-calib --release -- ingest --native --degrade kenney_tiny-dungeon/Tiles/*.png
 ```
 
 CC0 のドット絵素材 (Kenney ・Dungeon Crawl 等) は 16x16 ・32x32 の**元絵そのもの**で
@@ -129,7 +129,7 @@ $k \ge 2$ があれば拒否する (整数倍で拡大されている証拠) ．
 ## 配布素材から元絵を復元して正例にする
 
 ```sh
-cargo run -p px-calib --release -- ingest --recover-native --degrade ~/Downloads/*.png
+cargo run -p pxsmith-calib --release -- ingest --recover-native --degrade ~/Downloads/*.png
 ```
 
 ドット絵の配布サイトは「元絵を幅 500 画素へ」のように**非整数倍で拡大して配る**．
@@ -146,7 +146,7 @@ cargo run -p px-calib --release -- ingest --recover-native --degrade ~/Downloads
 ## 負例 (棄却が正解の件)
 
 ```sh
-cargo run -p px-calib --release -- ingest --keep-refused ~/Downloads/pixel_*.png
+cargo run -p pxsmith-calib --release -- ingest --keep-refused ~/Downloads/pixel_*.png
 ```
 
 「周期が読めない」で拒否されたものを `neg-NNN.png` として保存し，`no_grid` を立てて
@@ -166,7 +166,7 @@ cargo run -p px-calib --release -- ingest --keep-refused ~/Downloads/pixel_*.png
 
 | 根拠 | 例 |
 | --- | --- |
-| 作り方から分かる | 非整数倍リサイズを掛けた (`px-calib render` の 16 件) |
+| 作り方から分かる | 非整数倍リサイズを掛けた (`pxsmith-calib render` の 16 件) |
 | 測って分かった | `ingest` が周期を読めなかった (縁が境界へ集中していない) |
 
 負例にするのは**「周期が読めない」だけ**である．「大きさが枠外」「縦横の食い違い」は
@@ -212,5 +212,5 @@ cargo run -p px-calib --release -- ingest --keep-refused ~/Downloads/pixel_*.png
 ## 読み方
 
 - **率で語らない．** 20〜30 件では 1 件が 3〜5% 動く．合成データの率と並べて比べない
-- `unknown` の件は，推定結果が妥当かどうかを目で見る．`px view` で縮小結果を確認できる
+- `unknown` の件は，推定結果が妥当かどうかを目で見る．`pxsmith view` で縮小結果を確認できる
 - 合成データで通っている条件が実データで落ちたら，**その差分こそが分布のずれ**である

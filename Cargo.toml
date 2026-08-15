@@ -1,35 +1,46 @@
 [workspace]
 members = [
-  "crates/px",
-  "crates/px-calib",
-  "crates/px-core",
-  "crates/px-gen",
-  "crates/px-io",
-  "crates/px-lint",
-  "crates/px-macro",
-  "crates/px-recipe",
-  "crates/px-view",
+  "crates/pxsmith",
+  "crates/pxsmith-calib",
+  "crates/pxsmith-core",
+  "crates/pxsmith-gen",
+  "crates/pxsmith-io",
+  "crates/pxsmith-lint",
+  "crates/pxsmith-macro",
+  "crates/pxsmith-recipe",
+  "crates/pxsmith-view",
 ]
 resolver = "3"
 
 [workspace.package]
 edition = "2024"
 license = "MIT OR Apache-2.0"
-# **crates.io へはまだ出さない** (付録 B #2)．安定動作を確かめてから公開する．
+# **既定は «出さない»**．出すクレートだけが `publish = true` を自分で名乗る．
 # ライセンス欄を先に入れてあるのは，公開時に «後から決める» を残さないためである．
 #
-# 出すときはライブラリ 5 クレート (px-core / px-io / px-lint / px-recipe /
-# px-macro) から出せる — **LGPL の連鎖が 0 件**である．`px-view` と `px` は
-# `viuer` 経由で `ansi_colours` (LGPL-3.0-or-later) を静的リンクするので，
-# **バイナリを配るときだけ**再リンク手段の提供義務が生じる (LGPL §4)．
+# 出せるのはライブラリだけ — **LGPL の連鎖が 0 件**である．`pxsmith-view` と
+# `pxsmith` (CLI) は `viuer` 経由で `ansi_colours` (LGPL-3.0-or-later) を
+# 静的リンクするので，**バイナリを配るときだけ**再リンク手段の提供義務が
+# 生じる (LGPL §4)．`pxsmith-calib` は測定用ハーネスなので出さない．
 publish = false
 readme = "README.md"
-repository = "https://github.com/akitenkrad/rs-pxforge"
-# **公開名はまだ決めていない** — `px-core` と `px` は crates.io で既に他人が
-# 使っている (2026-08-15 に確認: px-core 0.3.1 ・px 0.0.0) ．`pxforge` と
-# `pxforge-*` は全部空いているので，出すときは `[package] name` だけを
-# `pxforge-core` などに替え，`[lib] name` を `px_core` のまま残せば
-# **ソースは 1 行も変わらない**．
+repository = "https://github.com/akitenkrad/rs-pxsmith"
+# **名前は `pxsmith*` に決めた** (2026-08-15．D175 ・D176)．
+# パッケージ名 ・ディレクトリ ・ライブラリ名 ・**バイナリ名**まで揃えてある．
+#
+# 旧名 (`px-core` ・`px`) は crates.io で**他人が使っている** — 確認時点で
+# px-core 0.3.1 (`0.1.4` / `0.1.6` / `0.1.7` もある) ・px 0.0.0．
+# これは表示の問題ではない: 梱包した tarball を検証するとき path 依存は
+# 登録所の依存に置き換わるので，`version = "0.1.0"` (`^0.1.0`) が
+# **他人の px-core 0.1.7 に当たって**別のプロジェクトに対してコンパイルされる
+# (px-io 23 件 ・px-lint 58 件のコンパイルエラーで実際に落ちた．D174) ．
+# **名前を替えることが唯一の直し方である．**
+#
+# `pxforge` / `pixforge` / `pixelforge` も見たが，`pixforge` と `pixelforge` は
+# 取られていた．`pxsmith` は本体も `pxsmith-*` の群も全部空いていた．
+#
+# **替えていないのは L0 の拡張子 `.px.toml` だけ** — これは道具の名前ではなく
+# **形式の名前**であり，替えると既存の資産が読めなくなる．
 version = "0.1.0"
 
 [workspace.dependencies]
@@ -41,14 +52,14 @@ flate2 = "1.1"
 gif = "0.14"
 image = "0.25.10"
 palette = "0.7.7"
-px-core = { path = "crates/px-core", version = "0.1.0" }
-px-gen = { path = "crates/px-gen", version = "0.1.0" }
+pxsmith-core = { path = "crates/pxsmith-core", version = "0.1.0" }
+pxsmith-gen = { path = "crates/pxsmith-gen", version = "0.1.0" }
 quantette = { version = "0.6", default-features = false, features = ["kmeans", "std"] }
-px-io = { path = "crates/px-io", version = "0.1.0" }
-px-lint = { path = "crates/px-lint", version = "0.1.0" }
-px-macro = { path = "crates/px-macro", version = "0.1.0" }
-px-recipe = { path = "crates/px-recipe", version = "0.1.0" }
-px-view = { path = "crates/px-view", version = "0.1.0" }
+pxsmith-io = { path = "crates/pxsmith-io", version = "0.1.0" }
+pxsmith-lint = { path = "crates/pxsmith-lint", version = "0.1.0" }
+pxsmith-macro = { path = "crates/pxsmith-macro", version = "0.1.0" }
+pxsmith-recipe = { path = "crates/pxsmith-recipe", version = "0.1.0" }
+pxsmith-view = { path = "crates/pxsmith-view", version = "0.1.0" }
 rayon = "1.11"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"

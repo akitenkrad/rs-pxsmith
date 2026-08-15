@@ -10,7 +10,7 @@
 
 $$ d^2 = w_L (L_1 - L_2)^2 + (a_1 - a_2)^2 + (b_1 - b_2)^2 $$
 
-の $w_L$ を `quantette` に渡せるか．渡せないなら `px quantize` の $w_L$ は 1.0 固定でよいか．
+の $w_L$ を `quantette` に渡せるか．渡せないなら `pxsmith quantize` の $w_L$ は 1.0 固定でよいか．
 
 ## 結論
 
@@ -65,9 +65,9 @@ where Color: ArrayCast<Array = [Component; N]> + Copy + Send + Sync + 'static {}
 
 ## 設計への反映
 
-設計書 6.6 の割り当て — `px quantize` は $w_L = 1.0$ 固定 (quantette に委譲)，
-`px palette apply` は $w_L$ 可変 (自前実装) — は**そのまま維持する**．
+設計書 6.6 の割り当て — `pxsmith quantize` は $w_L = 1.0$ 固定 (quantette に委譲)，
+`pxsmith palette apply` は $w_L$ 可変 (自前実装) — は**そのまま維持する**．
 
-- 上の手順により将来 `px quantize --weight-l` を足す余地はあるが，M2 の完了条件には含めない．
+- 上の手順により将来 `pxsmith quantize --weight-l` を足す余地はあるが，M2 の完了条件には含めない．
 - ビナー範囲の調整 (手順 2) を忘れると**黙って結果が壊れる**種類の落とし穴なので，
   実装するときは $w_L \ne 1$ の回帰テストを必ず付ける．

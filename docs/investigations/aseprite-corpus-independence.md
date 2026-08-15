@@ -1,7 +1,7 @@
 # `.aseprite` の往復検証はどこまで独立か — R3 の残り (D167)
 
 - 測った日: 2026-08-15
-- 測る口: `cargo test -p px-io --test aseprite_independent_parse -- --nocapture`
+- 測る口: `cargo test -p pxsmith-io --test aseprite_independent_parse -- --nocapture`
 - 素材: `testdata/aseprite/aseprite-tests/` の 19 件
 
 ## 結論
@@ -32,7 +32,7 @@
 
 ## 2 つ目の読み手を仕様から書いた
 
-`crates/px-io/tests/aseprite_independent_parse.rs` は公開仕様
+`crates/pxsmith-io/tests/aseprite_independent_parse.rs` は公開仕様
 (`ase-file-specs.md`) の欄の並びだけから書いた最小のパーサである．
 **`aseprite-io` の実装は見ずに書く** — 実装を写したら同じ誤りを 2 回書くことに
 なり，突き合わせる意味が消える．

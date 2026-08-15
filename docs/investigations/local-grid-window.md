@@ -1,7 +1,7 @@
 # 局所格子推定の窓サイズ — 付録 C 要調査事項 #4 (D164)
 
 - 測った日: 2026-08-15
-- 測る口: `cargo run -p px-calib --release -- mixel --sheets 8 --out out/mixel.csv`
+- 測る口: `cargo run -p pxsmith-calib --release -- mixel --sheets 8 --out out/mixel.csv`
 - 場面を書き出して CLI に食わせる: `... -- mixel --dump out/mixel`
 
 ## 結論
@@ -32,11 +32,11 @@ M2 は窓 32 ・一致率 0.8 を**測らずに置いたまま**閉じている�
 
 | 口 | 入力 | 窓が見るもの |
 | --- | --- | --- |
-| `px conform --window` | 拡大された絵 (格子 $s \geq 2$) | 全体が同じ $s$ か (D29 — 非一様なら人に返す) |
-| `px lint` ルール 9 | **PNG** (`lint_grid` からしか呼ばれない) | 場所によって格子が違わないか |
+| `pxsmith conform --window` | 拡大された絵 (格子 $s \geq 2$) | 全体が同じ $s$ か (D29 — 非一様なら人に返す) |
+| `pxsmith lint` ルール 9 | **PNG** (`lint_grid` からしか呼ばれない) | 場所によって格子が違わないか |
 
 **ルール 9 は L0 (`.px.toml`) の経路には掛かっていない** — `lint_frame` は
-`lint_grid` を通らないので，鳴る機会があるのは `px lint <png>` だけである．
+`lint_grid` を通らないので，鳴る機会があるのは `pxsmith lint <png>` だけである．
 そして PNG には**等倍のドット絵がそのまま来る** (`testdata/grid-eval/seeds/` の
 64 枚がまさにそれで，16x16 と 32x32 である) ．
 
@@ -158,19 +158,19 @@ $s = 4$ なら 8，$s = 6$ なら 12 に入っている．M2 が «$\hat{s} = 2 
 
 | 口 | 足したもの |
 | --- | --- |
-| `px lint` | 投票が 1 つ以下なら «掛からなかったルール: 9 ミクセル (理由)» を出す (`px_lint::mixel_coverage`) |
-| `px conform` | 投票窓の数を必ず出す ・投票 1 以下なら «検査をしていない» ・推定した $s$ に対し窓が $4s$ に足りなければ «当てにならない» と言って掛け直す窓を示す |
-| `px-core::grid` | `MIN_CELLS_PER_WINDOW` と `min_window_for(s)` を測定値として置く |
+| `pxsmith lint` | 投票が 1 つ以下なら «掛からなかったルール: 9 ミクセル (理由)» を出す (`pxsmith_lint::mixel_coverage`) |
+| `pxsmith conform` | 投票窓の数を必ず出す ・投票 1 以下なら «検査をしていない» ・推定した $s$ に対し窓が $4s$ に足りなければ «当てにならない» と言って掛け直す窓を示す |
+| `pxsmith-core::grid` | `MIN_CELLS_PER_WINDOW` と `min_window_for(s)` を測定値として置く |
 
 ```
-$ px lint testdata/grid-eval/seeds/crawl_cap1.png
+$ pxsmith lint testdata/grid-eval/seeds/crawl_cap1.png
 違反なし
 blocking 0 件 / advisory 0 件
 ** 掛からなかったルール: 9 ミクセル (窓 32 がこの画布 (32x32) に 1 つしか並ばない) **
 　　等倍のドット絵そのものと，等倍に 2 倍を混ぜた絵は
 　　**窓をどう選んでも鳴らない** — 票が 2 倍側にしか立たない (D164)
 
-$ px conform out/mixel/uniform-s4-00.png out/c.png --window 8
+$ pxsmith conform out/mixel/uniform-s4-00.png out/c.png --window 8
 局所格子: 推定できる窓が無い
   ** 非一様格子の検査をしていない: 投票した窓が 0 つしかない **
   ** 非一様格子の検査は当てにならない: 窓 8 は 4 倍の格子に足りない **
@@ -185,7 +185,7 @@ $ px conform out/mixel/uniform-s4-00.png out/c.png --window 8
 対して既にしていることである — **平らな窓はどの升でも条件を満たす**ので
 «何も言っていない» と名乗れる．
 
-**替える前に上限を測った** (`px-calib mixel-exact`)．
+**替える前に上限を測った** (`pxsmith-calib mixel-exact`)．
 
 | 窓 16 | 統計的推定器 | 厳密判定 |
 | --- | ---: | ---: |
@@ -199,14 +199,14 @@ $ px conform out/mixel/uniform-s4-00.png out/c.png --window 8
 **16 が «誤爆 0» の上限である．**
 
 **D37 は «同一の推定器を共有する» から «入力が違うので道具を分ける» になった** —
-`px lint` は劣化していない等倍 PNG，`px conform` は JPEG や補間を通った絵を
+`pxsmith lint` は劣化していない等倍 PNG，`pxsmith conform` は JPEG や補間を通った絵を
 受け取る．**統計側の数字はこの改訂で 1 桁も動いていない** (上の実素材の表と一致)．
 
 > [!warning] **端から端まで通して 1 件出た．しかも blocking である．**
 > 升が 2 通りあるだけで鳴らす形にしたら，**一様に 4 倍へ拡大しただけの絵が
 > blocking になった** (30 枚中 23 枚) — 平らな場所では $2s$ の升でも揃うためで，
 > `grid-calibration.md` の «$2s_*$ への転落» と同じ現象である．
-> `px lint` は渡された PNG が等倍か拡大かを**知らない**ので宣言に頼れない．
+> `pxsmith lint` は渡された PNG が等倍か拡大かを**知らない**ので宣言に頼れない．
 >
 > **書籍の定義に戻って絞った** — ミクセルとは «**等倍の絵**に拡大が混ざる» こと
 > なので (PAGE:021)，**$k = 1$ が混ざっていることを要求する**．
@@ -215,7 +215,7 @@ $ px conform out/mixel/uniform-s4-00.png out/c.png --window 8
 **残る «検査していない»**: 実素材 64 枚のうち **32 枚 (16x16) は窓 16 が 1 つしか
 並ばない**ので今も検査できない．窓 8 にすれば検査できるが誤爆する．
 D164 で足した «掛からなかったルール» の報告をそのまま使う．
-さらに **窓より小さい混入は原理的に見えない**ので，`px lint` は検査できたときも
+さらに **窓より小さい混入は原理的に見えない**ので，`pxsmith lint` は検査できたときも
 «16 画素角より小さい拡大の混入は見えない» と分解能を言う．
 
 ## この記録が閉じていないこと

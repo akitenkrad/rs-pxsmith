@@ -3,10 +3,10 @@
 **測り方は格子推定と同じにする** — まず «良い絵» に現行の閾値を掛けて，何がどれだけ
 鳴るかを見る．負例を作るのはその後である．
 
-- 道具: `cargo run -p px-calib --release -- lint --dir <PNG の置き場所>`
+- 道具: `cargo run -p pxsmith-calib --release -- lint --dir <PNG の置き場所>`
 - 正例: `testdata/grid-eval/seeds/` (CC0 の実物のドット絵 64 枚．Kenney 16x16 が 32 ・
   Dungeon Crawl 32x32 が 32)
-- PNG は `px lint` では格子系 (2 ・9) しか通らないので，**色を減らさずそのまま添字化**
+- PNG は `pxsmith lint` では格子系 (2 ・9) しか通らないので，**色を減らさずそのまま添字化**
   してから色 ・パレット系のルールも掛ける
 
 ## 最初の測定で分かったこと — **負例は 1 枚も要らなかった** (2026-08-12)
@@ -58,8 +58,8 @@ lint は知らない**．D47 のスコープ (static / keyframe / sequence) は�
 石 ・血 ・蔦 ・布 — **模様そのもの**である．
 
 > [!warning] これは lint だけの問題ではない
-> `px clean` の孤立ピクセル除去は**同じ定義** (`remove_isolated(canvas, min_area)`) を
-> 使っており，**`--min-area` の既定は 2** である．つまり `px clean` を既定で掛けると，
+> `pxsmith clean` の孤立ピクセル除去は**同じ定義** (`remove_isolated(canvas, min_area)`) を
+> 使っており，**`--min-area` の既定は 2** である．つまり `pxsmith clean` を既定で掛けると，
 > 上の絵は質感を作っている 655 画素が周囲へ溶ける．**既定で絵を壊す．**
 
 ## 直したこと (2026-08-12)
@@ -93,7 +93,7 @@ lint は知らない**．D47 のスコープ (static / keyframe / sequence) は�
 周囲との色差でさらに絞る案 (**近い色だけ迷子とみなす**) も測ったが，違反は 66 → 45 件に
 しか減らないうえ «派手な色の迷子» を見逃すので**採らない**．
 
-### `px clean --min-area` の既定を 2 → 0 にした
+### `pxsmith clean --min-area` の既定を 2 → 0 にした
 
 既定で質感を溶かしていた．**明示したときだけ溶かす．**
 
@@ -127,8 +127,8 @@ lint は知らない**．D47 のスコープ (static / keyframe / sequence) は�
 欠陥のせい**だと言える．
 
 ```sh
-cargo run -p px-calib --release -- lint-gen        # 7 種類 x 8 枚 = 56 枚
-cargo run -p px-calib --release -- lint --dir testdata/lint-cases/negative
+cargo run -p pxsmith-calib --release -- lint-gen        # 7 種類 x 8 枚 = 56 枚
+cargo run -p pxsmith-calib --release -- lint --dir testdata/lint-cases/negative
 ```
 
 | 欠陥 | 何をするか | 狙うルール |

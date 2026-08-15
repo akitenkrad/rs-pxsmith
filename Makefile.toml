@@ -43,4 +43,4 @@ script = """cargo test --workspace"""
 [tasks.verify-aseprite-corpus]
 description = "Require the real .aseprite corpus and check byte-exact round-trip."
 env = { PXFORGE_REQUIRE_ASEPRITE_CORPUS = "1" }
-script = """cargo test -p px-io --test aseprite_roundtrip"""
+script = """cargo test -p pxsmith-io --test aseprite_roundtrip"""

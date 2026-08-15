@@ -1,10 +1,10 @@
 # 格子推定の閾値校正 (M2)
 
-`px-calib` で合成 500 件を作り，$\varepsilon$ ・$\delta$ ・$\tau$ を掃引した記録．
+`pxsmith-calib` で合成 500 件を作り，$\varepsilon$ ・$\delta$ ・$\tau$ を掃引した記録．
 
 - 実施: 2026-08-11
-- 道具: `crates/px-calib`．種は 0．データは `grid-eval/` (再生成できるので追跡しない)
-- 対象: `px_core::grid::estimate_grid` (設計書 6.1)
+- 道具: `crates/pxsmith-calib`．種は 0．データは `grid-eval/` (再生成できるので追跡しない)
+- 対象: `pxsmith_core::grid::estimate_grid` (設計書 6.1)
 
 ## 結論
 
@@ -27,7 +27,7 @@
 | 項目 | 値 |
 | --- | --- |
 | 件数 | 500 (検証 300 / テスト 200) |
-| 元絵 | 合成 (`px-calib` の `sprite` モジュール．16〜48 画素角・不透明・13 色) |
+| 元絵 | 合成 (`pxsmith-calib` の `sprite` モジュール．16〜48 画素角・不透明・13 色) |
 | 劣化条件 | 6 (拡大率) x 4 (補間) x 3 (リサイズ) x 4 (圧縮) = 288 通りを一巡 |
 | 整数の格子がある件 | 168 (検証 101 / テスト 67) |
 
@@ -134,7 +134,7 @@ $\delta = 0.1$ ・$\tau = 0.05$)．
 
 ## 帯ごとに測った結果 (2026-08-11 追記)
 
-「画面を区切って測れば分かれるはず」を実測した (`px-calib bands`) ．**分かれた．
+「画面を区切って測れば分かれるはず」を実測した (`pxsmith-calib bands`) ．**分かれた．
 ただし予想した量ではない．**
 
 掃引で完全一致率が最大だった閾値 ($\varepsilon = 0.02$ ・$\delta = 0.15$ ・
@@ -190,7 +190,7 @@ $s$ ごとに見ても偏りは無い ($s = 2$ で 14/14 ・36/37，$s = 12$ で
 
 ## 組み込み後の掃引 (2026-08-11 追記)
 
-位相ずれ検査を `px_core::grid` へ入れ (D62) ，同じ 420 通りを回し直した (7 分 40 秒) ．
+位相ずれ検査を `pxsmith_core::grid` へ入れ (D62) ，同じ 420 通りを回し直した (7 分 40 秒) ．
 
 | | 導入前 | 導入後 |
 | --- | --- | --- |
@@ -262,7 +262,7 @@ $2 \times 2$ のセルがどれも平坦に見えるため，$\varepsilon$ ・$\
 
 ## 信頼度の中身を測った (D63)
 
-式を直す前に各項を測った (`px-calib confidence`) ．**分母ではなく対照群が原因だった．**
+式を直す前に各項を測った (`pxsmith-calib confidence`) ．**分母ではなく対照群が原因だった．**
 
 $$ \mathrm{conf} = \mathrm{clamp}\left( \frac{\min_{s \in G} \bar{V}(s) - \bar{V}(\hat{s})}{\bar{V}_{\mathrm{image}}},\ 0,\ 1 \right) $$
 
@@ -366,7 +366,7 @@ $\mathrm{min\_confidence} = 0.03$) で，検証セットの落とし方を数え
 
 ## 実データ (自作レンダ) — 閾値が移らない
 
-実データ枠の 1 区分として自作レンダ 25 件を用意した (`px-calib render`) ．合成スプライトが
+実データ枠の 1 区分として自作レンダ 25 件を用意した (`pxsmith-calib render`) ．合成スプライトが
 平坦な 13 色なのに対し，レンダは陰影の階調とアンチエイリアスを持ち数百色になる．
 
 **正解が分かっている 9 件を全部外した** (誤答 3 ・棄却 6 ・正解 0) ．誤答はいずれも
@@ -439,7 +439,7 @@ $\varepsilon$ は分散の**絶対値**に対する閾値なので，低コン�
   **測って分かった** (`ingest` が周期を読めない)
 - 負例にするのは「周期が読めない」だけである．「大きさが枠外」「縦横の食い違い」は
   格子が無い根拠にならないので入れない
-- `px-calib ingest --keep-refused` で作る．**中央を切り出すだけで再標本化はしない** —
+- `pxsmith-calib ingest --keep-refused` で作る．**中央を切り出すだけで再標本化はしない** —
   縮小を掛けると補間が入り，「格子が無い」という性質そのものを触ってしまう
 
 ### 切り出しの大きさは中立ではない
@@ -476,7 +476,7 @@ $\varepsilon$ は分散の**絶対値**に対する閾値なので，低コン�
 
 ### 採点した結果 (既定値 $\varepsilon = 0.02$ ・$\delta = 0.1$ ・$\tau = 0.1$)
 
-同梱する 53 件 (`cargo run -p px-calib --release -- real`) ．
+同梱する 53 件 (`cargo run -p pxsmith-calib --release -- real`) ．
 
 | 区分 | 件数 | 結果 |
 | --- | --- | --- |
@@ -526,7 +526,7 @@ DOT ILLUST (https://dot-illust.net/terms/) の素材 23 件を検査した．**�
 
 ### 実運用の入力はおそらくこれである
 
-`px conform` が受け取る絵は，まさに「本物のドット絵が非整数倍で拡大されて配られた
+`pxsmith conform` が受け取る絵は，まさに「本物のドット絵が非整数倍で拡大されて配られた
 もの」である．合成データはこの状況を要因計画で作っていたが，**実物で同じ形の入力が
 確認できた**のは初めてである．
 
@@ -700,7 +700,7 @@ DOT ILLUST 由来の正例は**再配布できない**ので同梱できない�
 ## 画面を組んだ正例を入れた (2026-08-11 追記)
 
 CC0 素材には**作者が組んだ見本地図** (Tiled の `.tmx`) が付いてくる．これを元絵の
-解像度で描き出せば，中身も配置も本物の正例になる (`px-calib scene`) ．
+解像度で描き出せば，中身も配置も本物の正例になる (`pxsmith-calib scene`) ．
 
 > [!warning] 同梱されている `Sample.png` は使えない
 > 同じ画面の紹介用レンダ (918x515) が付いてくるが，**非整数倍で拡大され補間も掛かって
@@ -838,14 +838,14 @@ $\varepsilon$ を動かしても下限を動かしても (代償なしには) �
 
 ## 誤棄却を解剖した — 犯人は信頼度ではなかった (2026-08-11 追記)
 
-`px-calib real` の CSV には「信頼度が下限を下回った」29 件と出ていたので，前の記録には
+`pxsmith-calib real` の CSV には「信頼度が下限を下回った」29 件と出ていたので，前の記録には
 **「次は信頼度そのものを疑う番」と書いていた．これは誤りだった．**
 
 エラー文が言っているのは**最終的な答えがどうなったか**であって，**真のスケールを何が
 落としたか**ではない．真の $s$ が再構成検査で消えた後，推定器は別の $s$ を選び，
 そちらが信頼度で落ちる — 記録には「信頼度不足」とだけ残る．
 
-そこで正解が分かっている件を 1 件ずつ解剖する口を作った (`px-calib diagnose`) ．
+そこで正解が分かっている件を 1 件ずつ解剖する口を作った (`pxsmith-calib diagnose`) ．
 真の $s$ が候補のどこで消えたかを直接見る．
 
 | 落ち方 | 件数 | 真の $s$ の分散 / 閾値 (中央) |
@@ -906,7 +906,7 @@ $\varepsilon$ に至っては 1 件で，真の $s$ はどれも閾値の半分�
 
 閾値の最良点が検証セットと実データで 2 度続けて逆を向いたので，**評価データセットの
 側を直した**．元絵を `sprite::synthesize` の合成から，CC0 のドット絵 64 件へ
-差し替える (`px-calib gen --seeds`) ．
+差し替える (`pxsmith-calib gen --seeds`) ．
 
 | | 旧 (合成の元絵) | 新 (実物の元絵) |
 | --- | --- | --- |
@@ -960,7 +960,7 @@ $\varepsilon$ に至っては 1 件で，真の $s$ はどれも閾値の半分�
 
 ## 再構成検査を測り直した — 仮説を 2 つ潰した (2026-08-11 追記)
 
-誤棄却の主犯なので，D62 のときと同じ手続きで測った (`px-calib recon`) ．**候補ごとに
+誤棄却の主犯なので，D62 のときと同じ手続きで測った (`pxsmith-calib recon`) ．**候補ごとに
 統計を出し，「真の $s$ か否か」を単一閾値でどれだけ分けられるか**を均衡正解率で比べる．
 検証セットの格子あり 101 件 × 各 $s$ = 1,515 候補．
 
@@ -1032,26 +1032,26 @@ $s_*$ と $2 s_*$ を見分けられていないことがすべての根であ�
 > [!note] 実装しなかったことの記録
 > 上の 2 つはどちらも「実装してから測る」順序なら，作り込んでから外れと分かっていた．
 > 内側の不一致率は +2.9 ポイントなので**採用しない** — 検査を複雑にする代償に見合わない．
-> `recon_stats` と `px-calib recon` は測定の口として残す (`bands` ・`confidence` と同じ扱い) ．
+> `recon_stats` と `pxsmith-calib recon` は測定の口として残す (`bands` ・`confidence` と同じ扱い) ．
 
 ## 再現のしかた
 
 ```sh
-cargo run -p px-calib --release -- gen
-cargo run -p px-calib --release -- sweep \
+cargo run -p pxsmith-calib --release -- gen
+cargo run -p pxsmith-calib --release -- sweep \
   --epsilon 0.0002 0.0005 0.001 0.002 0.005 0.01 0.02 0.05 0.1 0.2 \
   --delta 0.01 0.02 0.05 0.1 0.15 0.2 0.3 \
   --tau 0.01 0.02 0.05 0.1 0.2 0.3 \
   --out grid-eval/sweep-wide.csv
-cargo run -p px-calib --release -- report --sweep grid-eval/sweep-wide.csv
+cargo run -p pxsmith-calib --release -- report --sweep grid-eval/sweep-wide.csv
 
 # ε の持ち方を比べる (2026-08-11)
-cargo run -p px-calib --release -- sweep --out grid-eval/sweep-abs.csv \
+cargo run -p pxsmith-calib --release -- sweep --out grid-eval/sweep-abs.csv \
   --epsilon 0.002 0.005 0.01 0.02 0.05 0.1 --delta 0.05 0.1 0.15 --tau 0.05 0.1 0.2
-cargo run -p px-calib --release -- sweep --normalize-epsilon --out grid-eval/sweep-rel.csv \
+cargo run -p pxsmith-calib --release -- sweep --normalize-epsilon --out grid-eval/sweep-rel.csv \
   --epsilon 0.02 0.05 0.1 0.2 0.3 0.5 --delta 0.05 0.1 0.15 --tau 0.05 0.1 0.2
-cargo run -p px-calib --release -- report --sweep grid-eval/sweep-rel.csv
-cargo run -p px-calib --release -- real --normalize-epsilon false   # 旗で既定を潰せる
+cargo run -p pxsmith-calib --release -- report --sweep grid-eval/sweep-rel.csv
+cargo run -p pxsmith-calib --release -- real --normalize-epsilon false   # 旗で既定を潰せる
 ```
 
 `gen` の種を変えなければ同じデータセットが出る．採点の定義は掃引 CSV からやり直せる
@@ -1061,18 +1061,18 @@ cargo run -p px-calib --release -- real --normalize-epsilon false   # 旗で既�
 
 ```sh
 # 同梱する分 (自作レンダ 25 件 + AI 出力の負例 28 件)
-cargo run -p px-calib --release -- render
-cargo run -p px-calib --release -- ingest --category ai-output --keep-refused \
+cargo run -p pxsmith-calib --release -- render
+cargo run -p pxsmith-calib --release -- ingest --category ai-output --keep-refused \
   --license "CC0 (自作 — ChatGPT の出力．OpenAI 規約により出力の権利は利用者に属する)" \
   <画像...>
-cargo run -p px-calib --release -- real
+cargo run -p pxsmith-calib --release -- real
 
 # 再配布できない分 (この環境でしか再現しない)
-cargo run -p px-calib --release -- ingest --dir testdata/grid-eval/real/local \
+cargo run -p pxsmith-calib --release -- ingest --dir testdata/grid-eval/real/local \
   --category screenshot --keep-refused --negative-side 4096 --native-max 200 \
   --license "再配布不可 (ゲームまてりあるず — https://game-materials.com/userpolicy/)" \
   testdata/grid-eval/real/local/_sources/screenshot/*.jpg
-cargo run -p px-calib --release -- real --dir testdata/grid-eval/real/local
+cargo run -p pxsmith-calib --release -- real --dir testdata/grid-eval/real/local
 ```
 
 > [!note] ダウンロードした素材は隔離属性を落としてから渡す
@@ -1121,7 +1121,7 @@ cargo run -p px-calib --release -- real --dir testdata/grid-eval/real/local
 
 ### なぜ「再構成検査が主犯」に見えていたか
 
-`px-calib diagnose` が**最初に落ちた関門しか数えていなかった**．順序が
+`pxsmith-calib diagnose` が**最初に落ちた関門しか数えていなかった**．順序が
 $\varepsilon$ → 再構成 → 位相ずれ なので，**両方で落ちる件が再構成の側に付け替わる**．
 実データ 94 件で数え直すと次のようになる (`failed_gates` 欄を追加した)．
 
@@ -1270,7 +1270,7 @@ $\tau = 0.1$ ・信頼度 0.03)．
 **最良同士では 70.7% 対 71.2% で +0.5 ポイント**にとどまる (検証セット 300 件で
 1.5 件) ．向きは一貫していて，効き方も筋が通っている (正棄却が上がる — 非整数の周期の
 流れを細かく読めるため) が，**+0.5 では既定を変えない**．`GridParams::phase_subpixel`
-と `px-calib sweep --phase-subpixel` として残し，既定は `false` とする．
+と `pxsmith-calib sweep --phase-subpixel` として残し，既定は `false` とする．
 
 ### 採った既定値
 
@@ -1386,7 +1386,7 @@ base の最適は平らである (0.06 で 72.9% ・0.10 で 74.9% ・0.14 で 7
 
 ### 測り方 — CSV から `estimate_grid` を再現する
 
-`px-calib recon` に画像分散 ・画像の大きさ ・位相を足し，**CSV だけで推定の答えを
+`pxsmith-calib recon` に画像分散 ・画像の大きさ ・位相を足し，**CSV だけで推定の答えを
 再現できる**ようにした (現行の関門で 4500 候補すべて `passes_phase` が一致) ．
 
 これで «関門を掛け替えて完全一致数を数える» のが 2 秒で回る．掃引 (30 秒) を回さずに
@@ -1575,9 +1575,9 @@ $\mathrm{min\_confidence} = 0.10$ ($\hat{s}$ で割る)．
 
 ### CLI の既定値が校正値と食い違っていた (この作業で見つけた)
 
-`px conform` の引数は clap の `default_value_t` に**数値を書き写して**いたため，
+`pxsmith conform` の引数は clap の `default_value_t` に**数値を書き写して**いたため，
 $\varepsilon$ が 0.02 対 0.2 ・$\theta$ が 0.25 対 0.35 と，校正した既定値からずれて
-いた — **`px-calib` の数字と `px` の挙動が別物になっていた**．すべて
+いた — **`pxsmith-calib` の数字と `pxsmith` の挙動が別物になっていた**．すべて
 `GridParams::default()` から引く形に直した．
 
 ### $\theta$ と曲線の許容を 2 次元で掃いた — **運転点は動かない** (2026-08-12 追記)
@@ -1907,7 +1907,7 @@ AND は候補を減らすことしかできない — B が落ちているのは
 
 **まるごと肩代わりすると，先に決めた採否の基準 (誤答 3 件以下) を 1 件超える．**
 `local/` の誤受理も 2 → 4 に倍増した — `local/` の負例は «配布サイトが幅 500 画素へ
-非整数倍で拡大した本物のドット絵» で，`px conform` が実際に受け取る入力に最も近い．
+非整数倍で拡大した本物のドット絵» で，`pxsmith conform` が実際に受け取る入力に最も近い．
 
 曲線は D68 で «棄却を引き受ける» ために入れた量である (外すと正棄却が 183 → 151) ．
 **そこを手放すと，取り戻した完全一致と同じだけ誤受理が戻る．** 帯ずれだけを肩代わり
@@ -1959,10 +1959,10 @@ $2 s_*$ に «閾値を満たす最大の $s$» を渡してしまう．
 
 **採用する (D71) ．** `local/` 92 件は完全一致 8 ・誤答 0 ・誤受理 2 で 1 件も動かない．
 
-### 測る道具 — `px-calib replay`
+### 測る道具 — `pxsmith-calib replay`
 
 `recon` の CSV から `estimate_grid` を再現し，関門を掛け替えて選択規則を回す口を
-作った (`px-calib replay`) ．**300 件 x 数千通りが 6 秒**で回るので，掃引を回さずに
+作った (`pxsmith-calib replay`) ．**300 件 x 数千通りが 6 秒**で回るので，掃引を回さずに
 «分離能ではなく完全一致数で» 比べられる．
 
 再現の食い違いは **2 / 300 件**である (`--verify`)．どちらも `scale_candidates` が全 $s$ を
@@ -2046,7 +2046,7 @@ $\hat{s} = 2 \ldots 3$ では 0.005 の差が実際の下限の 0.002 の差に�
 0007 を通せば `009.png` も通る．**この 2 件について信頼度という統計は飽和している．**
 
 `local/` は «配布サイトが幅 500 画素へ非整数倍で拡大した本物のドット絵» を含む枠で，
-**`px conform` が実際に受け取る入力に最も近い**．D66 の要件は «黙って誤答しないこと»
+**`pxsmith conform` が実際に受け取る入力に最も近い**．D66 の要件は «黙って誤答しないこと»
 の方なので，検証セットの B 2 件と引き換えにしない．
 
 ### 閾値の空間は掘り尽くした (本物の掃引 162 通り)
@@ -2071,7 +2071,7 @@ $\tau \in \{0.05, 0.08, 0.12\}$ ・$\theta \in \{0.24, 0.28, 0.32\}$ ・
 | **曲線の正規化を一般化** — 分母を $(A - M) + \lambda A$ にする ($\lambda = 0$ が谷の深さ ・$\lambda \to \infty$ が曲線の高さ) | **既存の閾値の付け替えでしかない．** $\lambda = 0.15$ ・曲線 0.18 と $\lambda = 0$ ・曲線 0.30 が**件数まで完全に一致**する．`replay --curve-lambda` に残置 |
 | 曲線を軸の **max** でまとめる (現行は平均) | 同じ面の上を動くだけ．`replay --curve-axis max` に残置 |
 | **境界の当てはめに $\varepsilon$ を肩代わりさせる** | **B が 1 件減る**．肩代わりで通った大きい $s$ が «関門を通る最大の $s$» を奪う — 肩代わりは単調ではない |
-| **境界の当てはめに再構成検査を肩代わりさせる** | **B に 1 件も効かない** (的が C にある) ．replay 上では C が +2〜3 ・D 据え置きだが，**C に目標値は無い**ので `px-core` へは入れない |
+| **境界の当てはめに再構成検査を肩代わりさせる** | **B に 1 件も効かない** (的が C にある) ．replay 上では C が +2〜3 ・D 据え置きだが，**C に目標値は無い**ので `pxsmith-core` へは入れない |
 | 境界の当てはめに半セルずらしを肩代わりさせる | 同上 (B の的が 0 件) |
 
 ### `replay` の甘さは **関門を緩めるほど広がる**
@@ -2101,7 +2101,7 @@ $\tau \in \{0.05, 0.08, 0.12\}$ ・$\theta \in \{0.24, 0.28, 0.32\}$ ・
 **どちらも基準を全部は満たさない．** 0.095 を採る — B の目標には届かないが，
 **どの枠も 1 件も後退しない «無償の +1»** だからである．0.09 は利用者判断で見送った．
 
-`px-calib report` は自動ではマクロ平均だけで選ぶので 0.09 を «最良» と出す．
+`pxsmith-calib report` は自動ではマクロ平均だけで選ぶので 0.09 を «最良» と出す．
 **既定値での区分も並べて出すようにした** — マクロ平均だけを見て既定を書き換えると，
 実データ枠の後退が黙って通る．
 
@@ -2181,7 +2181,7 @@ D66 の要件は «黙って誤答しないこと» の方なので採らない�
 ### 残したもの
 
 `GridParams::edge_fit_curve_residual` (既定 `None`) と
-`px-calib sweep|real --edge-fit-curve-residual` ・`replay --edge-rescue curve` を残した．
+`pxsmith-calib sweep|real --edge-fit-curve-residual` ・`replay --edge-rescue curve` を残した．
 **関門が変われば運転点は動く**ので，次に構造を足したときに測り直せるようにしてある．
 
 ---

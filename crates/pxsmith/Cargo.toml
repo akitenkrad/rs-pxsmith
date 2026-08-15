@@ -1,0 +1,35 @@
+[package]
+edition.workspace = true
+name = "pxsmith"
+publish.workspace = true
+description = "A CLI for making pixel art: quantize, conform, lint, animate, project and preview."
+readme.workspace = true
+keywords = ["pixel-art", "cli", "graphics", "gamedev"]
+categories = ["command-line-utilities", "graphics"]
+license.workspace = true
+repository.workspace = true
+version.workspace = true
+
+[[bin]]
+name = "pxsmith"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true }
+pxsmith-core = { workspace = true }
+pxsmith-gen = { workspace = true }
+pxsmith-io = { workspace = true }
+pxsmith-lint = { workspace = true }
+pxsmith-recipe = { workspace = true }
+serde_json = { workspace = true }
+pxsmith-view = { workspace = true }
+notify = { workspace = true }
+toml = { workspace = true }
+
+[dev-dependencies]
+blake3 = { workspace = true }
+gif = { workspace = true }
+
+[lints]
+workspace = true

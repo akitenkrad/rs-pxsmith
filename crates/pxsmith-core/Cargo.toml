@@ -1,0 +1,22 @@
+[package]
+edition.workspace = true
+name = "pxsmith-core"
+publish = true
+description = "Core data model and geometry for indexed-colour pixel art: palettes, canvases, grid estimation and resampling."
+readme.workspace = true
+keywords = ["pixel-art", "graphics", "gamedev", "palette"]
+categories = ["graphics", "game-development"]
+license.workspace = true
+repository.workspace = true
+version.workspace = true
+
+[dependencies]
+aseprite-io = { workspace = true }
+palette = { workspace = true }
+quantette = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true
