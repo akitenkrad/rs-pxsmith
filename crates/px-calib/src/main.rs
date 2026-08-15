@@ -36,6 +36,7 @@ mod jaggytruth;
 mod lintcal;
 mod lintgen;
 mod metrics;
+mod mixel;
 mod pillow;
 mod projcal;
 mod real;
@@ -472,6 +473,22 @@ enum Command {
         /// **`px smooth` を実際に掛けて，直った結果を測る**
         #[arg(long)]
         apply: bool,
+    },
+    /// **局所格子推定の窓を «真値のある場面» で測る** — 付録 C 要調査事項 #4
+    Mixel {
+        #[arg(long, default_value = "testdata/grid-eval/seeds")]
+        dir: PathBuf,
+        /// 種の組を何通り作るか (1 通りにつき場面 27 枚)
+        #[arg(long, default_value_t = 6)]
+        sheets: usize,
+        /// 一致率の閾値 (lint ルール 9 ・`px conform --uniformity` の既定)
+        #[arg(long, default_value_t = 0.8)]
+        uniformity: f32,
+        #[arg(long)]
+        out: Option<PathBuf>,
+        /// **場面を PNG で書き出す** — `px lint` ・`px conform` に食わせて端から端まで通す
+        #[arg(long)]
+        dump: Option<PathBuf>,
     },
     /// **ジャギー検出に «真値のある場面» を掛ける** — 付録 C 要調査事項 #1 を閉じる
     JaggyTruth {
@@ -1619,6 +1636,177 @@ fn main() -> Result<()> {
             }
             px_io::atomic::write(&path, text.as_bytes())?;
             println!("\n  {} 行を {} へ書いた", records.len(), path.display());
+        }
+
+        Command::Mixel {
+            dir,
+            sheets,
+            uniformity,
+            out,
+            dump,
+        } => {
+            let seeds = sprite::load_seeds(&dir)?;
+            let params = px_core::grid::GridParams::default();
+            let s = mixel::run(&seeds, sheets, uniformity, &params);
+            println!("== 局所格子推定の窓を真値のある場面で測った ==");
+            println!(
+                "  種 {} 枚 ・場面 {} 枚 ・窓 {} 通り ・一致率の閾値 {:.2}",
+                seeds.len(),
+                s.cases.len(),
+                mixel::WINDOWS.len(),
+                uniformity
+            );
+
+            println!("\n  **一様な絵 (どこでも格子 s)** — 鳴ってはいけない ・最頻は s であるべき");
+            println!("    倍率 \\ 窓 {:>50}", "");
+            print!("    {:>4}", "s");
+            for w in mixel::WINDOWS {
+                print!(" {w:>10}");
+            }
+            println!();
+            let by_scale = mixel::by_scale(&s);
+            for scale in mixel::SCALES {
+                print!("    {scale:>4}");
+                for w in mixel::WINDOWS {
+                    match by_scale.get(&(scale, w)) {
+                        Some(t) => print!(" {:>4}/{:<5}", t.modal_ok, t.sheets),
+                        None => print!(" {:>10}", "-"),
+                    }
+                }
+                println!("   最頻が正解 / 枚数");
+            }
+            print!("    {:>4}", "誤爆");
+            for w in mixel::WINDOWS {
+                let (fired, sheets) = mixel::SCALES
+                    .iter()
+                    .filter_map(|s| by_scale.get(&(*s, w)))
+                    .fold((0, 0), |(a, b), t| (a + t.fired, b + t.sheets));
+                print!(" {fired:>4}/{sheets:<5}");
+            }
+            println!("   **一様なのに鳴った / 枚数**");
+
+            println!("\n  **窓の下限を 1 画素刻みで掃いた** — 最頻が全枚数で正解になる最小の窓");
+            println!(
+                "    {:>4} {:>10} {:>10} {:>10}",
+                "s", "帯 4 (既定)", "帯 2", "帯なし"
+            );
+            let laws = mixel::law(&seeds, sheets, &params);
+            for scale in mixel::SCALES {
+                print!("    {scale:>4}");
+                for bands in [params.phase_bands, 2, 0] {
+                    let l = laws
+                        .iter()
+                        .find(|l| l.scale == scale && l.bands == bands)
+                        .and_then(|l| l.min_window);
+                    match l {
+                        Some(w) => print!(" {:>7} ({:.1}s)", w, w as f32 / scale as f32),
+                        None => print!(" {:>10}", "届かない"),
+                    }
+                }
+                println!();
+            }
+
+            println!("\n  **ミクセル (半々)** — 鳴るべき");
+            println!(
+                "    {:>4} {:>12} {:>12} {:>14}",
+                "窓", "鳴った/枚数", "鳴りうる", "捕捉 (鳴りうる中)"
+            );
+            let t = mixel::tally(&s);
+            for w in mixel::WINDOWS {
+                if let Some(x) = t.get(&("ミクセル (半々)", w)) {
+                    println!(
+                        "    {w:>4} {:>7}/{:<4} {:>7}/{:<4} {:>10.1}%",
+                        x.fired,
+                        x.sheets,
+                        x.can_fire,
+                        x.sheets,
+                        if x.can_fire == 0 {
+                            0.0
+                        } else {
+                            x.caught as f32 * 100.0 / x.can_fire as f32
+                        }
+                    );
+                }
+            }
+
+            println!("\n  **分解能** — 少数派 (2 倍の領域) が画布の何割なら捕まるか");
+            print!("    {:>6}", "割合");
+            for w in mixel::WINDOWS {
+                print!(" {w:>8}");
+            }
+            println!();
+            let by_frac = mixel::by_fraction(&s);
+            let mut fracs: Vec<u32> = by_frac.keys().map(|(p, _)| *p).collect();
+            fracs.sort_unstable();
+            fracs.dedup();
+            for p in fracs {
+                print!("    {:>5.1}%", p as f32 / 10.0);
+                for w in mixel::WINDOWS {
+                    match by_frac.get(&(p, w)) {
+                        Some(x) => print!(" {:>3}/{:<4}", x.fired, x.sheets),
+                        None => print!(" {:>8}", "-"),
+                    }
+                }
+                println!();
+            }
+
+            println!("\n  **L0 の画布 (16 〜 48 画素)** — lint ルール 9 の持ち場");
+            println!(
+                "    {:>4} {:>16} {:>16} {:>16}",
+                "窓", "等倍で鳴った", "ミクセルで鳴った", "窓が 1 つだけ"
+            );
+            for w in mixel::WINDOWS {
+                let clean = t.get(&("L0 の等倍 (鳴ってはいけない)", w));
+                let mix = t.get(&("L0 にミクセル (鳴るべき)", w));
+                println!(
+                    "    {w:>4} {:>11}/{:<4} {:>11}/{:<4} {:>11}/{:<4}",
+                    clean.map(|x| x.fired).unwrap_or(0),
+                    clean.map(|x| x.sheets).unwrap_or(0),
+                    mix.map(|x| x.fired).unwrap_or(0),
+                    mix.map(|x| x.sheets).unwrap_or(0),
+                    mix.map(|x| x.single_window).unwrap_or(0),
+                    mix.map(|x| x.sheets).unwrap_or(0),
+                );
+            }
+
+            println!(
+                "\n  **実素材 {} 枚にそのまま掛けた** (`px lint` が受け取る形)",
+                seeds.len()
+            );
+            println!(
+                "    {:>4} {:>16} {:>18} {:>10}",
+                "窓", "升が 2 つ以上", "**投票が 2 つ以上**", "鳴った"
+            );
+            for c in mixel::corpus(&seeds, uniformity, &params) {
+                println!(
+                    "    {:>4} {:>11}/{:<4} {:>13}/{:<4} {:>5}/{:<4}",
+                    c.window,
+                    c.cells_two_or_more,
+                    c.sheets,
+                    c.two_or_more,
+                    c.sheets,
+                    c.fired,
+                    c.sheets
+                );
+            }
+
+            if let Some(dir) = dump {
+                println!("\n  端から端まで通すための場面を書き出した:");
+                for name in mixel::dump(&seeds, &dir)? {
+                    println!("    {name}");
+                }
+            }
+
+            if let Some(path) = out {
+                let mut text = String::from(mixel::HEADER);
+                text.push('\n');
+                for row in mixel::rows(&s) {
+                    text.push_str(&row);
+                    text.push('\n');
+                }
+                px_io::atomic::write(&path, text.as_bytes())?;
+                println!("\n  {} 行を {} へ書いた", s.cases.len(), path.display());
+            }
         }
 
         Command::JaggyTruth { max_move, out } => {
