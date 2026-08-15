@@ -2110,6 +2110,124 @@ pub fn local_grid(img: &RgbaCanvas, window: u32, params: &GridParams) -> Field<O
     out
 }
 
+/// **窓 1 つの厳密な升判定** — ルール 9 が使う (D172)．
+///
+/// # なぜ統計的推定器と別なのか (D37 の改訂)
+///
+/// [`local_grid`] は «測れなかった窓» と «格子が無い窓» をどちらも «票なし» に
+/// するので，**等倍の絵に 2 倍が混ざった «書籍の言うミクセル» を窓をどう選んでも
+/// 検出できない** (D164 が数え上げで示した) ．分けられるのは厳密な判定だけで，
+/// **平らな窓はどの $k$ でも条件を満たす**から «測れなかった» と名乗れる．
+///
+/// D37 は «ミクセル検出と非一様格子の棄却は同一の推定器を共有する» と定めていたが，
+/// **入力が違うので道具も分かれる** (D172) — `px lint` が受け取るのは劣化していない
+/// 等倍の PNG なので厳密判定が使えるが，`px conform` が受け取るのは JPEG や補間を
+/// 通った絵なので使えない．
+///
+/// > [!warning] **拡大素材に掛けてはいけない．** 実測で $s$ 倍に敷き詰めた絵の
+/// > **30 枚中 23 枚が誤爆する** — 絵が平らな場所では $2s$ の升でも揃うので，
+/// > 窓ごとに違う $k$ が立つ．`grid-calibration.md` が繰り返し測った
+/// > «$2s_*$ への転落» と同じ現象である．
+///
+/// # 位相は画像の原点に取る
+///
+/// 升の格子は画像全体で 1 つなので，**窓ごとに位相を取り直してはいけない**．
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CellVerdict {
+    /// **どの $k$ でも条件を満たす** — この窓は格子について何も言っていない．
+    ///
+    /// **«測れなかった» であって «格子 1 だった» ではない** — 混ぜると
+    /// 実素材の背景がすべて 1 に投票する．
+    Flat,
+    /// $k$ が決まった窓．**等倍の絵はここで 1 になる** — 統計的推定器が
+    /// 票を立てられなかったのはまさにここである．
+    Pinned(u32),
+}
+
+/// 厳密判定で見る升の上限 (D172)．
+///
+/// 上げるほど平らな窓が増える (大きい升ほど条件が緩い) ので無制限にはしない．
+pub const MIXEL_MAX_K: u32 = 16;
+
+/// **ルール 9 の窓** (D172 の実測値)．
+///
+/// | 窓 | 書籍のミクセル | 同じ絵の清書 | 実素材 64 枚 |
+/// | ---: | ---: | ---: | ---: |
+/// | 8 | 19 / 36 | **5 / 18 誤爆** | **5 / 64 誤爆** |
+/// | **16** | **11 / 36** | **0 / 18** | **0 / 32 (検査できた枚数)** |
+/// | 32 | 0 / 36 | 0 / 18 | 検査できた絵が無い |
+///
+/// **16 が «誤爆 0» の上限である**．8 まで下げると検出は上がるが，
+/// 正しく描いた絵をミクセルと呼ぶ．
+pub const MIXEL_WINDOW: u32 = 16;
+
+/// 窓 1 つを厳密に判定する．
+pub fn judge_cell_window(img: &RgbaCanvas, x0: u32, y0: u32, side: u32, max_k: u32) -> CellVerdict {
+    // **平らな窓は先に外す** — どの $k$ でも通るので格子を 1 つも縛っていない
+    let first = img.get(x0 as i32, y0 as i32);
+    if (y0..y0 + side).all(|y| (x0..x0 + side).all(|x| img.get(x as i32, y as i32) == first)) {
+        return CellVerdict::Flat;
+    }
+    let holds = |k: u32| -> bool {
+        let k = k as i32;
+        (y0..y0 + side).all(|y| {
+            (x0..x0 + side).all(|x| {
+                let (x, y) = (x as i32, y as i32);
+                img.get(x, y) == img.get(x - x % k, y - y % k)
+            })
+        })
+    };
+    // 大きい升で揃っていればその約数でも揃うので，**上から採る**
+    CellVerdict::Pinned((1..=max_k.min(side)).rev().find(|&k| holds(k)).unwrap_or(1))
+}
+
+/// **画像を窓で敷き詰めて厳密判定を集める** (D172)．
+///
+/// 返り値は `(決まった $k$ ごとの窓数, 平らだった窓の数)`．
+/// **平らな窓は数えるだけで投票させない** — «測れなかった» を «格子 1» に
+/// 混ぜると，背景の広い絵がすべて 1 に投票してしまう．
+pub fn exact_grid_votes(
+    img: &RgbaCanvas,
+    window: u32,
+    max_k: u32,
+) -> (std::collections::BTreeMap<u32, usize>, usize) {
+    let mut by_k: std::collections::BTreeMap<u32, usize> = std::collections::BTreeMap::new();
+    let mut flat = 0usize;
+    if window == 0 {
+        return (by_k, flat);
+    }
+    let mut y = 0;
+    while y + window <= img.height() {
+        let mut x = 0;
+        while x + window <= img.width() {
+            match judge_cell_window(img, x, y, window, max_k) {
+                CellVerdict::Flat => flat += 1,
+                CellVerdict::Pinned(k) => *by_k.entry(k).or_default() += 1,
+            }
+            x += window;
+        }
+        y += window;
+    }
+    (by_k, flat)
+}
+
+/// **票がミクセルを示すか** (D172)．
+///
+/// 書籍の言うミクセルは «**等倍の絵**に拡大された部分が混ざる» ことである
+/// (Pixel Logic PAGE:021) ．だから «升が 2 通りある» だけでは足りず，
+/// **等倍 ($k = 1$) が混ざっていること**を要求する．
+///
+/// > [!warning] **この絞りが無いと一様に拡大した絵が誤爆する** — 絵が平らな
+/// > 場所では $2s$ の升でも揃うので $s$ と $2s$ が並び立つ (実測 30 枚中 23 枚) ．
+/// > `px lint` は渡された PNG が等倍か拡大かを知らないので，
+/// > **絞りを規則の側に置く**しかない．一様に拡大された絵の «格子が場所により
+/// > 違う» はルール 2 ・`px conform` の持ち場である．
+///
+/// **判定はここ 1 か所にある** — 測る口と道具が違うものを見てはいけない (D110)．
+pub fn votes_show_mixel(by_k: &std::collections::BTreeMap<u32, usize>) -> bool {
+    by_k.len() >= 2 && by_k.contains_key(&1)
+}
+
 /// 局所推定のばらつき．非一様格子の判定に使う．
 ///
 /// 返り値は `(最頻のスケール, 一致した窓の割合)`．窓が 1 つも推定できなければ
@@ -2165,6 +2283,110 @@ pub fn downscale_modal(img: &RgbaCanvas, scale: u32, phase: IVec2) -> RgbaCanvas
 
 #[cfg(test)]
 mod tests {
+
+    /// 市松の絵を作る (升 `cell` 画素)．
+    fn checker(side: u32, cell: u32) -> RgbaCanvas {
+        let mut c = RgbaCanvas::filled(side, side, Rgba8::new(0, 0, 0, 255));
+        for y in 0..side as i32 {
+            for x in 0..side as i32 {
+                let on = ((x / cell as i32) + (y / cell as i32)) % 2 == 0;
+                let v = if on { 255 } else { 0 };
+                c.set(x, y, Rgba8::new(v, v, v, 255));
+            }
+        }
+        c
+    }
+
+    /// **等倍の模様は $k = 1$ に決まる** — 統計的推定器が «票なし» にする場面である．
+    ///
+    /// 壊れると: «格子が無い» を «格子 1» として投票させられず，D164 の
+    /// 行き止まり (書籍のミクセルを検出できない) がそのまま残る．
+    #[test]
+    fn a_native_resolution_pattern_pins_the_grid_at_one() {
+        assert_eq!(
+            judge_cell_window(&checker(32, 1), 0, 0, 16, MIXEL_MAX_K),
+            CellVerdict::Pinned(1)
+        );
+    }
+
+    /// **2 倍に拡大した模様は $k = 2$ に決まる．**
+    #[test]
+    fn a_doubled_pattern_pins_the_grid_at_two() {
+        assert_eq!(
+            judge_cell_window(&checker(32, 2), 0, 0, 16, MIXEL_MAX_K),
+            CellVerdict::Pinned(2)
+        );
+    }
+
+    /// **平らな窓は «測れなかった» であって «格子 1» ではない** — ここが要である．
+    ///
+    /// 壊れると: 実素材の背景がすべて «格子 1» に投票し，2 倍で描かれた絵が
+    /// ミクセルとして誤爆する．
+    #[test]
+    fn a_flat_window_says_nothing_rather_than_voting_for_one() {
+        let img = RgbaCanvas::filled(32, 32, Rgba8::new(7, 7, 7, 255));
+        assert_eq!(
+            judge_cell_window(&img, 0, 0, 16, MIXEL_MAX_K),
+            CellVerdict::Flat
+        );
+    }
+
+    /// **位相は画像の原点に取る** — 窓ごとに取り直すと，升の途中から始まる窓で
+    /// $k$ を見失う．
+    ///
+    /// 壊れると: ずれた窓が «等倍» に見え，2 倍の絵がミクセルとして誤爆する．
+    #[test]
+    fn the_cell_phase_comes_from_the_image_not_the_window() {
+        assert_eq!(
+            judge_cell_window(&checker(64, 2), 3, 3, 16, MIXEL_MAX_K),
+            CellVerdict::Pinned(2)
+        );
+    }
+
+    /// **一様に拡大した絵をミクセルと呼ばない** — 等倍が混ざっていることを要求する．
+    ///
+    /// 絵が平らな場所では $2s$ の升でも揃うので，$s$ 倍に拡大しただけの絵でも
+    /// 升は 2 通りになる (実測 30 枚中 23 枚) ．**書籍の言うミクセルは «等倍の絵に
+    /// 拡大が混ざる» ことなので，$k = 1$ が無ければ鳴らさない．**
+    ///
+    /// 壊れると: 一様に拡大した絵が軒並み blocking になる．
+    #[test]
+    fn two_cell_sizes_without_native_art_are_not_a_mixel() {
+        let by_k = std::collections::BTreeMap::from([(4u32, 10usize), (8, 3)]);
+        assert!(
+            !votes_show_mixel(&by_k),
+            "拡大しただけの絵をミクセルと呼んだ"
+        );
+        let with_native = std::collections::BTreeMap::from([(1u32, 10usize), (2, 3)]);
+        assert!(votes_show_mixel(&with_native), "書籍のミクセルを見逃した");
+    }
+
+    /// **等倍の絵に 2 倍を混ぜると升が 2 通りになる** — 書籍の言うミクセルである．
+    ///
+    /// 統計的推定器はこの場面で票が 2 倍側にしか立たず，一致率が必ず 1.0 になる
+    /// (D164) ．**厳密判定はここで初めて 2 通りを見る** (D172)．
+    ///
+    /// 壊れると: ルール 9 が書籍のミクセルを見逃す状態へ戻る．
+    #[test]
+    fn native_art_with_a_doubled_patch_shows_two_cell_sizes() {
+        let mut img = checker(64, 1);
+        // 右半分だけ 2 倍で描き直す
+        for y in 0..64i32 {
+            for x in 32..64i32 {
+                let on = ((x / 2) + (y / 2)) % 2 == 0;
+                let v = if on { 255 } else { 0 };
+                img.set(x, y, Rgba8::new(v, v, v, 255));
+            }
+        }
+        let (by_k, _flat) = exact_grid_votes(&img, MIXEL_WINDOW, MIXEL_MAX_K);
+        assert!(by_k.contains_key(&1), "等倍側を見ていない: {by_k:?}");
+        assert!(by_k.contains_key(&2), "2 倍側を見ていない: {by_k:?}");
+        assert!(
+            votes_show_mixel(&by_k),
+            "ミクセルと判定しなかった: {by_k:?}"
+        );
+    }
+
     use super::*;
 
     /// 添字の並びを `scale` 倍に拡大した画像を作る．`phase` だけずらして切る．

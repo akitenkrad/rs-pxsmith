@@ -30,6 +30,7 @@ mod dataset;
 mod degrade;
 mod diagnose;
 mod dircal;
+mod exactgrid;
 mod ingest;
 mod jaggycal;
 mod jaggyseam;
@@ -490,6 +491,17 @@ enum Command {
         /// **場面を PNG で書き出す** — `px lint` ・`px conform` に食わせて端から端まで通す
         #[arg(long)]
         dump: Option<PathBuf>,
+    },
+    /// **ルール 9 を «厳密なブロック判定» に替えたときの上限を測る** — D37 に触る前の判断材料
+    MixelExact {
+        #[arg(long, default_value = "testdata/grid-eval/seeds")]
+        dir: PathBuf,
+        /// 種の組を何通り作るか
+        #[arg(long, default_value_t = 6)]
+        sheets: usize,
+        /// 見る升の上限
+        #[arg(long, default_value_t = exactgrid::MAX_K)]
+        max_k: u32,
     },
     /// **ジャギー検出に «真値のある場面» を掛ける** — 付録 C 要調査事項 #1 を閉じる
     JaggyTruth {
@@ -1818,6 +1830,80 @@ fn main() -> Result<()> {
                 }
                 px_io::atomic::write(&path, text.as_bytes())?;
                 println!("\n  {} 行を {} へ書いた", s.cases.len(), path.display());
+            }
+        }
+
+        Command::MixelExact { dir, sheets, max_k } => {
+            let seeds = sprite::load_seeds(&dir)?;
+            let s = exactgrid::run(&seeds, sheets, max_k);
+            println!("== ルール 9 を «厳密なブロック判定» に替えたときの上限 ==");
+            println!(
+                "  種 {} 枚 ・場面 {} 枚 ・窓 {} 通り ・升の上限 {max_k}",
+                seeds.len(),
+                s.cases.len(),
+                exactgrid::WINDOWS.len()
+            );
+            println!(
+                "  **平らな窓は «測れなかった» に数える** — «格子 1» と混ぜると\n\
+                 \u{3000}\u{3000}実素材の背景がすべて 1 に投票して 2 倍の絵が誤爆する"
+            );
+
+            println!("\n  合成した場面 (正解あり)");
+            println!(
+                "    {:>4} {:>16} {:>16}",
+                "窓", "混在で鳴った", "一様で鳴った (誤爆)"
+            );
+            for (window, (hit, mix, fp, uni)) in s.tally() {
+                println!("    {window:>4} {hit:>10} / {mix:<3} {fp:>10} / {uni:<3}");
+            }
+
+            println!("\n  **群ごとに全部並べる** — 群名を手で当てにいくと取り違える");
+            for window in exactgrid::WINDOWS {
+                println!("    窓 {window}");
+                for ((group, is_mixel), (hit, n)) in s.by_group(window) {
+                    println!(
+                        "      {group:<28} {}: {hit:>3} / {n:<3} 枚で鳴った",
+                        if is_mixel {
+                            "鳴るべき"
+                        } else {
+                            "鳴ってはいけない"
+                        }
+                    );
+                }
+            }
+
+            // **鳴った場面の中身を出す** — «2 通りあった» だけでは何と何かが読めない
+            if let Some(c) = s
+                .cases
+                .iter()
+                .find(|c| c.truth.is_mixel() && c.obs.iter().any(|o| o.window == 16 && o.fires))
+                && let Some(o) = c.obs.iter().find(|o| o.window == 16)
+            {
+                println!(
+                    "\n  鳴った例 (窓 16): {} — 升ごとの窓数 {:?} ・平らな窓 {}",
+                    c.name, o.by_k, o.flat
+                );
+            }
+
+            println!("\n  実素材 (等倍のドット絵．**鳴ったら全件が誤検出**)");
+            let rows = exactgrid::corpus(&seeds, max_k);
+            for window in exactgrid::WINDOWS {
+                let here: Vec<_> = rows.iter().filter(|(_, o)| o.window == window).collect();
+                if here.is_empty() {
+                    continue;
+                }
+                let fired = here.iter().filter(|(_, o)| o.fires).count();
+                let pinned: usize = here.iter().map(|(_, o)| o.pinned).sum();
+                let flat: usize = here.iter().map(|(_, o)| o.flat).sum();
+                // **窓が 1 つしか並ばない絵は «鳴らなかった» ではなく «検査していない»**
+                // (D164 と同じ形．窓が 2 つ無ければ格子は 2 通りになりようがない)
+                let checkable = here.iter().filter(|(_, o)| o.pinned >= 2).count();
+                println!(
+                    "    窓 {window:>3}: {} 枚中**検査できたのは {checkable} 枚** \
+                     (窓が 2 つ以上並ぶ絵) ・決まった窓 {pinned} ・平らな窓 {flat} ・\
+                     **鳴った {fired} 枚**",
+                    here.len()
+                );
             }
         }
 

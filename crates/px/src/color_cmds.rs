@@ -716,7 +716,13 @@ pub fn lint(input: &Path, json: bool, grid: &GridArgs) -> Result<()> {
         grid: GridParams::from(grid),
         ..px_lint::LintConfig::default()
     };
-    cfg.grid_window = if grid.max_scale >= 2 { 32 } else { 0 };
+    // **見る升の上限は利用者の宣言から引く** (D172)．
+    //
+    // 以前はここで «max_scale < 2 ならルール 9 を切る» という門を掛けていたが，
+    // 厳密判定に替えた時点でその理由が消えた — **ミクセルとは «無いはずの拡大が
+    // 混ざっていること»** なので，«拡大は無いはず» という宣言こそ検査の前提である．
+    // 少なくとも 1 と 2 を見分けられないと書籍のミクセルが取れないので 2 で下げ止める
+    cfg.mixel_max_k = grid.max_scale.max(2);
 
     let mut report = px_lint::Report::default();
     let mut coverage = None;
@@ -724,10 +730,8 @@ pub fn lint(input: &Path, json: bool, grid: &GridArgs) -> Result<()> {
     if is_png(input) {
         let img = png::read_rgba(input)?;
         report.extend(px_lint::rules::lint_grid(&img, &cfg));
-        // **«鳴らなかった» と «検査していない» を分ける** (D164)
-        if cfg.grid_window > 0 {
-            mixel = Some(px_lint::mixel_coverage(&img, &cfg));
-        }
+        // **«鳴らなかった» と «検査していない» を分ける** (D164 ・D172)
+        mixel = Some(px_lint::mixel_coverage(&img, &cfg));
     } else {
         let frames = crate::load_frames(input)?;
         for (i, frame) in frames.iter().enumerate() {
@@ -777,16 +781,25 @@ pub fn lint(input: &Path, json: bool, grid: &GridArgs) -> Result<()> {
                 );
             }
         }
-        // **ルール 9 も同じ扱いにする** (D164) — 一致率は投票した窓だけで出るので，
-        // 投票が 1 つ以下なら定義から 1.0 で，**鳴りようがない**
-        if let Some(m) = &mixel
-            && let Some(why) = m.why_not()
-        {
-            println!(
-                "** 掛からなかったルール: 9 ミクセル ({why}) **\n\
-                 \u{3000}\u{3000}等倍のドット絵そのものと，等倍に 2 倍を混ぜた絵は\n\
-                 \u{3000}\u{3000}**窓をどう選んでも鳴らない** — 票が 2 倍側にしか立たない (D164)"
-            );
+        // **ルール 9 も同じ扱いにする** (D164 ・D172) — 升は窓ごとに決まるので，
+        // 窓が 2 つ決まらなければ 2 通りになりようがない
+        if let Some(m) = &mixel {
+            if let Some(why) = m.why_not() {
+                println!(
+                    "** 掛からなかったルール: 9 ミクセル ({why}) **\n\
+                     \u{3000}\u{3000}升が 2 つ以上決まらないと «場所により違う» と言えない (D164 ・D172)"
+                );
+            } else {
+                // **«検査した» だけでは足りない** — 窓より小さい混入は原理的に
+                // 見えないので，何が見えなかったかを言う (D172)
+                println!(
+                    "ルール 9 ミクセル: 升が決まった窓 {} つを見た\n\
+                     \u{3000}\u{3000}** {} 画素角より小さい拡大の混入は見えない ** — \
+                     窓 1 つがまるごと拡大側に入らないと升が立たない",
+                    m.pinned,
+                    m.resolution()
+                );
+            }
         }
     }
 

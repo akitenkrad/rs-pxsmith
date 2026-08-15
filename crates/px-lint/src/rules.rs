@@ -12,7 +12,7 @@ use px_core::color::{Oklab, oklab_of};
 use px_core::frame::{Frame, Surface};
 use px_core::geom::distance::signed_distance;
 use px_core::geom::regions::{RegionMap, label_regions};
-use px_core::grid::{GridParams, local_grid, uniformity};
+use px_core::grid::{GridParams, exact_grid_votes, votes_show_mixel};
 use px_core::math::{IRect, IVec2, Vec2, ivec2};
 use px_core::palette::Palette;
 use serde::{Deserialize, Serialize};
@@ -86,10 +86,13 @@ pub struct LintConfig {
     pub grid_like_ratio: f32,
     /// ルール 2 ・9 — 格子推定の閾値．
     pub grid: GridParams,
-    /// ルール 9 — 局所推定の一致率がこれを下回ったらミクセル．
-    pub uniformity: f32,
-    /// ルール 9 — 局所推定の窓の一辺．
-    pub grid_window: u32,
+    /// **ルール 9 — 厳密な升判定の窓の一辺** (D172)．
+    ///
+    /// 実測で «誤爆 0» の上限が 16 だった．8 まで下げると書籍のミクセルの検出は
+    /// 19 / 36 へ上がるが，正しく描いた絵を 5 / 64 でミクセルと呼ぶ．
+    pub mixel_window: u32,
+    /// **ルール 9 — 見る升の上限** (D172)．
+    pub mixel_max_k: u32,
     /// ルール 4 — シルエットの縁のうち何割を同じ色が占めていれば «縁取り» か．
     ///
     /// **暫定値である．** 0.6 は «縁取りらしい色を 1 色に絞る» ために置いただけで，
@@ -366,8 +369,8 @@ impl Default for LintConfig {
             volume_error: 0.05,
             grid_like_ratio: 0.05,
             grid: GridParams::default(),
-            uniformity: 0.8,
-            grid_window: 32,
+            mixel_window: px_core::grid::MIXEL_WINDOW,
+            mixel_max_k: px_core::grid::MIXEL_MAX_K,
             min_outline_share: 0.6,
             max_outline_interior: 0.05,
             min_outline_overlaps: 2,
@@ -704,17 +707,19 @@ fn rule_5_chroma_curve(palette: &Palette, report: &mut Report) {
 // --- ルール 9: ミクセル ---
 
 /// **ルール 9 が検査できたか** — «鳴らなかった» と «検査していない» を分ける
-/// (D77 ・D104 ・D142 と同じ作法．D164 で足した)．
+/// (D77 ・D104 ・D142 と同じ作法．D164 で足し，D172 で厳密判定に合わせ直した)．
 ///
-/// ルール 9 は一致率が閾値を下回ったときだけ鳴る．一致率は**投票した窓だけ**で
-/// 出るので，投票が 1 つ以下なら定義から 1.0 になり，**鳴りようがない**．
-/// 黙って通すと «検査して問題が無かった» と読まれる．
-#[derive(Clone, Copy, Debug)]
+/// ルール 9 は**窓ごとに升の大きさを厳密に判定し，2 通り以上あれば鳴る**．
+/// だから窓が 2 つ以上決まらなければ鳴りようがない — 黙って通すと
+/// «検査して問題が無かった» と読まれる．
+#[derive(Clone, Debug)]
 pub struct MixelCoverage {
-    /// 窓の升の数．
-    pub cells: usize,
-    /// 推定できた (投票した) 窓の数．
-    pub voting: usize,
+    /// 並べた窓の数．
+    pub windows: usize,
+    /// **升が決まった窓の数** — 判定の分母である．
+    pub pinned: usize,
+    /// **平らで何も言えなかった窓** — «測れなかった» 側 (D172)．
+    pub flat: usize,
     /// 使った窓の一辺．
     pub window: u32,
     /// 画布の大きさ．
@@ -722,9 +727,17 @@ pub struct MixelCoverage {
 }
 
 impl MixelCoverage {
-    /// 一致率が 1.0 以外になりうるか．
+    /// 升が 2 通り以上になりうるか．
     pub fn checked(&self) -> bool {
-        self.voting >= 2
+        self.pinned >= 2
+    }
+
+    /// **この検査が見られる一番小さい混入** — 窓より小さい拡大は原理的に見えない．
+    ///
+    /// 升は窓ごとに決まるので，**窓 1 つがまるごと拡大側に入っていないと
+    /// その升は立たない**．分解能の下限であって閾値ではない (D172)．
+    pub fn resolution(&self) -> u32 {
+        self.window
     }
 
     /// 検査できなかった理由．**検査できたなら `None`**．
@@ -733,46 +746,65 @@ impl MixelCoverage {
             return None;
         }
         let (w, h) = self.size;
-        if self.cells < 2 {
+        if self.windows < 2 {
             return Some(format!(
                 "窓 {} がこの画布 ({w}x{h}) に 1 つしか並ばない",
                 self.window
             ));
         }
         Some(format!(
-            "{} 升のうち格子を推定できた窓が {} つしかない \
-             (等倍のドット絵には 2 以上の格子が無いので票が立たない)",
-            self.cells, self.voting
+            "{} 窓のうち升が決まったのは {} つで，残り {} 窓は平らで何も言えない \
+             (平らな窓はどの升でも揃うので «測れなかった» に数える)",
+            self.windows, self.pinned, self.flat
         ))
     }
 }
 
-/// ルール 9 の検査範囲を測る (D164)．
+/// ルール 9 の検査範囲を測る (D164 ・D172)．
 pub fn mixel_coverage(img: &RgbaCanvas, cfg: &LintConfig) -> MixelCoverage {
-    let local = local_grid(img, cfg.grid_window, &cfg.grid);
+    let (by_k, flat) = exact_grid_votes(img, cfg.mixel_window, cfg.mixel_max_k);
+    let pinned: usize = by_k.values().sum();
     MixelCoverage {
-        cells: local.data().len(),
-        voting: local.data().iter().filter(|v| v.is_some()).count(),
-        window: cfg.grid_window,
+        windows: pinned + flat,
+        pinned,
+        flat,
+        window: cfg.mixel_window,
         size: (img.width(), img.height()),
     }
 }
 
 fn rule_9_mixels(img: &RgbaCanvas, cfg: &LintConfig, report: &mut Report) {
     let r = rule(9).expect("ルール 9 は定義済み");
-    let local = local_grid(img, cfg.grid_window, &cfg.grid);
-    if let Some((scale, ratio)) = uniformity(&local)
-        && ratio < cfg.uniformity
-    {
-        report.push(Violation::new(
-            r,
-            format!(
-                "局所格子が場所により異なる (最頻 {scale} の一致率 {:.1}% < {:.1}%)",
-                ratio * 100.0,
-                cfg.uniformity * 100.0
-            ),
-        ));
+    // **厳密な升判定を使う** (D172) — 統計的推定器では «等倍の絵に 2 倍が混ざる»
+    // という書籍の言うミクセルを窓をどう選んでも検出できない (D164)．
+    // **平らな窓は投票しない** — «測れなかった» を «格子 1» に混ぜてはいけない
+    let (by_k, _flat) = exact_grid_votes(img, cfg.mixel_window, cfg.mixel_max_k);
+    // **等倍が混ざっていることを要求する** (D172 の端から端まで通して出た) ．
+    //
+    // 書籍の言うミクセルは «**等倍の絵**に拡大された部分が混ざる» ことである
+    // (Pixel Logic PAGE:021) ．升が 2 通りあるだけで鳴らすと，
+    // **一様に拡大した絵が誤爆する** — 絵が平らな場所では $2s$ の升でも揃うので
+    // $s$ と $2s$ が並び立つ (実測 30 枚中 23 枚) ．`px lint` は渡された PNG が
+    // 等倍か拡大かを知らないので，**絞りを規則の側に置く**しかない．
+    //
+    // 一様に拡大された絵に対する «格子が場所により違う» の判定は
+    // ルール 2 ・`px conform` の持ち場である (D37 の分担はここで保たれる) ．
+    if !votes_show_mixel(&by_k) {
+        return;
     }
+    let mut sizes: Vec<String> = by_k
+        .iter()
+        .map(|(k, n)| format!("{k} 画素の升が {n} 窓"))
+        .collect();
+    sizes.sort();
+    report.push(Violation::new(
+        r,
+        format!(
+            "升の大きさが場所により異なる ({}) — 等倍の絵に拡大された部分が\
+             混ざっている (ミクセル)",
+            sizes.join(" ・")
+        ),
+    ));
 }
 
 // --- ルール 4: アウトライン角の重なり ---
@@ -2011,6 +2043,101 @@ mod tests {
         report.violations.iter().any(|v| v.rule == id)
     }
 
+    /// 市松の絵 (升 `cell` 画素)．
+    fn checker(side: u32, cell: u32) -> RgbaCanvas {
+        let mut c = RgbaCanvas::filled(side, side, Rgba8::new(0, 0, 0, 255));
+        for y in 0..side as i32 {
+            for x in 0..side as i32 {
+                let v = if ((x / cell as i32) + (y / cell as i32)) % 2 == 0 {
+                    255
+                } else {
+                    0
+                };
+                c.set(x, y, Rgba8::new(v, v, v, 255));
+            }
+        }
+        c
+    }
+
+    /// **ルール 9 が書籍の言うミクセルを鳴らす** (D172)．
+    ///
+    /// D164 の時点では**構造的に鳴らなかった** — 統計的推定器は等倍の領域に
+    /// 票を立てられず，一致率が必ず 1.0 になるためである．
+    ///
+    /// 壊れると: 見逃す状態へ戻る．
+    #[test]
+    fn rule_9_fires_on_native_art_with_an_upscaled_patch() {
+        let mut img = checker(64, 1);
+        for y in 0..64i32 {
+            for x in 32..64i32 {
+                let v = if ((x / 2) + (y / 2)) % 2 == 0 { 255 } else { 0 };
+                img.set(x, y, Rgba8::new(v, v, v, 255));
+            }
+        }
+        let report = lint_grid(&img, &LintConfig::default());
+        assert!(
+            has(&report, 9),
+            "ミクセルを見逃した: {:?}",
+            report.violations
+        );
+    }
+
+    /// **等倍の絵そのものでは鳴らない** — 正しく描いた絵をミクセルと呼ばない．
+    #[test]
+    fn rule_9_stays_quiet_on_plain_native_art() {
+        let report = lint_grid(&checker(64, 1), &LintConfig::default());
+        assert!(
+            !has(&report, 9),
+            "等倍の絵で鳴った: {:?}",
+            report.violations
+        );
+    }
+
+    /// **等倍の絵に広い背景があってもミクセルと呼ばない** — 実素材の形である．
+    ///
+    /// 平らな窓を «格子が決まった» と数えると，背景は一番大きい升で揃うので
+    /// **等倍の模様 (1) と背景 (16) が並び立ち，普通のドット絵が blocking になる**．
+    /// 実素材 64 枚のうち背景を持つ絵はいくらでもある．
+    ///
+    /// 壊れると: 背景のあるドット絵が軒並みミクセルになる．
+    #[test]
+    fn native_art_with_a_large_flat_background_is_not_a_mixel() {
+        let mut img = checker(64, 1);
+        // 右半分を背景 (単色) にする — 等倍の絵として普通の形
+        for y in 0..64i32 {
+            for x in 32..64i32 {
+                img.set(x, y, Rgba8::new(0, 0, 0, 255));
+            }
+        }
+        let report = lint_grid(&img, &LintConfig::default());
+        assert!(
+            !has(&report, 9),
+            "背景のある等倍の絵をミクセルと呼んだ: {:?}",
+            report.violations
+        );
+    }
+
+    /// **平らな窓を «格子 1» に数えない** — 数えると，全体を 2 倍で描いた絵が
+    /// «等倍が混ざっている» と誤爆する．
+    ///
+    /// 壊れると: 背景の広い拡大素材が軒並みミクセルになる．
+    #[test]
+    fn a_uniformly_upscaled_image_with_flat_areas_is_not_a_mixel() {
+        // 左半分は 2 倍の模様，右半分は平ら (背景)
+        let mut img = checker(64, 2);
+        for y in 0..64i32 {
+            for x in 32..64i32 {
+                img.set(x, y, Rgba8::new(0, 0, 0, 255));
+            }
+        }
+        let report = lint_grid(&img, &LintConfig::default());
+        assert!(
+            !has(&report, 9),
+            "平らな窓を格子 1 に数えている: {:?}",
+            report.violations
+        );
+    }
+
     #[test]
     fn a_clean_sprite_has_no_violations() {
         let palette = ramp_palette();
@@ -2199,20 +2326,24 @@ mod tests {
 
     /// **壊れると: ルール 9 が «検査していない» 絵を «問題なし» として通す** (D164)．
     ///
-    /// 一致率は投票した窓だけで出るので，投票が 1 つ以下なら定義から 1.0 になる．
-    /// **L0 と同じ大きさの画布 (16 〜 48 画素) は既定の窓 32 が 1 つしか並ばない**
-    /// ので，実素材 64 枚に対しルール 9 は 1 度も検査できていなかった．
+    /// 升は窓ごとに決まるので，窓が 1 つしか並ばなければ 2 通りになりようがない．
+    ///
+    /// > [!note] **境界は D172 で動いた．** 窓が 32 だった頃は 32x32 の画布が
+    /// > «検査できない» 側だったが，厳密判定へ替えて窓を 16 にしたので
+    /// > **32x32 は検査できるようになった** — 実素材 64 枚のうち 32 枚が
+    /// > «1 度も検査していない» から «検査して 0 件» へ移っている．
+    /// > **16x16 の 32 枚は今も検査できない．**
     #[test]
     fn rule_9_says_when_it_could_not_check_at_all() {
-        let mut small = RgbaCanvas::filled(32, 32, Rgba8::TRANSPARENT);
-        for y in 0..32 {
-            for x in 0..32 {
+        let mut small = RgbaCanvas::filled(16, 16, Rgba8::TRANSPARENT);
+        for y in 0..16 {
+            for x in 0..16 {
                 let v = ((x * 31 + y * 17) % 4) as u8;
                 small.set(x, y, Rgba8::rgb(v * 60, 40 + v * 50, 200 - v * 40));
             }
         }
         let cov = mixel_coverage(&small, &LintConfig::default());
-        assert!(!cov.checked(), "32x32 の画布で検査できたと言っている");
+        assert!(!cov.checked(), "16x16 の画布で検査できたと言っている");
         assert!(
             cov.why_not().is_some_and(|s| s.contains("1 つしか")),
             "理由が «窓が 1 つ» になっていない: {:?}",

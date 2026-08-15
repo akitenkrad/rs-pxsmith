@@ -352,7 +352,7 @@ pub struct Summary {
 }
 
 /// 場面をすべて組む．
-fn scenes(seeds: &[Seed], sheets: usize) -> Vec<Scene> {
+pub(crate) fn scenes(seeds: &[Seed], sheets: usize) -> Vec<Scene> {
     let mut out = Vec::new();
     for k in 0..sheets {
         let start = k * 7;
