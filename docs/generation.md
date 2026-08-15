@@ -55,12 +55,7 @@ Provenance also records **the model that answered**, which is not always the mod
 that was asked: fallbacks are enabled, so another model may serve the request. The
 tool reads the served name off the response rather than echoing what it sent.
 
-## Not implemented on purpose
+## External calls are gated
 
-`pxsmith gen image` is deliberately not implemented. The design rejects any
-generated image whose grid is non-uniform, and how often a diffusion model clears
-that bar depends on the model, so the work has no readable ceiling. It is written
-down here rather than left as a gap someone rediscovers.
-
-External calls are gated: generation ops refuse to run from a recipe without
-`--allow-generate`, so a build cannot quietly reach the network.
+Generation ops refuse to run from a recipe without `--allow-generate`, so a build
+cannot quietly reach the network.

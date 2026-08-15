@@ -34,8 +34,31 @@ throwaway, and it settles the question with zero lines of production code.
 > sequence* as a correct disc edge. Two things that must be told apart have the
 > same shape. The feature was never written.
 
-The same move retired an image-generation backend, a rotation algorithm with no
-public specification, and three lint variants.
+The same move retired several other features before they were written:
+
+- **`pxsmith gen image`.** The design rejects any generated image whose grid is
+  non-uniform, and how often a diffusion model clears that bar depends on the
+  model — so the work has no readable ceiling and no way to say when it is done.
+- **RotSprite.** No public specification exists, and the only public
+  implementation notes that its own description is ambiguous. Once `cleanedge`
+  was measured and found to pay off, there was nothing left for the time to buy.
+- **Three lint variants**, each of which fired on artwork that was correct.
+
+## 1a. Two behaviours were measured and deliberately left alone
+
+Not every finding leads to a change. Where the fix would revise a numbered design
+decision, or where the ceiling is too low to be worth it, the behaviour stays and
+the number is recorded.
+
+**Jaggy detection fires on correctly drawn staircases.** For a slope `a/b`, a
+valley exists exactly when `2·(b mod a) ≥ a` — a counting property, not a
+threshold, so sweeping cannot remove it. Rather than touch the detector,
+`pxsmith smooth` was taught to decline to move pixels on spans that are digitally
+straight. That brought the damage on clean artwork down from 88 pixels across
+17 sprites to 60 across 13, and left discs, where it stops.
+
+**Discs are not protected**, for the reason measured above: no recogniser can
+separate a correct disc edge from a defect that produces the same run sequence.
 
 ## 2. A design document makes claims. Claims are wrong sometimes
 

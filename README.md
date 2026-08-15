@@ -31,9 +31,9 @@ Colour is indexed end to end. Every transform is a choice among indices that
 already exist, so **a palette escape is structurally impossible** rather than
 merely checked for.
 
-Every threshold in this tool was chosen by measuring something on real artwork.
-Where a measurement came out badly, the number is written down and the feature
-is not shipped — see [Measured, and not fixed](https://github.com/akitenkrad/rs-pxsmith/blob/main/docs/architecture.md#measured-and-not-fixed).
+Every threshold in this tool was chosen by measuring something on real artwork,
+and the measurements are kept so the numbers can be reproduced rather than
+believed.
 
 ## Install
 
@@ -81,8 +81,8 @@ the check was in a position to fail.
 | [How this was built](https://github.com/akitenkrad/rs-pxsmith/blob/main/docs/engineering.md) | The development philosophy, and the mistakes that produced it |
 
 The engineering record lives in [`docs/status.md`](https://github.com/akitenkrad/rs-pxsmith/blob/main/docs/status.md) and
-[`docs/investigations/`](https://github.com/akitenkrad/rs-pxsmith/tree/main/docs/investigations): what was measured, what the
-numbers were, and which features were abandoned because of them.
+[`docs/investigations/`](https://github.com/akitenkrad/rs-pxsmith/tree/main/docs/investigations):
+what was measured, and what the numbers were.
 
 ## License
 

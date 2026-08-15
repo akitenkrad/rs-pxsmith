@@ -27,8 +27,8 @@ Every threshold came from a measurement on real artwork, and the measuring mouth
 are kept in `pxsmith-calib` so the numbers can be reproduced rather than
 believed. The practice that mattered most:
 
-- **Measure the ceiling before writing the feature.** Several features were
-  cancelled after the ceiling turned out to be too low to be worth the code.
+- **Measure the ceiling before writing the feature.** Building the thing no
+  recogniser can beat settles a question with zero lines of production code.
 - **Build a scene with ground truth.** A false-positive rate over unlabelled
   artwork is not a false-positive rate — nobody can say whether a given dent was
   the artist's intent. Discs and rational-slope staircases have edges that are
@@ -40,28 +40,6 @@ believed. The practice that mattered most:
   valleys cannot be evaluated with a negative example that produces no valley.
 - **Run it end to end.** Several defects were invisible to unit tests and
   appeared the first time the CLI was driven from one end to the other.
-
-## Measured, and not fixed
-
-Two behaviours are known, measured, and deliberately left in place, because the
-fix would revise a numbered design decision or because the ceiling is too low.
-
-**Jaggy detection fires on correctly drawn staircases.** For a slope `a/b`, a
-valley exists exactly when `2·(b mod a) ≥ a`. That is a counting property, not a
-threshold, so sweeping cannot remove it. `pxsmith smooth` therefore declines to
-move pixels on spans that are digitally straight, which brought the damage on
-clean artwork down from 88 pixels across 17 sprites to 60 across 13 — and left
-discs, where it stops.
-
-**Discs are not protected.** The remaining valleys look like seams between two
-straight spans, so the ceiling for any recogniser was measured before writing
-one: it saves at most half of them, helps on real artwork in 1 case out of 105,
-and — decisively — a genuine defect made by shifting one step of a disc produces
-*the same run sequence* as a correctly drawn disc edge. Two things that must be
-told apart have the same shape, so no recogniser can separate them.
-
-The full record, with the tables, is in [`status.md`](status.md) and
-[`investigations/`](investigations/).
 
 ## Verification
 

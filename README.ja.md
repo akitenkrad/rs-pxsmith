@@ -31,10 +31,8 @@ pxsmith は，ドット絵アセットの導出・突き合わせ・検証を宣
 防いでいるのではなく，構造上そもそも起こりません．
 
 このツールに現れる閾値は，すべて実際のドット絵素材に対して何かを測定した結果として
-決められています．測定の結果が芳しくなかった場合には，その数値を記録したうえで機能を
-出荷しないという方針を採りました．どのような測定を行い何を見送ったかは，
-[測って，直さなかったもの](https://github.com/akitenkrad/rs-pxsmith/blob/main/docs/architecture.ja.md#測って直さなかったもの)
-にまとめてあります．
+決められています．測定に用いた実行口は残してあるため，数値は信じるものではなく作り直して
+確かめられるものになっています．
 
 ## インストール
 
@@ -86,8 +84,7 @@ pxsmith watch hero.px.toml --zoom 8
 [`docs/status.md`](https://github.com/akitenkrad/rs-pxsmith/blob/main/docs/status.md)
 と
 [`docs/investigations/`](https://github.com/akitenkrad/rs-pxsmith/tree/main/docs/investigations)
-にあります．何を測定し，数値がいくつであり，その結果としてどの機能を断念したのかを
-記録しました．
+にあります．何を測定し，数値がいくつであったのかを記録しました．
 
 ## ライセンス
 
