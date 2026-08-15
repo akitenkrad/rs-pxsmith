@@ -30,3 +30,7 @@ testdata/lint-cases/negative/jaggy.csv
 
 # 再配布できない実データ (game-materials.com 等)．入手元は SOURCES.md に記録する
 testdata/grid-eval/real/local/
+
+# 手で叩いたときの出力置き場 (px gen prog 等)．**先頭の / が要る** —
+# 無いと crates/*/out/ まで巻き込む
+/out/
