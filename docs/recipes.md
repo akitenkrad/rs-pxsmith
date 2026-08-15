@@ -2,12 +2,13 @@
 
 **English** | [日本語](recipes.ja.md)
 
-[← Back to README](../README.md)
+[← Back to README](https://github.com/akitenkrad/rs-pxsmith/blob/main/README.md)
 
-A recipe is a TOML file. It has variables, a restricted expression language, and
-a cartesian `for_each`; it has **no loops, no function definitions, and no I/O**.
-That restriction is the point: step keys resolve incrementally, so an unchanged
-step is known to be unchanged without running it.
+A recipe is a TOML file. It provides variables, a restricted expression language,
+and a cartesian `for_each`, but it has no loops, no function definitions, and no
+I/O. The restriction is deliberate, because it lets step keys resolve
+incrementally, so an unchanged step can be known to be unchanged without running
+it.
 
 ```toml
 [project]
@@ -31,10 +32,10 @@ output = "out/squashed.px.toml"
 amount = -0.3
 ```
 
-`op` maps one-to-one onto the CLI: `op = "anim.squash"` is `pxsmith anim squash`,
-and the argument names and their order are read out of the command-line parser
-rather than from a hand-written table. A second table would drift; reading the
-parser cannot.
+`op` corresponds one-to-one with the CLI, so `op = "anim.squash"` means
+`pxsmith anim squash`. The argument names and their order are read out of the
+command-line parser rather than from a hand-written table, since a second table
+would eventually drift while reading the parser cannot.
 
 ## Running
 
@@ -51,22 +52,22 @@ pxsmith recipe expand template.toml build.toml --data rows.csv
 ```
 
 The progress GIF is written with one local colour table per frame, so the colours
-come out exactly as they went in — indices are `u8` and alpha is binary, which is
+come out exactly as they went in. Indices are `u8` and alpha is binary, which is
 precisely what a GIF frame can hold, so no requantisation is needed.
 
 ## The cache
 
-Re-running an unchanged recipe restores everything from `.pxcache/`. On 128 steps
-over 64 sprites this is **2.66 s cold against 0.09 s warm**, and changing one
-input rebuilds exactly the two steps that depend on it.
+Re-running an unchanged recipe restores everything from `.pxcache/`. Across 128
+steps over 64 sprites this takes 2.66 seconds cold and 0.09 seconds warm, and
+changing one input rebuilds exactly the two steps that depend on it.
 
-The cache is also what makes a build that includes generated artwork
-reproducible. The generation step is not deterministic — the model accepts no
-seed — so what makes the build repeatable is that the result is cached and
-committed, not that the model would answer the same way twice. See
-[Generation](generation.md).
+The cache is also what makes a build containing generated artwork reproducible.
+The generation step itself is not deterministic, because the model accepts no
+seed. What makes the build repeatable is that the result is cached and committed,
+not that the model would answer the same way twice. See
+[Generation](generation.md) for the details.
 
 ## Determinism
 
-Builds are byte-identical across thread counts: changing `RAYON_NUM_THREADS`
-does not change any output. This is checked by a test rather than asserted.
+Builds are byte-identical across thread counts, and changing `RAYON_NUM_THREADS`
+does not change any output. This is confirmed by a test rather than asserted.

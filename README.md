@@ -21,30 +21,32 @@
 ---
 
 pxsmith derives, reconciles, and verifies pixel-art assets as a declarative
-pipeline. It has no drawing UI: a human — or a generative model — produces the
-original artwork, and everything downstream runs as code. Shading is derived
-from silhouettes rather than painted, inbetweens are computed, tilesets are cut
-and deduplicated, and the result is checked against 27 quality rules before it
-ships.
+pipeline. It provides no drawing interface, because the original artwork is
+expected to come from a person or from a generative model. Everything downstream
+of that runs as code: shading is derived from silhouettes rather than painted,
+inbetweens are computed, tilesets are cut and deduplicated, and the finished
+asset is checked against 27 quality rules before it ships.
 
-Colour is indexed end to end. Every transform is a choice among indices that
-already exist, so **a palette escape is structurally impossible** rather than
-merely checked for.
+Colour is indexed from end to end. Every transform is a choice among indices that
+already exist, so a colour outside the palette cannot appear. This is a
+structural property rather than something the tool checks for afterwards.
 
 Every threshold in this tool was chosen by measuring something on real artwork,
-and the measurements are kept so the numbers can be reproduced rather than
-believed.
+and the measuring harnesses are kept in the repository so that the numbers can be
+reproduced rather than believed.
 
 ## Install
 
-The library crates are on crates.io:
+The library crates are on crates.io.
 
 ```sh
 cargo add pxsmith-core pxsmith-io pxsmith-lint
 ```
 
-The `pxsmith` command is **not** published, because it statically links
-`ansi_colours` (LGPL-3.0-or-later) through `viuer`. Build it from source:
+The `pxsmith` command is not published, because it statically links
+`ansi_colours` (LGPL-3.0-or-later) through `viuer`, and distributing a built
+binary would carry the obligation to provide a way to relink it. Install it from
+source instead.
 
 ```sh
 cargo install --git https://github.com/akitenkrad/rs-pxsmith pxsmith
@@ -65,34 +67,37 @@ pxsmith lint hero.px.toml
 pxsmith watch hero.px.toml --zoom 8
 ```
 
-`lint` distinguishes a rule that did not fire from a rule that *could not run*,
-and says which happened. A quiet report is not evidence of a clean sprite unless
-the check was in a position to fail.
+`lint` reports a rule that did not fire separately from a rule that could not
+run, because a quiet report is evidence of a clean sprite only when the check was
+in a position to fail.
 
 ## Documentation
 
 | | |
 | --- | --- |
-| [Command line](https://github.com/akitenkrad/rs-pxsmith/blob/main/docs/cli.md) | Every subcommand, with the flags that matter |
+| [Command line](https://github.com/akitenkrad/rs-pxsmith/blob/main/docs/cli.md) | Every subcommand, with the arguments that matter |
 | [Recipes](https://github.com/akitenkrad/rs-pxsmith/blob/main/docs/recipes.md) | The declarative build format and its cache |
 | [Generation](https://github.com/akitenkrad/rs-pxsmith/blob/main/docs/generation.md) | Asking a language model for artwork, and verifying what comes back |
 | [Library](https://github.com/akitenkrad/rs-pxsmith/blob/main/docs/library.md) | Using the crates from Rust, and the `pixels!` macro |
 | [Architecture](https://github.com/akitenkrad/rs-pxsmith/blob/main/docs/architecture.md) | The crate split, the design decisions, and how the thresholds were chosen |
 | [How this was built](https://github.com/akitenkrad/rs-pxsmith/blob/main/docs/engineering.md) | The development philosophy, and the mistakes that produced it |
 
-The engineering record lives in [`docs/status.md`](https://github.com/akitenkrad/rs-pxsmith/blob/main/docs/status.md) and
-[`docs/investigations/`](https://github.com/akitenkrad/rs-pxsmith/tree/main/docs/investigations):
-what was measured, and what the numbers were.
+The record of the measurements themselves is in
+[`docs/status.md`](https://github.com/akitenkrad/rs-pxsmith/blob/main/docs/status.md)
+and
+[`docs/investigations/`](https://github.com/akitenkrad/rs-pxsmith/tree/main/docs/investigations),
+which set out what was measured and what the numbers were.
 
 ## License
 
-Licensed under either of [Apache License 2.0](https://github.com/akitenkrad/rs-pxsmith/blob/main/LICENSE-APACHE) or
-[MIT license](https://github.com/akitenkrad/rs-pxsmith/blob/main/LICENSE-MIT) at your option — the usual dual licence for Rust
-crates, so this code can be used from either side of that ecosystem.
+This project is available under either [Apache License 2.0](https://github.com/akitenkrad/rs-pxsmith/blob/main/LICENSE-APACHE)
+or [MIT license](https://github.com/akitenkrad/rs-pxsmith/blob/main/LICENSE-MIT),
+at your option. This is the dual licence customary for Rust crates, and it is
+used here so that the code can be consumed from either side of that ecosystem.
 
 `crates/pxsmith-core/src/cleanedge.rs` is a port of the cleanEdge shader by
-torcado, used under its own terms; see [NOTICE](https://github.com/akitenkrad/rs-pxsmith/blob/main/NOTICE) for the attribution it
-requires.
+torcado and is used under its own terms. The attribution it requires is recorded
+in [NOTICE](https://github.com/akitenkrad/rs-pxsmith/blob/main/NOTICE).
 
-Test material under `testdata/` is CC0 or MIT with the attribution recorded in
+Test material under `testdata/` is CC0 or MIT, and its provenance is recorded in
 `testdata/SOURCES.md`. Material that cannot be redistributed is not committed.

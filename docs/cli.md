@@ -2,15 +2,15 @@
 
 **English** | [日本語](cli.ja.md)
 
-[← Back to README](../README.md)
+[← Back to README](https://github.com/akitenkrad/rs-pxsmith/blob/main/README.md)
 
-Every example below runs against the installed `pxsmith` binary. From a checkout,
-prefix them with `cargo run -p pxsmith --`.
+The examples below invoke an installed `pxsmith` binary. When running from a
+checkout, prefix them with `cargo run -p pxsmith --`.
 
-`.px.toml` is the L0 text format: a sprite written as characters, with the
-palette held in a separate `.hex` file. `.aseprite` files round-trip byte for
-byte, so pxsmith can sit in the middle of an existing Aseprite workflow without
-taking ownership of the file.
+`.px.toml` is the L0 text format, in which a sprite is written as characters and
+the palette is held in a separate `.hex` file. `.aseprite` files round-trip byte
+for byte, so pxsmith can sit in the middle of an existing Aseprite workflow
+without taking ownership of the file.
 
 ## Basics
 
@@ -38,9 +38,9 @@ pxsmith verify roundtrip sprite.aseprite --via-frame
 
 ## Deriving artwork
 
-Shading is derived from the silhouette, not painted. The source colours of the
-input are discarded, which is what keeps flips, tweens, and recolours from
-breaking the light direction.
+Shading is derived from the silhouette rather than painted, and the source
+colours of the input are discarded. This is what keeps flips, tweens, and
+recolours from breaking the light direction.
 
 ```sh
 # Derive shading from a silhouette (the source colors are discarded)
@@ -71,10 +71,10 @@ pxsmith clean indexed.png cleaned.png
 pxsmith conform upscaled.png native.png
 ```
 
-`conform` recovers the original grid of an image that was scaled up (and possibly
-JPEG-compressed) and returns it to 1:1. When the grid is not uniform it
-**refuses** rather than guessing — a non-uniform grid cannot be undone
-deterministically, so the image goes back to a human.
+`conform` recovers the original grid of an image that was scaled up, and possibly
+JPEG-compressed, and returns it to 1:1. When the grid is not uniform it refuses
+rather than guessing, because a non-uniform grid cannot be undone
+deterministically and the image belongs back with a person.
 
 ## Composition, tilesets, and projection
 
@@ -98,22 +98,21 @@ pxsmith project in.px.toml iso.px.toml --to iso --from top --facing right
 pxsmith guide g.png --projection iso --from top --cell 16 --size 256x256
 ```
 
-`project` requires `--from` and `--facing` to be stated. Which face you are
-laying down, and which way it points, cannot be read off the pixels — guessing
-would only fail silently, and silently is the worst way for a projection to be
-wrong.
+`project` requires both `--from` and `--facing`. Which face is being laid down,
+and which way it points, cannot be read off the pixels, so a guess would fail
+silently whenever it was wrong.
 
 ## Scaling and rotation
 
 ```sh
-pxsmith scale in.px.toml out.px.toml --factor 4          # exact, index substitution
+pxsmith scale in.px.toml out.px.toml --factor 4          # nearest by default (exact)
 pxsmith rotate in.px.toml out.px.toml --degrees 30 --algo cleanedge
 ```
 
-Integer scales and quarter turns are written as index substitution, not sampling,
-so four quarter turns return the original image exactly. `cleanedge` pays off
-when a rotation is combined with an upscale; at 1:1 the default `nearest` is
-better, and the CLI says so.
+Integer scales and quarter turns are implemented as index substitution rather
+than sampling, so four quarter turns return the original image exactly.
+`cleanedge` pays off when a rotation is combined with an upscale; at 1:1 the
+default `nearest` gives the better result, and the CLI says so at run time.
 
 ## Exporting
 
@@ -129,10 +128,10 @@ pxsmith view walk.px.toml --frame 2 --onion 2   # onion skin, outlines only
 pxsmith palette report hero.px.toml --top 12    # which colours carry the area
 ```
 
-`palette report` gives four coverage thresholds rather than one number, and
-separates "the total area of this index" from "the largest connected blob of
-it" — a colour scattered across a sprite is not a main colour, and reading only
-the total would call it one.
+`palette report` gives four coverage thresholds rather than one, and reports the
+total area of an index separately from its largest connected blob. A colour
+scattered across a sprite is not a main colour, but reading the total alone would
+call it one.
 
 ## Building from a checkout
 
@@ -143,7 +142,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all
 ```
 
-`cargo-make` tasks are defined in `Makefile.toml`:
+`cargo-make` tasks are defined in `Makefile.toml`.
 
 ```sh
 cargo make format-all   # taplo + clippy + rustfmt
