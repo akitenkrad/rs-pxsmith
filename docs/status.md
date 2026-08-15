@@ -518,6 +518,52 @@ GitHub の `akitenkrad/rs-pxforge` を **`akitenkrad/rs-pxsmith` へ改名**し�
 > `--workspace` はそこで止まるので，**末尾だけ読むと «ok» に見える**
 > (最後に走ったのは通った試験である) ．D138 «飛ばした件を数える» と同じ側．
 
+### `viuer` を optional にして 8 クレートすべてを公開対象にした (2026-08-15 ・D178)
+
+D175 は «`pxsmith` と `pxsmith-view` は LGPL の再リンク義務があるので出さない» と
+していたが，**その義務はソース公開には掛からない**．LGPL §4 の義務は Combined Work を
+convey するときに生じるものであり，登録所へ出すのは自分のソースだけである．
+`cargo install` した利用者は `ansi_colours` を自分で取得し自分の機械でリンクする．
+**義務が生じるのはビルド済みバイナリを配るときだけ**である．
+
+#### LGPL は 136 行に閉じていた
+
+`pxsmith-view` は 988 行あるが，`viuer` を呼ぶのは `term::detect` と `term::show` の
+2 関数だけで，`term.rs` は 136 行である．`render` (304) ・`onion` (319) ・`diff` (190) は
+一切触れていない．そこで **`viuer` を optional にし `terminal` feature の後ろへ置いた**．
+
+| 建て方 | `ansi_colours` |
+| --- | --- |
+| 既定 (`terminal` あり) | 入る |
+| **`--no-default-features`** | **依存ツリーに存在しない** (`cargo tree -i` が «did not match any packages») |
+
+`TerminalKind` と `report` は viuer を使っていないので feature の外に残した —
+「1 画素の確認に耐えるか」という判定結果は，描く手段が無くても意味を持つ．
+
+> [!warning] **`target/package` の残骸で 2 度誤診した．**
+> 8 クレートの `cargo publish --workspace --dry-run` が
+> «no hash listed for pxsmith-gen» «this is an unexpected cargo internal error» で
+> 落ちたので **cargo の不具合だと書きかけた**．失敗地点が `pxsmith` から
+> `pxsmith-io` へ動いたので測り直したところ，**`rm -rf target/package` してから
+> 回すと 3 回とも全件通過**した．前の実験で作った一時レジストリが残っていただけである．
+> **変動するものを 1 回だけ測ってはいけない** (D162 ・D166 と同じ側)．
+
+#### 併せて直したもの
+
+`NOTICE` が `icy_sixel` を «no declared licence» と書いていたが，実際は
+**MIT OR Apache-2.0** である．LGPL の節も «ソース公開では義務は生じない．
+バイナリ配布時に生じる» という形に書き直し，依存の経路 1 本と切り方を明記した．
+`pxsmith` ・`pxsmith-view` にもライセンス 3 点の symlink を足した (D175 で 6 つには
+足してあったが，この 2 つは対象外だったため入っていなかった)．
+
+**公開対象は 8 クレート**になった．出さないのは測定用ハーネス `pxsmith-calib` だけである．
+
+```sh
+rm -rf target/package                       # 残骸があると誤診する
+cargo publish --workspace --dry-run
+cargo tree -p pxsmith-view --no-default-features -i ansi_colours   # 見つからないのが正
+```
+
 #### 確かめたもの
 
 | 見たもの | 結果 |

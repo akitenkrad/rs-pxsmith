@@ -42,13 +42,16 @@ pxsmith は，ドット絵アセットの導出・突き合わせ・検証を宣
 cargo add pxsmith-core pxsmith-io pxsmith-lint
 ```
 
-`pxsmith` コマンドは公開していません．`viuer` を経由して `ansi_colours`
-(LGPL-3.0-or-later) を静的にリンクしており，ビルド済みバイナリを配布すると再リンク
-手段の提供義務が生じるためです．利用する場合はソースからインストールしてください．
+コマンドライン本体も同じ登録所から入ります．
 
 ```sh
-cargo install --git https://github.com/akitenkrad/rs-pxsmith pxsmith
+cargo install pxsmith
 ```
+
+`cargo install` は利用者自身の機械でビルドします．端末プレビューが `viuer` を経由して
+`ansi_colours` (LGPL-3.0-or-later) に届くため，この点は重要です．ビルド済みバイナリは
+配布していません．この依存を避けたいライブラリ利用者は，`pxsmith-view` を
+`--no-default-features` で取り込めば依存ツリーから完全に外せます．
 
 ## まず動かす
 

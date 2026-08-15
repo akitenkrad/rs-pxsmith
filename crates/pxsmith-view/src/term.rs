@@ -6,9 +6,12 @@
 //! **「1 画素を確認する用途に耐えるか」** ([`TerminalKind::is_pixel_accurate`])
 //! を答える．
 
+#[cfg(feature = "terminal")]
 use image::{DynamicImage, RgbaImage};
+#[cfg(feature = "terminal")]
 use viuer::Config;
 
+#[cfg(feature = "terminal")]
 use crate::Result;
 
 /// 端末の画像表示能力．
@@ -54,11 +57,12 @@ impl TerminalKind {
     }
 }
 
-/// 現在の端末を判定する．
+/// 現在の端末を判定する (`terminal` feature)．
 ///
 /// **環境変数で分かるものを先に見る**．Kitty の能力判定は端末へ問い合わせの
 /// エスケープ列を書き，応答を読み損ねると画面に生の文字列が残る．iTerm2 や
 /// Kitty のように環境変数で分かる場合は問い合わせずに済ませる．
+#[cfg(feature = "terminal")]
 pub fn detect() -> TerminalKind {
     if std::env::var_os("KITTY_WINDOW_ID").is_some() {
         return TerminalKind::Kitty;
@@ -85,7 +89,8 @@ pub struct Placement {
     pub y: i16,
 }
 
-/// 画像を端末に表示する．返り値は使った文字セル数 (幅, 高さ)．
+/// 画像を端末に表示する (`terminal` feature)．返り値は使った文字セル数 (幅, 高さ)．
+#[cfg(feature = "terminal")]
 pub fn show(img: &RgbaImage, placement: Placement) -> Result<(u32, u32)> {
     let config = Config {
         transparent: true,

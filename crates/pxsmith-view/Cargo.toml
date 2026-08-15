@@ -1,7 +1,7 @@
 [package]
 edition.workspace = true
 name = "pxsmith-view"
-publish.workspace = true
+publish = true
 description = "Terminal preview for pixel art: inline images, silhouette, luma and onion skin."
 readme.workspace = true
 keywords = ["pixel-art", "terminal", "preview", "graphics"]
@@ -14,13 +14,26 @@ version.workspace = true
 image = { workspace = true }
 pxsmith-core = { workspace = true }
 thiserror = { workspace = true }
-viuer = { workspace = true }
+viuer = { workspace = true, optional = true }
 
 [features]
-default = []
-# viuer の Sixel 対応を引き継ぐ．端末が Kitty / iTerm2 のいずれでもない環境向け
-icy_sixel = ["viuer/icy_sixel"]
-sixel = ["viuer/sixel"]
+default = ["terminal"]
+
+# **端末へ実際に描く部分だけを切り離してある．**
+#
+# `viuer` は `ansi_colours` (LGPL-3.0-or-later) を引き込む唯一の経路であり，
+# それを使うのは `term::detect` と `term::show` の 2 関数だけである．
+# `--no-default-features` で建てると **LGPL の連鎖が 0 件**になり，
+# `render` ・`diff` ・`onion` と `TerminalKind` はそのまま使える．
+#
+# バイナリを配るときの再リンク義務 (LGPL §4) は既定機能を含む以上そのまま残る．
+# 切れるのは «ライブラリとして取り込む側» の選択肢である．
+terminal = ["dep:viuer"]
+
+# viuer の Sixel 対応を引き継ぐ．端末が Kitty / iTerm2 のいずれでもない環境向け．
+# `viuer?/` としてあるので，`terminal` を切ったまま指定しても viuer は入らない
+icy_sixel = ["viuer?/icy_sixel"]
+sixel = ["viuer?/sixel"]
 
 [lints]
 workspace = true

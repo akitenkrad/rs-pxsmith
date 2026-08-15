@@ -49,7 +49,7 @@
 | テスト | **948 件**すべて通過 |
 | 品質 | `cargo fmt --all --check` と `cargo clippy --workspace --all-targets -- -D warnings` がクリーン |
 | クレート | `pxsmith-core` / `pxsmith-io` / `pxsmith-view` / `pxsmith-macro` / `pxsmith-lint` / `pxsmith-recipe` / **`pxsmith-gen`** / `pxsmith` (CLI．**コマンド名は `pxsmith`**) / `pxsmith-calib` (**コマンド名は `pxsmith-calib`**) |
-| 公開 | **まだ出していない．** `publish = true` はライブラリ 6 つ (core / io / lint / recipe / macro / gen) だけ．`pxsmith` (CLI) ・`pxsmith-view` は LGPL の再リンク義務，`pxsmith-calib` は測定用ハーネスなので `false` |
+| 公開 | **まだ出していない．** `publish = true` は **8 クレート** (core / io / lint / recipe / macro / gen / view / pxsmith)．出さないのは測定用ハーネス `pxsmith-calib` だけ (D178 で view と CLI を対象に加えた — LGPL の義務はソース公開には掛からない) |
 | リポジトリ | `github.com/akitenkrad/`**`rs-pxsmith`** (D177 で改名．旧 `rs-pxforge` は GitHub 側のリダイレクトが残る)．ローカルも `~/Documents/workspace/rust/rs-pxsmith` |
 | ブランチ | `main` |
 | コミット | **D175 〜 D177 (改名一式) は未コミット．** それ以前はコミット済み (最後のコミットは `git log -1` で見る — 番号をここに書くと自分を追いかける) |

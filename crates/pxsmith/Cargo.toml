@@ -1,7 +1,7 @@
 [package]
 edition.workspace = true
 name = "pxsmith"
-publish.workspace = true
+publish = true
 description = "A CLI for making pixel art: quantize, conform, lint, animate, project and preview."
 readme.workspace = true
 keywords = ["pixel-art", "cli", "graphics", "gamedev"]

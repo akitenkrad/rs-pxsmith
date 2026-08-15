@@ -15,12 +15,21 @@
 | [`pxsmith-macro`](https://crates.io/crates/pxsmith-macro) | Rust にスプライトを埋め込む `pixels!` proc-macro |
 | [`pxsmith-gen`](https://crates.io/crates/pxsmith-gen) | 生成のループ．依頼・素性・検証と作り直し |
 
-ワークスペースに含まれる残り 2 つのクレートは公開していません．`pxsmith-view` は端末
-プレビューを担当しますが，`viuer` を経由して `ansi_colours` (LGPL-3.0-or-later) に
-到達しており，CLI である `pxsmith` はこれに依存しています．ビルド済みバイナリを配布
-すると LGPL の再リンク義務が生じるため，バイナリはソースから建てる形にしました．
-`pxsmith-calib` は閾値を決定するための測定用ハーネスであり，利用者に使ってもらうことを
-想定していません．
+このほかに 2 つのクレートを公開しています．`pxsmith-view` は端末プレビューを担当し，
+`pxsmith` はコマンドライン本体で，`cargo install pxsmith` で入ります．公開していないのは
+閾値を決定するための測定用ハーネス `pxsmith-calib` だけで，これは利用者に使ってもらうことを
+想定していないためです．
+
+LGPL の依存に到達するクレートは `pxsmith-view` だけであり，しかも単一の feature を
+経由します．`term::detect` と `term::show` が `viuer` を使い，`viuer` が
+`ansi_colours` (LGPL-3.0-or-later) を引き込みますが，この 2 関数はいずれも既定の
+`terminal` feature の後ろにあります．`--no-default-features` で取り込めば `viuer` と
+`ansi_colours` は依存ツリーから完全に消え，`render`・`diff`・`onion` と `TerminalKind` は
+そのまま使えます．
+
+```toml
+pxsmith-view = { version = "0.1", default-features = false }
+```
 
 ライブラリ名はアンダースコア形になるため，取り込みは `use pxsmith_core::…` と記述します．
 

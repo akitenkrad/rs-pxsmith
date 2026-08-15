@@ -15,12 +15,21 @@
 | [`pxsmith-macro`](https://crates.io/crates/pxsmith-macro) | The `pixels!` proc-macro for embedding sprites in Rust |
 | [`pxsmith-gen`](https://crates.io/crates/pxsmith-gen) | The generation loop: request, provenance, and the verify-and-repair cycle |
 
-Two crates in the workspace are not published. `pxsmith-view` handles terminal
-preview and reaches `ansi_colours` (LGPL-3.0-or-later) through `viuer`, and
-`pxsmith`, the CLI, depends on it. Distributing a built binary would carry the
-LGPL relinking obligation, so the binary is built from source instead.
-`pxsmith-calib` is the measurement harness used to choose thresholds and is not
-intended for consumption.
+Two further crates are published alongside these. `pxsmith-view` provides
+terminal preview, and `pxsmith` is the command line tool, installed with
+`cargo install pxsmith`. Only `pxsmith-calib`, the measurement harness used to
+choose thresholds, stays unpublished, since it is not intended for consumption.
+
+`pxsmith-view` is the one crate that reaches an LGPL dependency, and it does so
+through a single feature. `term::detect` and `term::show` use `viuer`, which
+pulls in `ansi_colours` (LGPL-3.0-or-later), and both sit behind the default
+`terminal` feature. Taking the crate with `--no-default-features` removes `viuer`
+and `ansi_colours` from the dependency tree entirely, while `render`, `diff`,
+`onion` and `TerminalKind` remain available.
+
+```toml
+pxsmith-view = { version = "0.1", default-features = false }
+```
 
 The library name keeps the underscore form, so imports read
 `use pxsmith_core::…`.

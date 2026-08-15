@@ -37,16 +37,32 @@ OTHER DEALINGS IN THE SOFTWARE.
 LGPL dependency (binary redistribution only)
 --------------------------------------------------------------------------------
 
-The `pxsmith` binary links `ansi_colours` (LGPL-3.0-or-later) through
-`viuer` -> `pxsmith-view`. Rust links statically, so redistributing a built
-`pxsmith` binary carries the LGPL-3.0 obligation to let recipients relink it
-against a modified `ansi_colours` (LGPL section 4).
+A built `pxsmith` binary links `ansi_colours` (LGPL-3.0-or-later) through
+`viuer` -> `pxsmith-view`. Rust links statically, so redistributing such a
+binary carries the LGPL-3.0 obligation to let recipients relink it against a
+modified `ansi_colours` (LGPL section 4). No prebuilt binaries are distributed
+by this project; `cargo install` builds on the user's own machine.
 
-Distributing source, or the library crates on their own, does not:
+Publishing source to a registry does not convey a Combined Work, so the source
+crates themselves do not carry that obligation.
 
-  pxsmith-core / pxsmith-io / pxsmith-lint / pxsmith-recipe / pxsmith-macro / pxsmith-gen
-                                                    -- no LGPL in the tree
-  pxsmith-view / pxsmith (the binary)               -- LGPL via viuer
+The dependency enters through exactly one path, and it can be switched off:
 
-`icy_sixel` (no declared licence) is reachable only through the optional
+  ansi_colours (LGPL-3.0-or-later)
+    <- viuer (MIT)
+       <- pxsmith-view, feature "terminal" (on by default)
+          <- pxsmith
+
+`pxsmith-view` reaches `viuer` only from `term::detect` and `term::show`.
+Building it with `--no-default-features` removes `viuer` and `ansi_colours`
+from the dependency tree entirely, leaving `render`, `diff`, `onion` and
+`TerminalKind` available. Every other published crate has no LGPL in its tree
+under any feature combination:
+
+  pxsmith-core / pxsmith-io / pxsmith-lint / pxsmith-recipe / pxsmith-macro
+  / pxsmith-gen                                     -- no LGPL in the tree
+  pxsmith-view (default features) / pxsmith         -- LGPL via viuer
+  pxsmith-view --no-default-features                -- no LGPL in the tree
+
+`icy_sixel` (MIT OR Apache-2.0) is reachable only through the optional
 `icy_sixel` / `sixel` features of `pxsmith-view`, which are off by default.

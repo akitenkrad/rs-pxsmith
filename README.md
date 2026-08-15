@@ -43,14 +43,17 @@ The library crates are on crates.io.
 cargo add pxsmith-core pxsmith-io pxsmith-lint
 ```
 
-The `pxsmith` command is not published, because it statically links
-`ansi_colours` (LGPL-3.0-or-later) through `viuer`, and distributing a built
-binary would carry the obligation to provide a way to relink it. Install it from
-source instead.
+The command line tool installs from the same registry.
 
 ```sh
-cargo install --git https://github.com/akitenkrad/rs-pxsmith pxsmith
+cargo install pxsmith
 ```
+
+`cargo install` builds on your own machine, which matters because the terminal
+preview reaches `ansi_colours` (LGPL-3.0-or-later) through `viuer`. No prebuilt
+binaries are distributed. Library users who want nothing to do with that
+dependency can take `pxsmith-view` with `--no-default-features`, which removes it
+from the tree entirely.
 
 ## Quick start
 
