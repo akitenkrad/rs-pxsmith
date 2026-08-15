@@ -78,6 +78,7 @@ in a position to fail.
 
 | | |
 | --- | --- |
+| [Use cases](https://github.com/akitenkrad/rs-pxsmith/blob/main/docs/usecases.md) | What the tool is for, with the commands for each |
 | [Command line](https://github.com/akitenkrad/rs-pxsmith/blob/main/docs/cli.md) | Every subcommand, with the arguments that matter |
 | [Recipes](https://github.com/akitenkrad/rs-pxsmith/blob/main/docs/recipes.md) | The declarative build format and its cache |
 | [Generation](https://github.com/akitenkrad/rs-pxsmith/blob/main/docs/generation.md) | Asking a language model for artwork, and verifying what comes back |

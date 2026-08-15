@@ -68,14 +68,15 @@ pxsmith lint hero.px.toml
 pxsmith watch hero.px.toml --zoom 8
 ```
 
-`lint` は「鳴らなかったルール」と「検査できなかったルール」を区別して報告します．
-検査が落ちうる位置にあって初めて，違反が報告されなかったという事実が「きれいな絵で
-ある」ことの証拠になるためです．
+`lint` は「検査した結果，違反が無かったルール」と「そもそも掛からなかったルール」を
+区別して報告します．検査が落ちうる位置にあって初めて，違反が報告されなかったという
+事実が「きれいな絵である」ことの証拠になるためです．
 
 ## ドキュメント
 
 | | |
 | --- | --- |
+| [ユースケース](https://github.com/akitenkrad/rs-pxsmith/blob/main/docs/usecases.ja.md) | 何のための道具か．場面ごとのコマンド |
 | [コマンドライン](https://github.com/akitenkrad/rs-pxsmith/blob/main/docs/cli.ja.md) | 全サブコマンドと，主要な引数 |
 | [レシピ](https://github.com/akitenkrad/rs-pxsmith/blob/main/docs/recipes.ja.md) | 宣言的なビルド形式とキャッシュ |
 | [生成](https://github.com/akitenkrad/rs-pxsmith/blob/main/docs/generation.ja.md) | 言語モデルへの依頼と，返ってきた成果物の検証 |
