@@ -2,6 +2,10 @@
 edition.workspace = true
 name = "px-gen"
 publish.workspace = true
+description = "Pixel-art generation backed by a language model, with a verify-and-repair loop over the lint rules."
+readme.workspace = true
+keywords = ["pixel-art", "llm", "graphics", "gamedev"]
+categories = ["graphics", "game-development"]
 license.workspace = true
 repository.workspace = true
 version.workspace = true

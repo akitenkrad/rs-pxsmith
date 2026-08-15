@@ -1443,7 +1443,6 @@ dependencies = [
  "px-gen",
  "px-io",
  "px-lint",
- "px-macro",
  "px-recipe",
  "px-view",
  "serde_json",
@@ -1530,7 +1529,6 @@ name = "px-recipe"
 version = "0.1.0"
 dependencies = [
  "blake3",
- "px-core",
  "serde",
  "serde_json",
  "thiserror",

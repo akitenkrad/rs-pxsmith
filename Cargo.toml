@@ -23,7 +23,13 @@ license = "MIT OR Apache-2.0"
 # `viuer` 経由で `ansi_colours` (LGPL-3.0-or-later) を静的リンクするので，
 # **バイナリを配るときだけ**再リンク手段の提供義務が生じる (LGPL §4)．
 publish = false
+readme = "README.md"
 repository = "https://github.com/akitenkrad/rs-pxforge"
+# **公開名はまだ決めていない** — `px-core` と `px` は crates.io で既に他人が
+# 使っている (2026-08-15 に確認: px-core 0.3.1 ・px 0.0.0) ．`pxforge` と
+# `pxforge-*` は全部空いているので，出すときは `[package] name` だけを
+# `pxforge-core` などに替え，`[lib] name` を `px_core` のまま残せば
+# **ソースは 1 行も変わらない**．
 version = "0.1.0"
 
 [workspace.dependencies]
@@ -35,14 +41,14 @@ flate2 = "1.1"
 gif = "0.14"
 image = "0.25.10"
 palette = "0.7.7"
-px-core = { path = "crates/px-core" }
-px-gen = { path = "crates/px-gen" }
+px-core = { path = "crates/px-core", version = "0.1.0" }
+px-gen = { path = "crates/px-gen", version = "0.1.0" }
 quantette = { version = "0.6", default-features = false, features = ["kmeans", "std"] }
-px-io = { path = "crates/px-io" }
-px-lint = { path = "crates/px-lint" }
-px-macro = { path = "crates/px-macro" }
-px-recipe = { path = "crates/px-recipe" }
-px-view = { path = "crates/px-view" }
+px-io = { path = "crates/px-io", version = "0.1.0" }
+px-lint = { path = "crates/px-lint", version = "0.1.0" }
+px-macro = { path = "crates/px-macro", version = "0.1.0" }
+px-recipe = { path = "crates/px-recipe", version = "0.1.0" }
+px-view = { path = "crates/px-view", version = "0.1.0" }
 rayon = "1.11"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"

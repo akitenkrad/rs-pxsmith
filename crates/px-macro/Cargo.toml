@@ -2,6 +2,10 @@
 edition.workspace = true
 name = "px-macro"
 publish.workspace = true
+description = "Compile-time pixel literals - write sprites as text in Rust source and let the compiler check them."
+readme.workspace = true
+keywords = ["pixel-art", "macro", "graphics", "gamedev"]
+categories = ["graphics", "development-tools"]
 license.workspace = true
 repository.workspace = true
 version.workspace = true

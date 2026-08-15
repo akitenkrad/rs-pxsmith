@@ -2,6 +2,10 @@
 edition.workspace = true
 name = "px-view"
 publish.workspace = true
+description = "Terminal preview for pixel art: inline images, silhouette, luma and onion skin."
+readme.workspace = true
+keywords = ["pixel-art", "terminal", "preview", "graphics"]
+categories = ["graphics", "command-line-utilities"]
 license.workspace = true
 repository.workspace = true
 version.workspace = true

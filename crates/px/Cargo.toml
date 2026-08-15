@@ -2,6 +2,10 @@
 edition.workspace = true
 name = "px"
 publish.workspace = true
+description = "A CLI for making pixel art: quantize, conform, lint, animate, project and preview."
+readme.workspace = true
+keywords = ["pixel-art", "cli", "graphics", "gamedev"]
+categories = ["command-line-utilities", "graphics"]
 license.workspace = true
 repository.workspace = true
 version.workspace = true
@@ -17,7 +21,6 @@ px-core = { workspace = true }
 px-gen = { workspace = true }
 px-io = { workspace = true }
 px-lint = { workspace = true }
-px-macro = { workspace = true }
 px-recipe = { workspace = true }
 serde_json = { workspace = true }
 px-view = { workspace = true }

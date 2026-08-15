@@ -2,6 +2,10 @@
 edition.workspace = true
 name = "px-calib"
 publish.workspace = true
+description = "Measurement harness for pxforge - calibrates thresholds against labelled data. Not for publication."
+readme.workspace = true
+keywords = ["pixel-art"]
+categories = ["graphics"]
 license.workspace = true
 repository.workspace = true
 version.workspace = true

@@ -2,6 +2,10 @@
 edition.workspace = true
 name = "px-io"
 publish.workspace = true
+description = "Readers and writers for pixel-art formats: .aseprite round-trip, the L0 text format, PNG and .hex palettes."
+readme.workspace = true
+keywords = ["pixel-art", "aseprite", "graphics", "parser"]
+categories = ["graphics", "parser-implementations"]
 license.workspace = true
 repository.workspace = true
 version.workspace = true

@@ -2,6 +2,10 @@
 edition.workspace = true
 name = "px-lint"
 publish.workspace = true
+description = "Quality rules for pixel art - 27 static and 6 inter-frame checks, calibrated against real artwork."
+readme.workspace = true
+keywords = ["pixel-art", "lint", "graphics", "gamedev"]
+categories = ["graphics", "development-tools"]
 license.workspace = true
 repository.workspace = true
 version.workspace = true

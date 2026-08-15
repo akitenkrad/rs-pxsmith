@@ -2,6 +2,10 @@
 edition.workspace = true
 name = "px-core"
 publish.workspace = true
+description = "Core data model and geometry for indexed-colour pixel art: palettes, canvases, grid estimation and resampling."
+readme.workspace = true
+keywords = ["pixel-art", "graphics", "gamedev", "palette"]
+categories = ["graphics", "game-development"]
 license.workspace = true
 repository.workspace = true
 version.workspace = true
