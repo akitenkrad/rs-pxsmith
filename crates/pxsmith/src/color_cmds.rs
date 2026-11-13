@@ -744,17 +744,20 @@ pub fn quantize(
         MethodArg::Kmeans => QuantizeMethod::Kmeans { seed },
     };
 
-    let palette = pxsmith_core::quantize::quantize(&img, colors, method)?;
+    let has_transparent_pixels = img.pixels().iter().any(|color| color.a == 0);
+    let mut palette = pxsmith_core::quantize::quantize(&img, colors, method)?;
+    if has_transparent_pixels && !palette.entries().iter().any(|color| color.a == 0) {
+        palette.push(Rgba8::TRANSPARENT)?;
+    }
     let mut indexed =
         pxsmith_core::quantize::apply_palette(&img, &palette, &ApplyOptions::default());
-    let mut palette = palette;
 
     if strategy {
         // 規則ベースの段階削減 (D49)．量子化の後にもう一段かける
         let r = pxsmith_core::quantize::reduce_colors(
             &indexed,
             &palette,
-            colors.get() as usize,
+            colors.get() as usize + usize::from(has_transparent_pixels),
             &ReduceOptions::default(),
         )?;
         for (name, dropped) in &r.steps {
@@ -1096,4 +1099,69 @@ pub fn validate(input: &Path, target: &str, json: bool) -> Result<()> {
         bail!("{} の制約に違反している", report.target);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn scratch(name: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "pxsmith-color-cmds-{name}-{}-{}",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("test")
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("作業場所を作れる");
+        root
+    }
+
+    #[test]
+    fn quantize_maps_transparent_and_opaque_pixels_to_separate_indices() {
+        let root = scratch("quantize-transparency");
+        let input = root.join("input.png");
+        let image = RgbaCanvas::from_pixels(
+            3,
+            3,
+            vec![
+                Rgba8::TRANSPARENT,
+                Rgba8::rgb(240, 80, 40),
+                Rgba8::rgb(240, 80, 40),
+                Rgba8::rgb(240, 80, 40),
+                Rgba8::rgb(240, 80, 40),
+                Rgba8::rgb(20, 60, 220),
+                Rgba8::rgb(20, 60, 220),
+                Rgba8::rgb(20, 60, 220),
+                Rgba8::rgb(20, 60, 220),
+            ],
+        )
+        .expect("画素数");
+        png::write_rgba(&input, &image).expect("入力を書ける");
+
+        for strategy in [false, true] {
+            let output = root.join(format!("output-{strategy}.aseprite"));
+            quantize(&input, &output, 2, MethodArg::Wu, 0, strategy).expect("量子化できる");
+
+            let document = pxsmith_io::Document::read(&output).expect("Aseprite を読める");
+            let frame = document.project(FrameId(0)).expect("フレームを射影できる");
+            let canvas = frame.layers[0]
+                .surface
+                .as_indexed()
+                .expect("インデックスカラー");
+            let transparent = canvas.transparent().expect("透明添字がある");
+            assert_eq!(canvas.get(0, 0), Some(transparent));
+            assert_ne!(canvas.get(1, 0), Some(transparent));
+            assert_ne!(canvas.get(2, 2), Some(transparent));
+            assert_eq!(
+                frame
+                    .palette
+                    .entries()
+                    .iter()
+                    .filter(|color| color.a != 0)
+                    .count(),
+                2,
+                "--colors は不透明色だけを数える (strategy={strategy})"
+            );
+        }
+    }
 }
