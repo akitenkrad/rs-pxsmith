@@ -1,0 +1,43 @@
+[meta]
+format = 1
+name = "body"
+layer = "body"
+
+[palette]
+ref = "anchor.hex"
+
+[palette.map]
+0 = 0
+
+[[frame]]
+name = "body_0"
+kind = "key"
+duration_ms = 100
+anchors = { head = [1, 2] }
+data = '''
+000
+000
+000
+'''
+
+[[frame]]
+name = "body_1"
+kind = "key"
+duration_ms = 100
+anchors = { head = [1, 3] }
+data = '''
+000
+000
+000
+'''
+
+[[frame]]
+name = "body_2"
+kind = "key"
+duration_ms = 100
+anchors = { head = [1, 1] }
+data = '''
+000
+000
+000
+'''

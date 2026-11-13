@@ -106,9 +106,9 @@ fn part_of(name: &str) -> Option<Part> {
 /// 1 組ぶんのパーツ (基準と，`shift` だけずらして重ねるもの)．
 fn pair(base: &str, equip: &str, shift: IVec2) -> Option<Vec<Part>> {
     let mut a = part_of(base)?;
-    a.anchors.insert("joint".into(), shift);
+    a.anchors.default.insert("joint".into(), shift);
     let mut b = part_of(equip)?;
-    b.anchors.insert("joint".into(), ivec2(0, 0));
+    b.anchors.default.insert("joint".into(), ivec2(0, 0));
     b.align = Some(Alignment {
         part: "joint".into(),
         base: "joint".into(),

@@ -302,6 +302,7 @@ fn l0_frame(
             Quadrant::SW => pxsmith_io::l0::Quadrant::SW,
             Quadrant::SE => pxsmith_io::l0::Quadrant::SE,
         }),
+        anchors: BTreeMap::new(),
         data,
     }
 }

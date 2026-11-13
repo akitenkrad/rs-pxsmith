@@ -34,6 +34,25 @@ pxsmith-view = { version = "0.1", default-features = false }
 The library name keeps the underscore form, so imports read
 `use pxsmith_core::…`.
 
+## Per-frame composition anchors
+
+`pxsmith_core::compose::Part` stores anchors in `Anchors` rather than in a
+single map. `Anchors::default` contains the positions shared by every frame,
+and `Anchors::frames` contains per-frame overrides. An empty `frames` vector
+means every frame uses `default`; otherwise its length must equal
+`Part::frames.len()`, or `compose` returns `ComposeAnchorFrameCount`.
+
+`Anchors::get(frame, name)` resolves the frame override before the default, and
+`Anchors::names()` returns the sorted union of names from both levels. During
+composition, each part's selected animation frame supplies its anchor. The
+resulting `Placement::offset` remains the frame-zero position for callers that
+only need the previous API meaning, while `Placement::offsets` contains one
+position per composed frame.
+
+The expanded canvas is computed once from every per-frame placement. This keeps
+all output frames the same size even when an anchor moves; `ComposeOptions::clip`
+continues to use the base part's canvas instead.
+
 ## Embedding sprites at compile time
 
 ```rust

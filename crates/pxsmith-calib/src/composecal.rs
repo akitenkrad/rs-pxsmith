@@ -255,9 +255,9 @@ pub fn runs(
             };
             for shift in shifts {
                 let mut a = base.clone();
-                a.anchors.insert("joint".into(), *shift);
+                a.anchors.default.insert("joint".into(), *shift);
                 let mut c = top.clone();
-                c.anchors.insert("joint".into(), ivec2(0, 0));
+                c.anchors.default.insert("joint".into(), ivec2(0, 0));
                 c.align = Some(Alignment {
                     part: "joint".into(),
                     base: "joint".into(),

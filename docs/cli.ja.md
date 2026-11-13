@@ -12,6 +12,28 @@
 既存の Aseprite による作業の途中に配置することができ，ファイルの所有権を奪うことは
 ありません．
 
+L0 の `[meta]` に書いたアンカーは，全フレームに共通する既定値です．`[[frame]]` の中に
+`anchors` を書くと，そのフレームだけ名前ごとに上書きでき，残りの名前は既定値のまま
+使われます．
+
+```toml
+[meta]
+format = 1
+name = "body"
+anchors = { head = [8, 3], feet = [8, 15] }
+
+[[frame]]
+name = "step"
+anchors = { head = [8, 2] }
+data = '''
+0
+'''
+```
+
+この例では，`step` の `head` は `[8, 2]` になり，`feet` は既定値の `[8, 15]` のままです．
+`anchors` を持たないフレームの正規形はバイト単位で従来と変わらず，L0 の形式の版も 1 の
+ままです．
+
 ## 基本
 
 ```sh
@@ -77,6 +99,10 @@ pxsmith conform upscaled.png native.png
 ## 合成・タイルセット・投影
 
 ```sh
+# 胴体の各フレームで解決したアンカーの位置を取り出し，別の L0 へ流し込む
+pxsmith anchor track body.px.toml --anchor head -o head-track.json
+pxsmith anchor apply head-track.json target.px.toml -o tracked.px.toml --anchor head
+
 # パーツを合成し，反転と陰影の再導出で残り 7 方向を導出する
 pxsmith compose out.px.toml --part body.px.toml --part head.px.toml
 pxsmith direction 'out/${dir}.px.toml' --from s=hero_s.px.toml \
@@ -100,6 +126,22 @@ pxsmith guide g.png --projection iso --from top --cell 16 --size 256x256
 `project` は `--from` と `--facing` を必須の引数としています．どの面を倒すのか，また
 どちらを向いているのかは画素からは読み取れないため，推測に任せると外れた場合にのみ
 静かに壊れることになるからです．
+
+`anchor track` は，各フレームで解決したアンカー (フレームの上書きを先に，無ければ
+`[meta]` の既定値) を形式の版 1 の JSON として書き出します．`--anchor` を省けば全ての
+名前を昇順で，`-o` を省けば標準出力へ書きます．`anchor apply` はトラックと対象の
+フレーム数が一致することを要求し，対象の各フレームへ値を書き込みます．`[meta]` は
+変更しません．フレーム数が違うときに切り詰めたり繰り返したりしないのは，どちらに
+合わせるべきかが絵からは決まらないためです．アンカーを持てるのは L0 (`.px.toml`)
+だけなので，`anchor` 系のコマンドは L0 以外の入力を受け付けません．
+
+合成では，ずれを出力のフレームごとに求めます．各パーツのアンカーは，そのパーツが
+そのフレームで表示しているコマから取ります．`--part-delay` で遅らせたパーツは形だけが
+遅れ，位置は基準のパーツがいま表示しているコマに付いていきます．画布と原点は，
+全パーツ・全フレームの矩形の和として 1 度だけ決めます．アンカーが動いても出力の
+フレームの大きさが揃うので，`sheet pack` の升がずれません．ずれがフレームごとに
+変わる場合，報告には第 0 フレームのずれと x・y の範囲を表示します．ずれが一定なら
+従来どおり 1 つのずれだけを表示します．
 
 ## 拡縮と回転
 

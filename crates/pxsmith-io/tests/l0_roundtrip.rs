@@ -12,6 +12,50 @@ use std::path::{Path, PathBuf};
 use pxsmith_io::l0::L0Document;
 use pxsmith_io::{Document, FrameId, hex};
 
+const CANONICAL_L0_WITHOUT_FRAME_ANCHORS: &str = r#"[meta]
+format = 1
+name = "hero"
+
+[palette]
+ref = "hero.hex"
+
+[palette.map]
+"." = "transparent"
+0 = 0
+
+[[frame]]
+name = "idle"
+kind = "key"
+duration_ms = 100
+data = '''
+.0.
+000
+'''
+"#;
+
+const L0_WITH_FRAME_ANCHORS: &str = r#"[meta]
+format = 1
+name = "hero"
+anchors = { head = [1, 0], feet = [1, 2] }
+
+[palette]
+ref = "hero.hex"
+
+[palette.map]
+"." = "transparent"
+0 = 0
+
+[[frame]]
+name = "idle"
+kind = "key"
+duration_ms = 100
+anchors = { head = [2, 1], ankle = [0, 2] }
+data = '''
+.0.
+000
+'''
+"#;
+
 fn corpus() -> Vec<PathBuf> {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/aseprite");
     let mut out = Vec::new();
@@ -205,4 +249,46 @@ kyryk
 
     // 書き出した .aseprite 自体もバイト一致で往復する
     assert_eq!(reloaded.to_bytes().unwrap(), bytes);
+}
+
+#[test]
+fn frame_anchors_survive_the_l0_round_trip() {
+    let path = Path::new("frame-anchors.px.toml");
+    let doc = L0Document::parse(L0_WITH_FRAME_ANCHORS, path).expect("フレームアンカーを読める");
+    assert_eq!(doc.frames[0].anchors["head"], [2, 1]);
+
+    let written = doc.to_toml().expect("書ける");
+    assert!(
+        written.contains("anchors = { feet = [1, 2], head = [1, 0] }"),
+        "[meta] のアンカーが昇順のインライン表でない:\n{written}"
+    );
+    let frame_anchors = "anchors = { ankle = [0, 2], head = [2, 1] }";
+    assert!(
+        written.contains(frame_anchors),
+        "フレームのアンカーが昇順のインライン表でない:\n{written}"
+    );
+    assert!(
+        written.find(frame_anchors) < written.find("data = '''"),
+        "フレームのアンカーが data より前にない:\n{written}"
+    );
+    assert!(!written.contains("[meta.anchors]"), "{written}");
+    assert!(!written.contains("[frame.anchors]"), "{written}");
+
+    let reparsed = L0Document::parse(&written, path).expect("書いたものを読める");
+    assert_eq!(reparsed.meta.anchors["head"], [1, 0]);
+    assert_eq!(reparsed.frames[0].anchors["head"], [2, 1]);
+    assert_eq!(reparsed.frames[0].anchors["ankle"], [0, 2]);
+}
+
+#[test]
+fn l0_without_frame_anchors_is_byte_identical_after_read_and_write() {
+    let doc = L0Document::parse(
+        CANONICAL_L0_WITHOUT_FRAME_ANCHORS,
+        Path::new("legacy.px.toml"),
+    )
+    .expect("既存 L0 を読める");
+    assert_eq!(
+        doc.to_toml().expect("書ける"),
+        CANONICAL_L0_WITHOUT_FRAME_ANCHORS
+    );
 }

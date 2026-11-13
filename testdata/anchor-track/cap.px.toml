@@ -1,0 +1,35 @@
+[meta]
+format = 1
+name = "cap"
+layer = "cap"
+anchors = { head = [0, 0] }
+
+[palette]
+ref = "anchor.hex"
+
+[palette.map]
+0 = 1
+
+[[frame]]
+name = "cap_0"
+kind = "key"
+duration_ms = 100
+data = '''
+0
+'''
+
+[[frame]]
+name = "cap_1"
+kind = "key"
+duration_ms = 100
+data = '''
+0
+'''
+
+[[frame]]
+name = "cap_2"
+kind = "key"
+duration_ms = 100
+data = '''
+0
+'''

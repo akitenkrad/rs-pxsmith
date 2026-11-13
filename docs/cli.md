@@ -12,6 +12,27 @@ the palette is held in a separate `.hex` file. `.aseprite` files round-trip byte
 for byte, so pxsmith can sit in the middle of an existing Aseprite workflow
 without taking ownership of the file.
 
+L0 anchors in `[meta]` are defaults shared by every frame. A `[[frame]]` may
+override any of them without repeating the rest:
+
+```toml
+[meta]
+format = 1
+name = "body"
+anchors = { head = [8, 3], feet = [8, 15] }
+
+[[frame]]
+name = "step"
+anchors = { head = [8, 2] }
+data = '''
+0
+'''
+```
+
+Here `step` uses `[8, 2]` for `head` and retains the `[8, 15]` default for
+`feet`. Frames without an `anchors` field keep the existing byte-exact canonical
+form, and the L0 format version remains 1.
+
 ## Basics
 
 ```sh
@@ -79,8 +100,14 @@ deterministically and the image belongs back with a person.
 ## Composition, tilesets, and projection
 
 ```sh
+# Extract resolved per-frame anchor positions, then apply the track to another L0 file
+pxsmith anchor track body.px.toml --anchor head -o head-track.json
+pxsmith anchor apply head-track.json target.px.toml -o tracked.px.toml --anchor head
+
 # Assemble parts, then derive the other seven directions by flip + re-shading
 pxsmith compose out.px.toml --part body.px.toml --part head.px.toml
+
+
 pxsmith direction 'out/${dir}.px.toml' --from s=hero_s.px.toml \
     --light dir:-0.6,0.8 --reshade
 
@@ -97,6 +124,21 @@ pxsmith atmos 'out/${name}.px.toml' --input fg.px.toml --input bg.px.toml \
 pxsmith project in.px.toml iso.px.toml --to iso --from top --facing right
 pxsmith guide g.png --projection iso --from top --cell 16 --size 256x256
 ```
+
+`anchor track` writes resolved values (frame override first, then the `[meta]`
+default) as format-1 JSON. With no `--anchor`, it writes every name in sorted
+order; with no `-o`, it writes JSON to standard output. `anchor apply` requires
+the track and target to have exactly the same frame count, writes values into
+each target frame, and leaves `[meta]` unchanged. Anchor commands accept only L0
+`.px.toml` artwork.
+
+Composition resolves offsets separately for every output frame. Each part uses
+the anchor on the frame currently selected by its delay mode, while a delayed
+part still follows the base part's current visible frame. The canvas and origin
+are the union across all parts and all output frames, so a moving anchor cannot
+make packed frame cells change size. If offsets vary, the report shows the
+frame-zero offset and the x/y ranges; constant offsets retain the previous
+single-offset report.
 
 `project` requires both `--from` and `--facing`. Which face is being laid down,
 and which way it points, cannot be read off the pixels, so a guess would fail

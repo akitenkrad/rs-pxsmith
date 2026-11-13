@@ -33,6 +33,23 @@ pxsmith-view = { version = "0.1", default-features = false }
 
 ライブラリ名はアンダースコア形になるため，取り込みは `use pxsmith_core::…` と記述します．
 
+## フレームごとの合成アンカー
+
+`pxsmith_core::compose::Part` はアンカーを 1 つの表ではなく `Anchors` に持ちます．
+`Anchors::default` は全フレームに共通する位置，`Anchors::frames` はフレームごとの上書きです．
+`frames` が空なら全フレームが `default` を使います．空でなければ長さは
+`Part::frames.len()` と一致しなければならず，違えば `compose` は
+`ComposeAnchorFrameCount` を返します．
+
+`Anchors::get(frame, name)` はフレームの上書きを先に引き，無ければ既定値を返します．
+`Anchors::names()` は両方に現れる名前を昇順で返します．合成では，各パーツがその
+フレームで表示しているコマのアンカーを使います．`Placement::offset` は従来どおり
+第 0 フレームの位置を表し，`Placement::offsets` は合成後のフレームごとの位置を持ちます．
+
+広げた画布は，フレームごとの置き場所すべてから 1 度だけ求めます．そのため
+アンカーが動いても出力のフレームはすべて同じ大きさになります．
+`ComposeOptions::clip` を指定した場合は，従来どおり基準パーツの画布に切り揃えます．
+
 ## コンパイル時にスプライトを埋め込む
 
 ```rust

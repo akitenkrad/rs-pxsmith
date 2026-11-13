@@ -78,9 +78,21 @@ pub enum CoreError {
         other: (u32, u32),
     },
 
+    /// フレームごとのアンカー数がパーツのフレーム数と一致しない．
+    #[error("パーツ '{part}' は {frames} フレームだが，フレームごとのアンカーは {anchors} 件ある")]
+    ComposeAnchorFrameCount {
+        part: String,
+        anchors: usize,
+        frames: usize,
+    },
+
     /// 指定されたアンカーがパーツに無い．**黙って原点合わせにはしない**．
-    #[error("パーツ '{part}' にアンカー '{anchor}' が無い")]
-    ComposeAnchorMissing { part: String, anchor: String },
+    #[error("パーツ '{part}' のフレーム {frame} にアンカー '{anchor}' が無い")]
+    ComposeAnchorMissing {
+        part: String,
+        anchor: String,
+        frame: usize,
+    },
 
     /// 画素が指している添字がパレットの範囲を超えている．
     ///

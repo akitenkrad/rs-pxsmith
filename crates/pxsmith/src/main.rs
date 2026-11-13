@@ -14,6 +14,7 @@ use pxsmith_io::l0::{L0Document, Violation};
 use pxsmith_io::{Document, FrameId};
 use pxsmith_view::render::RenderOptions;
 
+mod anchor_cmds;
 mod anim_cmds;
 mod atmos_cmds;
 mod color_cmds;
@@ -44,6 +45,11 @@ pub(crate) enum Command {
     Text {
         #[command(subcommand)]
         command: TextCommand,
+    },
+    /// L0 のアンカートラックを抽出・適用する (D182)
+    Anchor {
+        #[command(subcommand)]
+        command: anchor_cmds::AnchorCommand,
     },
     /// パレットの操作 (設計書 4.5 / 6.6)
     Palette {
@@ -333,6 +339,7 @@ fn main() -> Result<()> {
 pub(crate) fn dispatch(command: Command) -> Result<()> {
     match command {
         Command::Text { command } => text(command),
+        Command::Anchor { command } => anchor_cmds::anchor(command),
         Command::Palette { command } => color_cmds::palette(command),
         Command::Quantize {
             input,

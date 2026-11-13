@@ -29,6 +29,10 @@ L0 is not a self-contained format. Its palette is a reference to an external
 `.hex` file, and the body holds only index characters. The tool therefore writes
 the `.hex` first, and the model writes characters.
 
+An L0 `[meta] anchors` table supplies positions shared by the sequence, and an
+individual `[[frame]]` may carry an `anchors` table that overrides selected
+names for that frame. Both fields are optional and remain format version 1.
+
 This is less a restriction than a guarantee. The property "never introduce a
 colour outside the palette" holds structurally rather than by inspection, because
 the model has no way to express such a colour.

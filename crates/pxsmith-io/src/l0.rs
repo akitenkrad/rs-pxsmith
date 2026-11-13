@@ -107,6 +107,8 @@ pub struct L0Frame {
     pub duration_ms: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub quadrant: Option<Quadrant>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub anchors: BTreeMap<String, [i32; 2]>,
     pub data: String,
 }
 
@@ -116,6 +118,45 @@ fn default_kind() -> String {
 
 fn default_duration() -> u32 {
     100
+}
+
+fn inline_anchors(anchors: &BTreeMap<String, [i32; 2]>) -> String {
+    let entries = anchors
+        .iter()
+        .map(|(name, [x, y])| format!("{} = [{x}, {y}]", toml_key(name)))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("{{ {entries} }}")
+}
+
+fn toml_key(key: &str) -> String {
+    if !key.is_empty()
+        && key
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+    {
+        return key.to_string();
+    }
+
+    let mut quoted = String::from("\"");
+    for ch in key.chars() {
+        match ch {
+            '\u{0008}' => quoted.push_str("\\b"),
+            '\t' => quoted.push_str("\\t"),
+            '\n' => quoted.push_str("\\n"),
+            '\u{000C}' => quoted.push_str("\\f"),
+            '\r' => quoted.push_str("\\r"),
+            '"' => quoted.push_str("\\\""),
+            '\\' => quoted.push_str("\\\\"),
+            ch if ch.is_control() => {
+                use std::fmt::Write as _;
+                write!(quoted, "\\u{:04X}", ch as u32).expect("String への書き込みは失敗しない");
+            }
+            ch => quoted.push(ch),
+        }
+    }
+    quoted.push('"');
+    quoted
 }
 
 /// L0 ファイルの内容．
@@ -418,6 +459,7 @@ impl L0Document {
                     kind: f.kind.as_str().to_string(),
                     duration_ms: f.duration_ms,
                     quadrant: None,
+                    anchors: BTreeMap::new(),
                     data: encode(canvas, &to_char),
                 }
             })
@@ -453,6 +495,14 @@ impl L0Document {
         // エスケープされない ASCII だけを使う (制御文字だと `\u0000` のような形へ化ける)．
         const MARKER: &str = "@@PXFORGE_DATA";
         let mut shadow = self.clone();
+        // マップをそのまま直列化すると `[meta.anchors]`／`[frame.anchors]` という
+        // 別表になる．L0 の正規形では人が読み書きしやすい 1 行のインライン表にする．
+        let meta_anchors = std::mem::take(&mut shadow.meta.anchors);
+        let frame_anchors: Vec<_> = shadow
+            .frames
+            .iter_mut()
+            .map(|frame| std::mem::take(&mut frame.anchors))
+            .collect();
         let originals: Vec<String> = shadow
             .frames
             .iter_mut()
@@ -465,6 +515,25 @@ impl L0Document {
             line: 0,
             message: e.to_string(),
         })?;
+
+        if !meta_anchors.is_empty() {
+            let palette = text
+                .find("\n[palette]")
+                .expect("直列化した L0 には [palette] がある");
+            text.insert_str(
+                palette,
+                &format!("anchors = {}\n", inline_anchors(&meta_anchors)),
+            );
+        }
+
+        for (i, anchors) in frame_anchors.iter().enumerate() {
+            if anchors.is_empty() {
+                continue;
+            }
+            let data = format!("data = \"{MARKER}{i}@@\"");
+            let replacement = format!("anchors = {}\n{data}", inline_anchors(anchors));
+            text = text.replacen(&data, &replacement, 1);
+        }
 
         for (i, original) in originals.iter().enumerate() {
             let needle = format!("\"{MARKER}{i}@@\"");

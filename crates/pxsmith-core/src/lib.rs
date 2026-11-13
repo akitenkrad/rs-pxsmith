@@ -90,8 +90,8 @@ pub use autotile::{
     mirror_to_all_quadrants, seam_doubled,
 };
 pub use compose::{
-    Alignment, ComposeOptions, ComposeReport, DelayMode, Part, Placement, compose, expand_template,
-    expand_variants,
+    Alignment, Anchors, ComposeOptions, ComposeReport, DelayMode, Part, Placement, compose,
+    expand_template, expand_variants,
 };
 pub use edit::{EditOp, FrameId, LayerId, Patch};
 pub use error::{CoreError, FailurePolicy, Result};

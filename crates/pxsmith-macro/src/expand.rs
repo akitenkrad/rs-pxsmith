@@ -98,6 +98,7 @@ pub fn expand(input: &Input) -> syn::Result<TokenStream> {
                         .transpose()?
                         .unwrap_or(100),
                     quadrant: None,
+                    anchors: std::collections::BTreeMap::new(),
                     data,
                 }],
             };

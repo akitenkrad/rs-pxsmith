@@ -94,7 +94,20 @@ fn load_part(path: &Path) -> Result<Part> {
             .with_context(|| format!("{} を作業層へ変換できない", path.display()))?;
         let mut part = Part::new(part_name(path), frames);
         for (k, v) in &doc.meta.anchors {
-            part.anchors.insert(k.clone(), ivec2(v[0], v[1]));
+            part.anchors.default.insert(k.clone(), ivec2(v[0], v[1]));
+        }
+        if doc.frames.iter().any(|frame| !frame.anchors.is_empty()) {
+            part.anchors.frames = doc
+                .frames
+                .iter()
+                .map(|frame| {
+                    frame
+                        .anchors
+                        .iter()
+                        .map(|(name, value)| (name.clone(), ivec2(value[0], value[1])))
+                        .collect()
+                })
+                .collect();
         }
         return Ok(part);
     }
@@ -188,6 +201,23 @@ pub fn compose_cmd(args: &ComposeArgs) -> Result<()> {
         );
         for p in &report.placements {
             let mut notes: Vec<String> = Vec::new();
+            if p.offsets.iter().any(|offset| *offset != p.offset) {
+                let (min_x, max_x) = p
+                    .offsets
+                    .iter()
+                    .map(|offset| offset.x)
+                    .fold((i32::MAX, i32::MIN), |(min, max), x| {
+                        (min.min(x), max.max(x))
+                    });
+                let (min_y, max_y) = p
+                    .offsets
+                    .iter()
+                    .map(|offset| offset.y)
+                    .fold((i32::MAX, i32::MIN), |(min, max), y| {
+                        (min.min(y), max.max(y))
+                    });
+                notes.push(format!("範囲 x={min_x}..{max_x} ・y={min_y}..{max_y}"));
+            }
             if p.covered > 0 {
                 notes.push(format!("{} 画素が隠れている", p.covered));
             }

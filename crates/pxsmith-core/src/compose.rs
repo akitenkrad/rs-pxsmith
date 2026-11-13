@@ -38,7 +38,7 @@
 //! ループかどうかは絵から決まらない (推定して当てはめるのは同語反復である) ので，
 //! **仮定の少ない方を既定にして，ループだと分かっている側が明示する**．
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::canvas::IndexedCanvas;
 use crate::color::Rgba8;
@@ -61,6 +61,35 @@ pub struct Alignment {
     pub base: String,
 }
 
+/// パーツのアンカー．
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Anchors {
+    /// 全フレーム共通の既定値 (L0 の `[meta] anchors`)．
+    pub default: BTreeMap<String, IVec2>,
+    /// フレームごとの上書き．空なら全フレームが `default`．
+    pub frames: Vec<BTreeMap<String, IVec2>>,
+}
+
+impl Anchors {
+    /// D180．フレーム側の値を先に取り，無ければ全フレーム共通の既定値へ戻る．
+    pub fn get(&self, frame: usize, name: &str) -> Option<IVec2> {
+        self.frames
+            .get(frame)
+            .and_then(|anchors| anchors.get(name))
+            .or_else(|| self.default.get(name))
+            .copied()
+    }
+
+    /// 既定値と各フレームに現れる名前を昇順で返す．
+    pub fn names(&self) -> BTreeSet<String> {
+        self.default
+            .keys()
+            .chain(self.frames.iter().flat_map(BTreeMap::keys))
+            .cloned()
+            .collect()
+    }
+}
+
 /// 合成に渡す 1 パーツ．
 #[derive(Clone, Debug)]
 pub struct Part {
@@ -68,7 +97,7 @@ pub struct Part {
     pub name: String,
     /// フレーム列．**すべて同じ大きさでなければならない**．
     pub frames: Vec<Frame>,
-    pub anchors: BTreeMap<String, IVec2>,
+    pub anchors: Anchors,
     /// `None` なら原点合わせ．
     pub align: Option<Alignment>,
     /// オーバーラップ / フォロースルーの遅延フレーム数 (D42)．
@@ -81,7 +110,7 @@ impl Part {
         Self {
             name: name.into(),
             frames,
-            anchors: BTreeMap::new(),
+            anchors: Anchors::default(),
             align: None,
             delay: 0,
         }
@@ -139,8 +168,10 @@ pub struct ComposeOptions {
 #[derive(Clone, Debug)]
 pub struct Placement {
     pub name: String,
-    /// 合成後の座標系での左上．
+    /// 第 0 フレームの，合成後の座標系での左上．
     pub offset: IVec2,
+    /// 合成後の各フレームにおける左上．
+    pub offsets: Vec<IVec2>,
     /// 上に載ったパーツに隠された画素数 (全フレームの合計)．
     ///
     /// パーツがまるごと隠れているなら重ね順を間違えている見込みが高い．
@@ -192,27 +223,39 @@ pub fn compose(parts: &[Part], opts: &ComposeOptions) -> Result<(Vec<Frame>, Com
                 other: (f.size.x, f.size.y),
             });
         }
+        if !p.anchors.frames.is_empty() && p.anchors.frames.len() != p.frames.len() {
+            return Err(CoreError::ComposeAnchorFrameCount {
+                part: p.name.clone(),
+                anchors: p.anchors.frames.len(),
+                frames: p.frames.len(),
+            });
+        }
     }
 
-    let offsets = resolve_offsets(parts)?;
+    let length = parts.iter().map(|p| p.frames.len()).max().unwrap_or(0);
+    let offsets = resolve_offsets(parts, opts, length)?;
     let (canvas_rect, origin) = canvas_of(parts, &offsets, base, opts.clip);
 
     let (palette, transparent, maps) = merge_palettes(parts)?;
 
-    let length = parts.iter().map(|p| p.frames.len()).max().unwrap_or(0);
     let mut placements: Vec<Placement> = parts
         .iter()
-        .zip(&offsets)
-        .map(|(p, o)| Placement {
-            name: p.name.clone(),
-            offset: *o + origin,
-            covered: 0,
-            clipped: 0,
+        .enumerate()
+        .map(|(k, p)| {
+            let frame_offsets: Vec<IVec2> =
+                offsets.iter().map(|offsets| offsets[k] + origin).collect();
+            Placement {
+                name: p.name.clone(),
+                offset: frame_offsets[0],
+                offsets: frame_offsets,
+                covered: 0,
+                clipped: 0,
+            }
         })
         .collect();
 
     let mut out: Vec<Frame> = Vec::with_capacity(length);
-    for i in 0..length {
+    for (i, frame_offsets) in offsets.iter().enumerate() {
         let mut frame = Frame::new(
             UVec2 {
                 x: canvas_rect.w,
@@ -228,7 +271,7 @@ pub fn compose(parts: &[Part], opts: &ComposeOptions) -> Result<(Vec<Frame>, Com
         for (k, part) in parts.iter().enumerate() {
             let pick = opts.delay_mode.pick(i, part.delay, part.frames.len());
             let src = &part.frames[pick];
-            let at = offsets[k] + origin;
+            let at = frame_offsets[k] + origin;
             for layer in &src.layers {
                 let Some(indexed) = layer.surface.as_indexed() else {
                     return Err(CoreError::NotIndexed {
@@ -274,36 +317,46 @@ pub fn compose(parts: &[Part], opts: &ComposeOptions) -> Result<(Vec<Frame>, Com
     ))
 }
 
-/// アンカーからパーツごとのずれを出す．**先頭のパーツを原点 (0,0) とする**．
-fn resolve_offsets(parts: &[Part]) -> Result<Vec<IVec2>> {
+/// アンカーから各フレームのずれを出す．**先頭のパーツを原点 (0,0) とする**．
+fn resolve_offsets(
+    parts: &[Part],
+    opts: &ComposeOptions,
+    length: usize,
+) -> Result<Vec<Vec<IVec2>>> {
     let base = &parts[0];
-    let mut out = Vec::with_capacity(parts.len());
-    for (k, part) in parts.iter().enumerate() {
-        if k == 0 {
-            out.push(ivec2(0, 0));
-            continue;
-        }
-        let Some(align) = &part.align else {
-            out.push(ivec2(0, 0));
-            continue;
-        };
-        let here =
-            *part
-                .anchors
-                .get(&align.part)
-                .ok_or_else(|| CoreError::ComposeAnchorMissing {
+    let mut out = Vec::with_capacity(length);
+    for i in 0..length {
+        // D180．形とアンカーは同じ表示中のコマから取る．ただし各パーツの位置は，
+        // そのパーツの遅延とは別に，基準パーツが表示している「今」へ付ける．
+        let base_frame = opts.delay_mode.pick(i, base.delay, base.frames.len());
+        let mut frame_offsets = Vec::with_capacity(parts.len());
+        for (k, part) in parts.iter().enumerate() {
+            if k == 0 {
+                frame_offsets.push(ivec2(0, 0));
+                continue;
+            }
+            let Some(align) = &part.align else {
+                frame_offsets.push(ivec2(0, 0));
+                continue;
+            };
+            let part_frame = opts.delay_mode.pick(i, part.delay, part.frames.len());
+            let here = part.anchors.get(part_frame, &align.part).ok_or_else(|| {
+                CoreError::ComposeAnchorMissing {
                     part: part.name.clone(),
                     anchor: align.part.clone(),
-                })?;
-        let there =
-            *base
-                .anchors
-                .get(&align.base)
-                .ok_or_else(|| CoreError::ComposeAnchorMissing {
+                    frame: i,
+                }
+            })?;
+            let there = base.anchors.get(base_frame, &align.base).ok_or_else(|| {
+                CoreError::ComposeAnchorMissing {
                     part: base.name.clone(),
                     anchor: align.base.clone(),
-                })?;
-        out.push(there - here);
+                    frame: i,
+                }
+            })?;
+            frame_offsets.push(there - here);
+        }
+        out.push(frame_offsets);
     }
     Ok(out)
 }
@@ -313,15 +366,18 @@ fn resolve_offsets(parts: &[Part]) -> Result<Vec<IVec2>> {
 /// **矩形の和で決める — 中身 (不透明な画素) の外接矩形では決めない．** 中身で
 /// 決めると，たまたま空のフレームがあるだけで画布が変わり，フレームごとに
 /// 大きさが揺れる．矩形なら中身に依らないので，同じパーツ構成なら必ず同じ画布になる．
-fn canvas_of(parts: &[Part], offsets: &[IVec2], base: &Part, clip: bool) -> (IRect, IVec2) {
+fn canvas_of(parts: &[Part], offsets: &[Vec<IVec2>], base: &Part, clip: bool) -> (IRect, IVec2) {
     let base_rect = IRect::new(0, 0, base.frames[0].size.x, base.frames[0].size.y);
     if clip {
         return (base_rect, ivec2(0, 0));
     }
     let mut rect = base_rect;
-    for (part, off) in parts.iter().zip(offsets) {
-        let size = part.frames[0].size;
-        rect = rect.union(IRect::new(off.x, off.y, size.x, size.y));
+    // D181．全フレーム・全パーツの矩形の和を 1 つだけ取り，画布と原点を固定する．
+    for frame_offsets in offsets {
+        for (part, off) in parts.iter().zip(frame_offsets) {
+            let size = part.frames[0].size;
+            rect = rect.union(IRect::new(off.x, off.y, size.x, size.y));
+        }
     }
     // 画布の左上を原点に取り直す
     (IRect::new(0, 0, rect.w, rect.h), ivec2(-rect.x, -rect.y))
@@ -549,9 +605,9 @@ mod tests {
     #[test]
     fn an_anchored_part_grows_the_canvas_instead_of_being_clipped() {
         let mut a = part("body", 4, 4, &[red()], &[1; 16]);
-        a.anchors.insert("neck".into(), ivec2(1, 0));
+        a.anchors.default.insert("neck".into(), ivec2(1, 0));
         let mut b = part("cap", 4, 4, &[blue()], &[1; 16]);
-        b.anchors.insert("neck".into(), ivec2(3, 3));
+        b.anchors.default.insert("neck".into(), ivec2(3, 3));
         b.align = Some(Alignment {
             part: "neck".into(),
             base: "neck".into(),
@@ -582,9 +638,9 @@ mod tests {
     #[test]
     fn clipping_reports_how_many_pixels_it_threw_away() {
         let mut a = part("body", 4, 4, &[red()], &[1; 16]);
-        a.anchors.insert("neck".into(), ivec2(0, 0));
+        a.anchors.default.insert("neck".into(), ivec2(0, 0));
         let mut b = part("cap", 4, 4, &[blue()], &[1; 16]);
-        b.anchors.insert("neck".into(), ivec2(2, 0));
+        b.anchors.default.insert("neck".into(), ivec2(2, 0));
         b.align = Some(Alignment {
             part: "neck".into(),
             base: "neck".into(),
@@ -655,6 +711,112 @@ mod tests {
         });
         let err = compose(&[a, b], &ComposeOptions::default()).expect_err("アンカーが無い");
         assert!(matches!(err, CoreError::ComposeAnchorMissing { .. }));
+    }
+
+    /// D180・D181．壊れると: 動く基準へ載せた帽子の位置か画布がフレームごとに揺れる．
+    #[test]
+    fn frame_anchors_follow_the_visible_base_frame_on_one_fixed_canvas() {
+        let mut body = part("body", 3, 3, &[red()], &[1; 9]);
+        body.frames = vec![body.frames[0].clone(); 3];
+        body.anchors.frames = [ivec2(1, 2), ivec2(1, 3), ivec2(1, 1)]
+            .into_iter()
+            .map(|p| BTreeMap::from([("head".to_string(), p)]))
+            .collect();
+
+        let mut cap = part("cap", 1, 1, &[blue()], &[1]);
+        cap.anchors.default.insert("head".to_string(), ivec2(0, 0));
+        cap.align = Some(Alignment {
+            part: "head".into(),
+            base: "head".into(),
+        });
+
+        let (frames, report) =
+            compose(&[body, cap], &ComposeOptions::default()).expect("合成できる");
+        assert_eq!(frames.len(), 3);
+        assert!(frames.iter().all(|f| f.size == UVec2 { x: 3, y: 4 }));
+        assert_eq!(report.canvas, UVec2 { x: 3, y: 4 });
+        assert_eq!(report.placements[1].offset, ivec2(1, 2));
+        assert_eq!(
+            report.placements[1].offsets,
+            [ivec2(1, 2), ivec2(1, 3), ivec2(1, 1)]
+        );
+
+        for (frame, at) in frames.iter().zip([(1, 2), (1, 3), (1, 1)]) {
+            let layer = frame.layers[1].surface.as_indexed().expect("帽子の層");
+            let colored: Vec<_> = layer
+                .bounds()
+                .iter()
+                .filter(|p| layer.get_at(*p) != layer.transparent())
+                .collect();
+            assert_eq!(colored, [ivec2(at.0, at.1)]);
+        }
+    }
+
+    /// D180．遅延はパーツの形だけに掛かり，位置は基準の表示中のコマへ付く．
+    #[test]
+    fn delayed_part_still_uses_the_current_visible_base_anchor() {
+        let mut body = part("body", 3, 3, &[red()], &[1; 9]);
+        body.frames = vec![body.frames[0].clone(); 3];
+        body.anchors.frames = [ivec2(1, 0), ivec2(1, 1), ivec2(1, 2)]
+            .into_iter()
+            .map(|p| BTreeMap::from([("head".to_string(), p)]))
+            .collect();
+
+        let mut cap = part("cap", 1, 1, &[blue()], &[1]);
+        cap.anchors.default.insert("head".to_string(), ivec2(0, 0));
+        cap.align = Some(Alignment {
+            part: "head".into(),
+            base: "head".into(),
+        });
+        cap.delay = 1;
+
+        let (_, report) = compose(&[body, cap], &ComposeOptions::default()).expect("合成できる");
+        assert_eq!(
+            report.placements[1].offsets,
+            [ivec2(1, 0), ivec2(1, 1), ivec2(1, 2)]
+        );
+    }
+
+    /// 壊れると: アンカートラックを短い方へ黙って切り詰める．
+    #[test]
+    fn anchor_frame_count_must_match_the_part_frame_count() {
+        let mut body = part("body", 1, 1, &[red()], &[1]);
+        body.frames = vec![body.frames[0].clone(); 3];
+        body.anchors.frames = vec![BTreeMap::new(); 2];
+
+        let err = compose(&[body], &ComposeOptions::default()).expect_err("長さが違う");
+        assert!(matches!(
+            err,
+            CoreError::ComposeAnchorFrameCount {
+                part,
+                anchors: 2,
+                frames: 3,
+            } if part == "body"
+        ));
+    }
+
+    /// 壊れると: 途中の 1 コマだけアンカーが無くても，どこか分からないエラーになる．
+    #[test]
+    fn missing_anchor_reports_the_composed_frame() {
+        let mut body = part("body", 1, 1, &[red()], &[1]);
+        body.frames = vec![body.frames[0].clone(); 2];
+        body.anchors.frames = vec![
+            BTreeMap::from([("head".to_string(), ivec2(0, 0))]),
+            BTreeMap::new(),
+        ];
+        let mut cap = part("cap", 1, 1, &[blue()], &[1]);
+        cap.anchors.default.insert("head".to_string(), ivec2(0, 0));
+        cap.align = Some(Alignment {
+            part: "head".into(),
+            base: "head".into(),
+        });
+
+        let err = compose(&[body, cap], &ComposeOptions::default()).expect_err("第 1 コマで無い");
+        assert!(matches!(
+            err,
+            CoreError::ComposeAnchorMissing { part, anchor, frame: 1 }
+                if part == "body" && anchor == "head"
+        ));
     }
 
     /// 壊れると: 使っていない色まで写そうとして，**併合が «色が無い» と言って落ちる**．
