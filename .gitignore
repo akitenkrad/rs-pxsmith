@@ -34,3 +34,12 @@ testdata/grid-eval/real/local/
 # 手で叩いたときの出力置き場 (pxsmith gen prog 等)．**先頭の / が要る** —
 # 無いと crates/*/out/ まで巻き込む
 /out/
+
+# AI によるコーディング用の資料 (セッション間の引き継ぎ・エージェントへの指示)．
+# ローカルにだけ置き，以後のコミットにも配布物にも含めない (2026-11-13 より前の履歴には残っている)．
+# docs/status.md は README から測定の記録として参照しているので追跡を続ける
+/docs/handoff.md
+CLAUDE.md
+CLAUDE.local.md
+.claude/
+AGENTS.md
