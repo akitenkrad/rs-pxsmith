@@ -9,7 +9,10 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use clap::{Args, Subcommand};
-use pxsmith_core::sheet::{PackOptions, SheetItem, pack};
+use pxsmith_core::sheet::{
+    PackOptions, PaletteSwapItem, PaletteVariant, SheetDoc, SheetItem, pack, pack_palette_swap,
+    resolve,
+};
 
 use crate::color_cmds::write_indexed;
 
@@ -19,6 +22,20 @@ pub enum SheetCommand {
     Pack {
         #[command(flatten)]
         args: PackArgs,
+    },
+    /// 添字テクスチャをパレットアトラスで解決し，通常の RGBA PNG を作る
+    Resolve {
+        /// `sheet pack --palette-swap` が作った添字テクスチャ
+        index: PathBuf,
+        /// `sheet pack --palette-swap` が作った format 2 のメタ
+        #[arg(long)]
+        meta: PathBuf,
+        /// 適用する色違いの行名．省略時は各升の基の行
+        #[arg(long)]
+        variant: Option<String>,
+        /// RGBA PNG の出力先
+        #[arg(short, long)]
+        output: PathBuf,
     },
 }
 
@@ -45,11 +62,23 @@ pub struct PackArgs {
     /// 外周の空き (Tiled の `margin`)．**既定 0**
     #[arg(long, default_value_t = 0)]
     pub margin: u32,
+    /// 添字テクスチャとパレットアトラスを PNG で出力する
+    #[arg(long)]
+    pub palette_swap: bool,
+    /// BASE と同じ行に対する色違い (`BASE.hex=VARIANT.hex`)．複数指定できる
+    #[arg(long = "variant", value_name = "BASE.hex=VARIANT.hex")]
+    pub variants: Vec<String>,
 }
 
 pub fn sheet(command: SheetCommand) -> Result<()> {
     match command {
         SheetCommand::Pack { args } => pack_cmd(&args),
+        SheetCommand::Resolve {
+            index,
+            meta,
+            variant,
+            output,
+        } => resolve_cmd(&index, &meta, variant.as_deref(), &output),
     }
 }
 
@@ -65,7 +94,14 @@ fn stem(path: &Path) -> String {
 }
 
 fn pack_cmd(args: &PackArgs) -> Result<()> {
+    if args.palette_swap && !crate::color_cmds::is_png(&args.output) {
+        bail!("--palette-swap の添字テクスチャは PNG にだけ出力できる");
+    }
+    if !args.palette_swap && !args.variants.is_empty() {
+        bail!("--variant は --palette-swap と一緒に指定すること");
+    }
     let mut items: Vec<SheetItem> = Vec::new();
+    let mut palette_sources: Vec<(Option<String>, Option<pxsmith_core::Palette>)> = Vec::new();
     for path in &args.inputs {
         if crate::color_cmds::is_png(path) {
             bail!(
@@ -79,6 +115,11 @@ fn pack_cmd(args: &PackArgs) -> Result<()> {
             bail!("{} にフレームが 1 つも無い", path.display());
         }
         let base = stem(path);
+        let palette_source = if args.palette_swap {
+            Some(palette_source(path)?)
+        } else {
+            None
+        };
         for (i, frame) in frames.iter().enumerate() {
             let canvas = flatten(frame).with_context(|| {
                 format!(
@@ -98,6 +139,9 @@ fn pack_cmd(args: &PackArgs) -> Result<()> {
                 palette: frame.palette.clone(),
                 duration_ms: frame.duration_ms,
             });
+            if let Some(source) = &palette_source {
+                palette_sources.push(source.clone());
+            }
         }
     }
 
@@ -106,16 +150,44 @@ fn pack_cmd(args: &PackArgs) -> Result<()> {
         padding: args.padding,
         margin: args.margin,
     };
-    let (canvas, palette, mut doc, report) = pack(&items, &opts)?;
-
     let image = args
         .output
         .file_name()
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_else(|| "sheet.png".to_string());
-    doc.image = image;
-
-    write_indexed(&args.output, &canvas, &palette)?;
+    let (doc, report) = if args.palette_swap {
+        let swap_items: Vec<PaletteSwapItem> = items
+            .iter()
+            .cloned()
+            .zip(palette_sources)
+            .map(|(item, (palette_name, atlas_palette))| PaletteSwapItem {
+                item,
+                palette_name,
+                atlas_palette,
+            })
+            .collect();
+        let variants = load_variants(&args.variants)?;
+        let (indices, atlas, mut doc, report) = pack_palette_swap(&swap_items, &variants, &opts)?;
+        let atlas_path = palette_atlas_path(&args.output);
+        doc.image = image;
+        doc.palettes
+            .as_mut()
+            .expect("format 2 は palettes を持つ")
+            .image = atlas_path
+            .file_name()
+            .map(|name| name.to_string_lossy().to_string())
+            .unwrap_or_else(|| "sheet.palettes.png".to_string());
+        pxsmith_io::png::write_rgba(&args.output, &indices)
+            .with_context(|| format!("{} を書き出せない", args.output.display()))?;
+        pxsmith_io::png::write_rgba(&atlas_path, &atlas)
+            .with_context(|| format!("{} を書き出せない", atlas_path.display()))?;
+        (doc, report)
+    } else {
+        let (canvas, palette, mut doc, report) = pack(&items, &opts)?;
+        doc.image = image;
+        write_indexed(&args.output, &canvas, &palette)?;
+        (doc, report)
+    };
     let meta = args
         .meta
         .clone()
@@ -164,6 +236,92 @@ fn pack_cmd(args: &PackArgs) -> Result<()> {
     println!(
         "  書いていない: 絵ごとに切り詰めて詰め込む «非一様な梱包» は実装していない\n\
          (Tiled も Godot も一様格子しか受け取らないため)"
+    );
+    Ok(())
+}
+
+fn palette_source(path: &Path) -> Result<(Option<String>, Option<pxsmith_core::Palette>)> {
+    let text = path.to_string_lossy();
+    if !text.ends_with(".px.toml") && !text.ends_with(".toml") {
+        return Ok((None, None));
+    }
+    let doc = pxsmith_io::l0::L0Document::read(path)
+        .with_context(|| format!("{} を L0 として読めない", path.display()))?;
+    let name = doc
+        .palette
+        .reference
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().to_string());
+    let palette = doc
+        .load_palette(path)
+        .with_context(|| format!("{} が参照するパレットを読めない", path.display()))?;
+    Ok((name, Some(palette)))
+}
+
+fn load_variants(specs: &[String]) -> Result<Vec<PaletteVariant>> {
+    specs
+        .iter()
+        .map(|spec| {
+            let Some((base, changed)) = spec.split_once('=') else {
+                bail!("--variant は BASE.hex=VARIANT.hex の形で指定する: {spec}");
+            };
+            if base.is_empty() || changed.is_empty() {
+                bail!("--variant は BASE.hex=VARIANT.hex の形で指定する: {spec}");
+            }
+            let changed_path = Path::new(changed);
+            let name = changed_path
+                .file_stem()
+                .map(|stem| stem.to_string_lossy().to_string())
+                .filter(|name| !name.is_empty())
+                .context("色違いのファイル名に語幹が無い")?;
+            Ok(PaletteVariant {
+                name,
+                base: crate::color_cmds::load_palette(Path::new(base))?,
+                palette: crate::color_cmds::load_palette(changed_path)?,
+            })
+        })
+        .collect()
+}
+
+fn palette_atlas_path(output: &Path) -> PathBuf {
+    let stem = output
+        .file_stem()
+        .map(|stem| stem.to_string_lossy())
+        .unwrap_or_else(|| "sheet".into());
+    let extension = output
+        .extension()
+        .map(|extension| extension.to_string_lossy())
+        .unwrap_or_else(|| "png".into());
+    output.with_file_name(format!("{stem}.palettes.{extension}"))
+}
+
+fn resolve_cmd(index: &Path, meta: &Path, variant: Option<&str>, output: &Path) -> Result<()> {
+    let text =
+        std::fs::read_to_string(meta).with_context(|| format!("{} を読めない", meta.display()))?;
+    let doc = SheetDoc::from_json(&text)?;
+    let atlas_name = doc
+        .palettes
+        .as_ref()
+        .context("format 2 のメタに palettes が無い")?
+        .image
+        .clone();
+    let atlas_path = meta
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join(atlas_name);
+    let indices = pxsmith_io::png::read_rgba(index)
+        .with_context(|| format!("{} を読めない", index.display()))?;
+    let atlas = pxsmith_io::png::read_rgba(&atlas_path)
+        .with_context(|| format!("{} を読めない", atlas_path.display()))?;
+    let rgba = resolve(&indices, &atlas, &doc, variant)?;
+    pxsmith_io::png::write_rgba(output, &rgba)
+        .with_context(|| format!("{} を書き出せない", output.display()))?;
+    println!(
+        "{} + {} -> {}{}",
+        index.display(),
+        atlas_path.display(),
+        output.display(),
+        variant.map_or_else(String::new, |name| format!(" (色違い {name})"))
     );
     Ok(())
 }

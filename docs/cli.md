@@ -159,9 +159,57 @@ default `nearest` gives the better result, and the CLI says so at run time.
 ## Exporting
 
 ```sh
-pxsmith sheet pack out/sheet.png --input a.px.toml --input b.px.toml --layout out/sheet.json
-pxsmith export tiled map.json map.tmx --sheet out/sheet.json
+pxsmith sheet pack out/sheet.png --input a.px.toml --input b.px.toml --meta out/sheet.sheet.json
+pxsmith export tiled map.json --tsx out/sheet.tsx --sheet out/sheet.sheet.json
 ```
+
+`sheet pack` normally merges the colours used by every input into one palette.
+Use palette-swap output when that merged palette would exceed 256 colours, or
+when the game should select colours in a shader:
+
+```sh
+pxsmith sheet pack out/sheet.png \
+  --input hero.px.toml --input enemy.px.toml \
+  --palette-swap \
+  --variant palettes/hero.hex=palettes/hero-red.hex \
+  --variant palettes/hero.hex=palettes/hero-blue.hex
+```
+
+This writes two RGBA8 PNG files and format 2 sheet metadata:
+
+- `sheet.png` is an index texture. Its red channel is the unchanged source
+  index, green and blue are zero, and alpha is 255. Source-transparent pixels,
+  palette entries with alpha zero, padding, margins, and unused cells are
+  `(0, 0, 0, 0)`.
+- `sheet.palettes.png` is a palette atlas. Each distinct input palette becomes
+  one row in first-input order; byte-identical palettes share a row. Variant
+  rows follow in command-line order. The atlas width is the longest palette,
+  and the unused tail of shorter rows is transparent.
+- `sheet.sheet.json` has `format: 2`. Each cell names its base palette row, and
+  the `palettes.rows` array records row names and each variant's base row.
+  Format 1 remains the normal merged-palette contract.
+
+`--variant BASE.hex=VARIANT.hex` requires an input row exactly equal to BASE.
+VARIANT must have the same length and the same transparent positions. Row names
+come from variant file stems and must be unique. Palette-swap output is PNG-only;
+it cannot be written as `.aseprite`.
+
+To make a normal RGBA image with the same lookup performed by a shader, use:
+
+```sh
+pxsmith sheet resolve out/sheet.png --meta out/sheet.sheet.json -o out/resolved.png
+pxsmith sheet resolve out/sheet.png --meta out/sheet.sheet.json \
+  --variant hero-red -o out/resolved-red.png
+```
+
+Without `--variant`, every cell uses its own base row. With a variant name, only
+cells whose base row is that variant's `variant_of` row are changed. `export
+tiled` still uses format 2 cell geometry, but warns that Tiled displays the
+index texture rather than resolved colours.
+
+See [`examples/godot-palette-swap/`](../examples/godot-palette-swap/) for a
+Godot 4.7 canvas shader, exact texture import settings, three row selections,
+and a command-line screenshot mode.
 
 ## Inspecting
 

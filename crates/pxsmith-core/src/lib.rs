@@ -115,7 +115,10 @@ pub use shade::{
     Lamp, ShadeOptions, Shading, bounce_distance_field, incidence, normal_field, shade, shade_mask,
     shade_to_canvas,
 };
-pub use sheet::{PackOptions, PackReport, SheetCell, SheetDoc, SheetItem, pack};
+pub use sheet::{
+    PackOptions, PackReport, PaletteAtlas, PaletteRow, PaletteSwapItem, PaletteVariant, SheetCell,
+    SheetDoc, SheetItem, pack, pack_palette_swap, resolve,
+};
 pub use smooth::{SmoothOptions, SmoothReport, smooth_canvas, smooth_mask};
 pub use tilejson::{TerrainEntry, TileMapJson, TileRefJson, TilesetDoc};
 pub use tileset::{DedupeMode, ExtractOptions, ExtractReport, extract, rebuild};

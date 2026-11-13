@@ -158,9 +158,58 @@ CLI が実行時に説明します．
 ## 書き出す
 
 ```sh
-pxsmith sheet pack out/sheet.png --input a.px.toml --input b.px.toml --layout out/sheet.json
-pxsmith export tiled map.json map.tmx --sheet out/sheet.json
+pxsmith sheet pack out/sheet.png --input a.px.toml --input b.px.toml --meta out/sheet.sheet.json
+pxsmith export tiled map.json --tsx out/sheet.tsx --sheet out/sheet.sheet.json
 ```
+
+`sheet pack` は通常，全入力が使っている色を 1 つのパレットへ併合します．併合したパレットが
+256 色を超える場合や，色をゲーム側のシェーダで選ばせたい場合は，パレットスワップ用の出力を
+使います．
+
+```sh
+pxsmith sheet pack out/sheet.png \
+  --input hero.px.toml --input enemy.px.toml \
+  --palette-swap \
+  --variant palettes/hero.hex=palettes/hero-red.hex \
+  --variant palettes/hero.hex=palettes/hero-blue.hex
+```
+
+このとき RGBA8 の PNG を 2 枚と，形式の版 2 のシートメタを書き出します．
+
+- `sheet.png` は添字テクスチャです．R チャンネルが元の絵の添字そのもので，G と B は 0，
+  A は 255 です．元の絵で透明な画素 (パレットの色の A が 0 の添字)，升の隙間・外周・空き升は
+  `(0, 0, 0, 0)` になります．色を併合しないので，添字は付け替えられません．
+- `sheet.palettes.png` はパレットアトラスです．入力に現れた順に，相異なるパレットを 1 行ずつ
+  並べます．項目が完全に一致するパレットどうしは行を共有します．色違いの行はその後ろに
+  コマンドラインの順で並びます．幅は最も長いパレットの長さで，短い行の余りは透明です．
+- `sheet.sheet.json` は `format: 2` です．各升は自分の基になるパレット行を持ち，
+  `palettes.rows` には行の名前と，色違いの行が基にしている行を記録します．従来の併合した
+  パレットの出力は形式の版 1 のままです．版を上げたのは，0.1 の読み手が添字テクスチャを
+  色の絵として黙って読まないようにするためです．
+
+`--variant BASE.hex=VARIANT.hex` は，BASE と完全に一致する行が入力の中にあることを要求します．
+VARIANT は BASE と同じ長さで，透明の位置も同じでなければなりません．透明の位置が変わると
+絵の形が変わってしまうためです．行の名前は VARIANT のファイル名の語幹から取り，重複は
+許しません．パレットスワップ用の出力は PNG だけで，`.aseprite` には書き出せません．
+
+シェーダが行うのと同じ引き当てを CPU で行い，通常の RGBA の絵を作るには `sheet resolve` を
+使います．
+
+```sh
+pxsmith sheet resolve out/sheet.png --meta out/sheet.sheet.json -o out/resolved.png
+pxsmith sheet resolve out/sheet.png --meta out/sheet.sheet.json \
+  --variant hero-red -o out/resolved-red.png
+```
+
+`--variant` を省くと，各升は自分の基の行を使います．色違いの名前を渡すと，その色違いが
+基にしている行を使う升だけが色を変えます．`--palette-swap` 無しで梱包した絵と，
+`--palette-swap` で梱包して `resolve` した絵は全画素で一致します (実素材 64 枚で確かめて
+います)．`export tiled` は版 2 のメタでも升の位置と大きさをそのまま使いますが，Tiled には
+引き当て後の色ではなく添字テクスチャがそのまま表示される旨を警告します．
+
+Godot 4.7 で色違いを表示する最小例 (canvas_item シェーダ・テクスチャの取り込み設定・
+3 つの行の切り替え・コマンドラインからの撮影) は
+[`examples/godot-palette-swap/`](../examples/godot-palette-swap/) にあります．
 
 ## 調べる
 

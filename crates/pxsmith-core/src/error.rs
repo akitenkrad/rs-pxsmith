@@ -288,8 +288,12 @@ pub enum CoreError {
     SheetRead { message: String },
 
     /// 版が違う．**黙って読まない** — 欄の意味が変わっている見込みがある．
-    #[error("シートのメタの format が {found} である (扱えるのは {expected})")]
-    SheetVersion { found: u32, expected: u32 },
+    #[error("シートのメタの format が {found} である (扱えるのは 1 または 2)")]
+    SheetVersion { found: u32 },
+
+    /// format 2 のパレット行参照または format との組み合わせが壊れている．
+    #[error("シートのパレットメタが不正である: {message}")]
+    SheetPaletteMetadata { message: String },
 
     /// 書いてある寸法と並びが食い違う．
     ///
@@ -324,6 +328,48 @@ pub enum CoreError {
     /// 画素が指している添字がパレットに無い．**黙って透明にしない** (D93 と同じ)．
     #[error("{name} の添字 {index} がパレット ({len} 色) の外を指している")]
     SheetIndexOutOfPalette { name: String, index: u8, len: usize },
+
+    /// `--variant` の BASE と完全に一致する基の行が無い．
+    #[error("色違い '{name}' の基パレットと一致する行が無い")]
+    SheetVariantBaseMissing { name: String },
+
+    /// 色違いは基と同じ添字範囲を保たなければならない．
+    #[error("色違い '{name}' は {actual} 色だが，基パレットは {expected} 色である")]
+    SheetVariantLengthMismatch {
+        name: String,
+        expected: usize,
+        actual: usize,
+    },
+
+    /// 透明の位置が変わると色違いではなく形の変更になる．
+    #[error("色違い '{name}' は添字 {index} の透明・不透明が基パレットと違う")]
+    SheetVariantTransparencyMismatch { name: String, index: usize },
+
+    /// 行名は `--variant NAME` の解決に使うため一意でなければならない．
+    #[error("パレット行の名前 '{name}' が重複している")]
+    SheetPaletteNameDuplicate { name: String },
+
+    /// `sheet resolve` は format 2 の添字テクスチャだけを受け付ける．
+    #[error("sheet resolve には format 2 のメタが必要である (受け取った format は {found})")]
+    SheetResolveRequiresFormat2 { found: u32 },
+
+    /// 添字テクスチャまたはアトラスの実寸がメタと違う．
+    #[error("{image} の寸法 {width}x{height} がメタの {expected_w}x{expected_h} と違う")]
+    SheetResolveImageSize {
+        image: &'static str,
+        width: u32,
+        height: u32,
+        expected_w: u32,
+        expected_h: u32,
+    },
+
+    /// 指定された名前が色違い行に無い．
+    #[error("色違いの行 '{name}' が無い")]
+    SheetResolveVariantMissing { name: String },
+
+    /// 添字テクスチャがアトラスの幅を越える添字を持っている．
+    #[error("升 '{cell}' の画素が添字 {index} を指しているが，パレットアトラスの幅は {width}")]
+    SheetResolveIndexOutOfPalette { cell: String, index: u8, width: u32 },
 
     /// 画素が指している添字がパレットに無い．
     #[error("画素が添字 {index} を指しているが，パレットは {len} 色しかない")]

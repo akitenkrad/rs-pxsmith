@@ -87,6 +87,9 @@ fn tiled(args: &TiledArgs) -> Result<()> {
         let text = std::fs::read_to_string(sheet_path)
             .with_context(|| format!("{} を読めない", sheet_path.display()))?;
         let sheet = SheetDoc::from_json(&text)?;
+        if sheet.format == pxsmith_core::sheet::PALETTE_SWAP_FORMAT_VERSION {
+            eprintln!("警告: シート画像は添字テクスチャで，Tiled ではそのまま色として表示されない");
+        }
         let out = tiled_tsx(&doc, &sheet, &args.name)?;
         std::fs::write(path, out).with_context(|| format!("{} を書き出せない", path.display()))?;
         println!(
