@@ -10,6 +10,7 @@
 //! | --- | --- | --- |
 //! | [`math`] | 座標・矩形・クリッピング | 3.5 |
 //! | [`color`] | RGBA と OKLab，色距離 | 3.2 / 6.6 |
+//! | [`cvd`] | 色覚の多様性に対するパレット検査 | D183 / D184 |
 //! | [`canvas`] | インデックス / RGBA キャンバス | 3.2 |
 //! | [`palette`] | パレット・ランプ・明度順正規化 | 3.2 |
 //! | [`frame`] | 作業層のフレームとレイヤ | 3.1 |
@@ -48,6 +49,7 @@ pub mod clean;
 pub mod cleanedge;
 pub mod color;
 pub mod compose;
+pub mod cvd;
 pub mod deform;
 pub mod direction;
 pub mod edit;
@@ -79,6 +81,7 @@ pub mod validate;
 pub use aa::{AaAddOptions, AaReport, add_antialiasing};
 pub use canvas::{IndexedCanvas, RgbaCanvas};
 pub use color::{Oklab, Rgba8};
+pub use cvd::{CvdOptions, CvdReport, Deficiency};
 pub use direction::{
     Direction, ExpandMode, ExpandOptions, ExpandReport, ReshadeSpec, expand, mirror_canvas,
     mirror_frame,

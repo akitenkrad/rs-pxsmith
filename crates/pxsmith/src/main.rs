@@ -4,6 +4,7 @@
 //! (設計書 4.2)．
 
 use std::path::{Path, PathBuf};
+use std::process::ExitCode;
 
 use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand};
@@ -327,8 +328,18 @@ enum VerifyCommand {
     },
 }
 
-fn main() -> Result<()> {
-    dispatch(Cli::parse().command)
+fn main() -> ExitCode {
+    match dispatch(Cli::parse().command) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("Error: {error:?}");
+            if error.downcast_ref::<color_cmds::CvdUsageError>().is_some() {
+                ExitCode::from(2)
+            } else {
+                ExitCode::FAILURE
+            }
+        }
+    }
 }
 
 /// サブコマンドを実行する．

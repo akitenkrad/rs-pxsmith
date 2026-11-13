@@ -168,12 +168,43 @@ pxsmith export tiled map.json map.tmx --sheet out/sheet.json
 ```sh
 pxsmith view walk.px.toml --frame 2 --onion 2   # onion skin, outlines only
 pxsmith palette report hero.px.toml --top 12    # which colours carry the area
+pxsmith palette cvd palettes/sweetie-16.hex     # Protan and Deutan checks
 ```
 
 `palette report` gives four coverage thresholds rather than one, and reports the
 total area of an index separately from its largest connected blob. A colour
 scattered across a sprite is not a main colour, but reading the total alone would
 call it one.
+
+### Colour vision deficiency checks
+
+`palette cvd` accepts a `.hex` palette or `.px.toml`, `.aseprite`, and `.png`
+artwork. For artwork, only colours that are actually used are checked;
+completely transparent colours are ignored. Protan and Deutan are checked by
+default. Pass a comma-separated list to select other types:
+
+```sh
+pxsmith palette cvd hero.px.toml --type protan,deutan,tritan
+pxsmith palette cvd hero.px.toml --pair ffcd75,a7f070 --json
+```
+
+The simulation uses the severity 1.0 matrices from Machado, Oliveira and
+Fernandes, “A Physiologically-based Model for Simulation of Color Vision
+Deficiency” (IEEE TVCG 15(6), 2009). The matrices are applied to linear RGB:
+sRGB is decoded before the matrix and encoded again afterwards. Pair distances
+use the same Euclidean OKLab distance as the other pxsmith colour tools.
+
+The default `--threshold 0.02` is one just-noticeable difference in OKLCh as
+defined by W3C CSS Color Module Level 4 §14.2.1. Pairs already below the
+threshold without simulation are counted separately, because their ambiguity
+was not caused by colour vision deficiency.
+
+Without `--pair`, findings are advisory and the command exits with status 0.
+Repeat `--pair RRGGBB,RRGGBB` for colour pairs that carry game meaning; if one
+of those pairs becomes indistinguishable, the command reports it as blocking
+and exits with status 1. A named colour that is not in the checked palette is an
+input error with status 2. Clap syntax and value errors also use status 2;
+other I/O or processing errors use status 1.
 
 ## Building from a checkout
 

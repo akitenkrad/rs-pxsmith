@@ -167,11 +167,38 @@ pxsmith export tiled map.json map.tmx --sheet out/sheet.json
 ```sh
 pxsmith view walk.px.toml --frame 2 --onion 2   # オニオンスキン．輪郭のみ
 pxsmith palette report hero.px.toml --top 12    # どの色が面積を担っているか
+pxsmith palette cvd palettes/sweetie-16.hex     # P 型 ・D 型の色覚で見分けられるか
 ```
 
 `palette report` は単一の割合ではなく 4 通りの閾値を並べ，さらに「その添字の合計面積」と
 「1 つながりの塊としての最大面積」を分けて報告します．広い範囲に撒かれた色は主要な色とは
 言えませんが，合計面積だけを見ると主要な色として読めてしまうためです．
+
+### 色覚の多様性に対する検査
+
+`palette cvd` は `.hex` のパレット，または `.px.toml`・`.aseprite`・`.png` の絵を受け取ります．
+絵の場合は実際に使われている色だけを検査し，完全に透明な色は対象から外します．既定で
+検査するのは P 型 (1 型) と D 型 (2 型) で，カンマ区切りで別の型を指定できます．
+
+```sh
+pxsmith palette cvd hero.px.toml --type protan,deutan,tritan
+pxsmith palette cvd hero.px.toml --pair ffcd75,a7f070 --json
+```
+
+シミュレーションには Machado, Oliveira, Fernandes の «A Physiologically-based Model for
+Simulation of Color Vision Deficiency» (IEEE TVCG 15(6), 2009) の severity 1.0 の行列を使います．
+行列は線形 RGB に掛けます．つまり sRGB を復号してから行列を掛け，結果を再び符号化します．
+組の距離には，pxsmith の他の色の道具と同じ OKLab のユークリッド距離を使います．
+
+既定の `--threshold 0.02` は，W3C の CSS Color Module Level 4 §14.2.1 が OkLCh の 1 JND
+(丁度可知差異) と定める値です．シミュレーションをしなくても閾値を下回る組は別に数えます．
+それらが見分けにくいのは色覚のせいではないからです．
+
+`--pair` を指定しなければ指摘は助言にとどまり，終了コードは 0 です．ゲーム上で意味を持つ
+色の組を `--pair RRGGBB,RRGGBB` で (繰り返して) 指定すると，その組が見分けられなくなったときに
+blocking として報告し，終了コード 1 で終わります．指定した色が検査対象のパレットに無い場合は
+入力の誤りとして終了コード 2 を返します．引数の書式の誤りも 2，それ以外の入出力や処理の
+誤りは 1 です．
 
 ## チェックアウトからのビルド
 

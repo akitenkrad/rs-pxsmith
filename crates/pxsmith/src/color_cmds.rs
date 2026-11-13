@@ -10,11 +10,23 @@ use anyhow::{Context, Result, bail};
 use clap::{Args, Subcommand, ValueEnum};
 use pxsmith_core::canvas::{IndexedCanvas, RgbaCanvas};
 use pxsmith_core::clean::{AaOptions, DenoiseOptions};
+use pxsmith_core::cvd::{CvdOptions, CvdPair, CvdReport, DEFAULT_THRESHOLD, Deficiency};
 use pxsmith_core::grid::{GridParams, downscale_modal, estimate_grid, local_grid, uniformity};
 use pxsmith_core::quantize::{ApplyOptions, Dither, QuantizeMethod, ReduceOptions};
 use pxsmith_core::ramp::{LightPreset, RampSpec, build_lighting, generate_ramp};
 use pxsmith_core::{ChromaCurve, Palette, Rgba8};
 use pxsmith_io::{FrameId, hex, png};
+
+#[derive(Debug)]
+pub(crate) struct CvdUsageError(String);
+
+impl std::fmt::Display for CvdUsageError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for CvdUsageError {}
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
 pub enum MethodArg {
@@ -56,6 +68,23 @@ pub enum PresetArg {
     Sunset,
     Night,
     Moonlight,
+}
+
+fn parse_deficiency(value: &str) -> std::result::Result<Deficiency, String> {
+    Deficiency::parse(value)
+        .ok_or_else(|| format!("'{value}' は色覚の型ではない (protan / deutan / tritan から選ぶ)"))
+}
+
+fn parse_cvd_pair(value: &str) -> std::result::Result<(Rgba8, Rgba8), String> {
+    let Some((a, b)) = value.split_once(',') else {
+        return Err("色の組は RRGGBB,RRGGBB の形で指定する".to_string());
+    };
+    if b.contains(',') {
+        return Err("色の組はちょうど 2 色指定する".to_string());
+    }
+    let a = Rgba8::from_hex_str(a).map_err(|_| format!("色 '{a}' を読めない"))?;
+    let b = Rgba8::from_hex_str(b).map_err(|_| format!("色 '{b}' を読めない"))?;
+    Ok((a, b))
 }
 
 impl From<PresetArg> for LightPreset {
@@ -200,6 +229,28 @@ pub enum PaletteCommand {
         #[arg(long, default_value_t = 3)]
         main: usize,
     },
+    /// P 型・D 型・T 型の見え方で区別しにくくなる色の組を調べる
+    Cvd {
+        /// `.hex` パレット，または `.px.toml` / `.aseprite` / `.png` の絵
+        input: PathBuf,
+        /// 検査する型 (カンマ区切り)
+        #[arg(
+            long = "type",
+            value_delimiter = ',',
+            default_value = "protan,deutan",
+            value_parser = parse_deficiency
+        )]
+        types: Vec<Deficiency>,
+        /// 見分けられないと判定する deltaEOK
+        #[arg(long, default_value_t = DEFAULT_THRESHOLD)]
+        threshold: f32,
+        /// ゲーム上意味を持つ色の組．混同すると blocking
+        #[arg(long = "pair", value_parser = parse_cvd_pair)]
+        pairs: Vec<(Rgba8, Rgba8)>,
+        /// 機械向け JSON で出す
+        #[arg(long)]
+        json: bool,
+    },
     /// 既存のパレットへ強制する
     Apply {
         input: PathBuf,
@@ -230,6 +281,13 @@ pub fn palette(command: PaletteCommand) -> Result<()> {
         }
         PaletteCommand::Extract { inputs, output } => extract(&inputs, &output),
         PaletteCommand::Report { input, top, main } => report(&input, top, main),
+        PaletteCommand::Cvd {
+            input,
+            types,
+            threshold,
+            pairs,
+            json,
+        } => cvd(&input, types, threshold, pairs, json),
         PaletteCommand::Merge {
             inputs,
             output,
@@ -387,6 +445,186 @@ fn report(input: &Path, top: usize, main: usize) -> Result<()> {
                  \u{3000}\u{3000}色距離が大きくても明度が並んでいれば形は読めない"
             );
         }
+    }
+    Ok(())
+}
+
+fn colours_for_cvd(input: &Path) -> Result<Vec<Rgba8>> {
+    let is_hex = input
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("hex"));
+    if is_hex {
+        return Ok(load_palette(input)?.entries().to_vec());
+    }
+    if is_png(input) {
+        let image =
+            png::read_rgba(input).with_context(|| format!("{} を読めない", input.display()))?;
+        let mut colours = image.pixels().to_vec();
+        colours.sort_unstable_by_key(|colour| colour.sort_key());
+        colours.dedup();
+        return Ok(colours);
+    }
+
+    // `palette report` と同じく，最初のインデックスカラーレイヤを見る．
+    // 添字を報告に残すため，未使用色は透明にして core の検査対象から外す．
+    let (canvas, palette) = load_indexed(input)?;
+    let mut used = vec![false; palette.len()];
+    for &index in canvas.pixels() {
+        if canvas.transparent() != Some(index)
+            && let Some(slot) = used.get_mut(index as usize)
+        {
+            *slot = true;
+        }
+    }
+    Ok(palette
+        .entries()
+        .iter()
+        .zip(used)
+        .map(|(&colour, used)| if used { colour } else { Rgba8::TRANSPARENT })
+        .collect())
+}
+
+fn cvd_pair_json(pair: &CvdPair) -> serde_json::Value {
+    let distances: std::collections::BTreeMap<&str, f32> = pair
+        .simulated
+        .iter()
+        .map(|distance| (distance.deficiency.as_str(), distance.distance))
+        .collect();
+    serde_json::json!({
+        "a": { "index": pair.a_index, "hex": pair.a.to_hex_string() },
+        "b": { "index": pair.b_index, "hex": pair.b.to_hex_string() },
+        "normal_distance": pair.normal_distance,
+        "distances": distances,
+        "blocking": pair.blocking,
+    })
+}
+
+fn print_cvd_json(input: &Path, report: &CvdReport) -> Result<()> {
+    let types: std::collections::BTreeMap<&str, Vec<serde_json::Value>> = report
+        .by_deficiency
+        .iter()
+        .map(|type_report| {
+            (
+                type_report.deficiency.as_str(),
+                type_report.confusions.iter().map(cvd_pair_json).collect(),
+            )
+        })
+        .collect();
+    let original: Vec<serde_json::Value> = report
+        .originally_indistinguishable
+        .iter()
+        .map(cvd_pair_json)
+        .collect();
+    let value = serde_json::json!({
+        "input": input,
+        "palette_len": report.palette_len,
+        "opaque_colours": report.opaque,
+        "threshold": report.threshold,
+        "originally_indistinguishable": original,
+        "types": types,
+        "blocking": report.has_blocking(),
+    });
+    println!("{}", serde_json::to_string_pretty(&value)?);
+    Ok(())
+}
+
+fn print_cvd_human(input: &Path, report: &CvdReport) {
+    println!(
+        "{} — 不透明色 {} / パレット {} 色 ・閾値 deltaEOK {:.3}",
+        input.display(),
+        report.opaque,
+        report.palette_len,
+        report.threshold
+    );
+    println!(
+        "  通常でも見分けにくい組 {} (色覚による指摘から除外)",
+        report.originally_indistinguishable.len()
+    );
+    for type_report in &report.by_deficiency {
+        let blocking = type_report
+            .confusions
+            .iter()
+            .filter(|pair| pair.blocking)
+            .count();
+        println!(
+            "\n  {} — 見分けられなくなる組 {} (blocking {})",
+            type_report.deficiency.as_str(),
+            type_report.confusions.len(),
+            blocking
+        );
+        if type_report.confusions.is_empty() {
+            println!("    該当なし");
+            continue;
+        }
+        println!("    組{}通常    シミュレーション後", " ".repeat(25));
+        for pair in &type_report.confusions {
+            let distances = pair
+                .simulated
+                .iter()
+                .map(|distance| {
+                    format!("{} {:.3}", distance.deficiency.as_str(), distance.distance)
+                })
+                .collect::<Vec<_>>()
+                .join("  ");
+            println!(
+                "    {:>3} {} - {:>3} {}  {:>6.3}    {}{}",
+                pair.a_index,
+                pair.a.to_hex_string(),
+                pair.b_index,
+                pair.b.to_hex_string(),
+                pair.normal_distance,
+                distances,
+                if pair.blocking { "  [blocking]" } else { "" }
+            );
+        }
+    }
+}
+
+/// `pxsmith palette cvd` — 色覚の型ごとに近づく色の組を報告する (D183・D184)．
+fn cvd(
+    input: &Path,
+    mut types: Vec<Deficiency>,
+    threshold: f32,
+    pairs: Vec<(Rgba8, Rgba8)>,
+    json: bool,
+) -> Result<()> {
+    if !threshold.is_finite() || threshold < 0.0 {
+        return Err(CvdUsageError("--threshold は 0 以上の有限値で指定すること".into()).into());
+    }
+    let mut unique_types = Vec::new();
+    for deficiency in types.drain(..) {
+        if !unique_types.contains(&deficiency) {
+            unique_types.push(deficiency);
+        }
+    }
+    let colours = colours_for_cvd(input)?;
+    let options = CvdOptions {
+        deficiencies: unique_types,
+        threshold,
+        blocking_pairs: pairs,
+    };
+    let report = pxsmith_core::cvd::check(&colours, &options);
+    if !report.missing_blocking_colours.is_empty() {
+        let missing = report
+            .missing_blocking_colours
+            .iter()
+            .map(|colour| colour.to_hex_string())
+            .collect::<Vec<_>>()
+            .join("，");
+        return Err(CvdUsageError(format!(
+            "--pair で指定した色 {missing} は検査対象のパレットに無い"
+        ))
+        .into());
+    }
+
+    if json {
+        print_cvd_json(input, &report)?;
+    } else {
+        print_cvd_human(input, &report);
+    }
+    if report.has_blocking() {
+        bail!("blocking: ゲーム上意味を持つ色の組が見分けられなくなる");
     }
     Ok(())
 }
