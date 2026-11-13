@@ -153,9 +153,12 @@ impl IndexedCanvas {
         Ok(())
     }
 
-    /// 透明でない画素を囲う最小の矩形．全て透明なら `None`．
+    /// 透明でない画素を囲う最小の矩形．`None` は全面透明のときだけ返す．
+    /// 透明添字を持たない画布は全画素が不透明なので，画布全体を返す．
     pub fn opaque_bbox(&self) -> Option<IRect> {
-        let t = self.transparent?;
+        let Some(t) = self.transparent else {
+            return (self.width > 0 && self.height > 0).then(|| self.bounds());
+        };
         let (mut x0, mut y0) = (i32::MAX, i32::MAX);
         let (mut x1, mut y1) = (i32::MIN, i32::MIN);
         for y in 0..self.height as i32 {
@@ -324,6 +327,12 @@ mod tests {
     fn opaque_bbox_is_none_when_fully_transparent() {
         let c = IndexedCanvas::filled(4, 4, 0).with_transparent(Some(0));
         assert_eq!(c.opaque_bbox(), None);
+    }
+
+    #[test]
+    fn opaque_bbox_is_the_whole_canvas_without_a_transparent_index() {
+        let c = IndexedCanvas::filled(4, 3, 0);
+        assert_eq!(c.opaque_bbox(), Some(IRect::new(0, 0, 4, 3)));
     }
 
     #[test]

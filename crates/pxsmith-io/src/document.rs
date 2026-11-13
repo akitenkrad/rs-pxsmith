@@ -303,31 +303,66 @@ impl Document {
             }
         }
 
+        let mut colors: Vec<aseprite::Color> = first
+            .palette
+            .entries()
+            .iter()
+            .map(|c| aseprite::Color {
+                r: c.r,
+                g: c.g,
+                b: c.b,
+                a: c.a,
+                name: None,
+            })
+            .collect();
+
+        // キャンバスが透明添字を持つ場合はそれを使う (D3)．持たない場合も Aseprite の
+        // ヘッダには透明添字が必須なので，全フレーム・全レイヤで未使用の添字を予約する．
+        // 空きが無ければ透明色を足し，256 色すべて使用済みなら黙って画素を消さずに落とす
+        // (D188)．
+        let transparent = match frames
+            .iter()
+            .flat_map(|frame| &frame.layers)
+            .find_map(|layer| {
+                layer
+                    .surface
+                    .as_indexed()
+                    .and_then(IndexedCanvas::transparent)
+            }) {
+            Some(transparent) => transparent,
+            None => {
+                let mut used = [false; Palette::MAX_COLORS];
+                for canvas in frames
+                    .iter()
+                    .flat_map(|frame| &frame.layers)
+                    .filter_map(|layer| layer.surface.as_indexed())
+                {
+                    for &index in canvas.pixels() {
+                        used[index as usize] = true;
+                    }
+                }
+                match (0..colors.len()).find(|&index| !used[index]) {
+                    Some(index) => index as u8,
+                    None if colors.len() < Palette::MAX_COLORS => {
+                        let index = colors.len() as u8;
+                        colors.push(aseprite::Color {
+                            r: 0,
+                            g: 0,
+                            b: 0,
+                            a: 0,
+                            name: None,
+                        });
+                        index
+                    }
+                    None => return Err(IoError::PaletteTooLarge(colors.len() + 1)),
+                }
+            }
+        };
+
         let mut raw =
             AsepriteFile::new(first.size.x as u16, first.size.y as u16, ColorMode::Indexed);
-        raw.set_palette(
-            &first
-                .palette
-                .entries()
-                .iter()
-                .map(|c| aseprite::Color {
-                    r: c.r,
-                    g: c.g,
-                    b: c.b,
-                    a: c.a,
-                    name: None,
-                })
-                .collect::<Vec<_>>(),
-        )?;
-
-        // 透明添字はキャンバスのメタから取る．無ければ 0 のままにする (D3)
-        if let Some(t) = first
-            .layers
-            .iter()
-            .find_map(|l| l.surface.as_indexed().and_then(|c| c.transparent()))
-        {
-            raw.set_transparent_index(t);
-        }
+        raw.set_palette(&colors)?;
+        raw.set_transparent_index(transparent);
 
         for layer in &first.layers {
             raw.add_layer(&layer.meta.name);
@@ -849,6 +884,102 @@ mod tests {
         assert_eq!(reloaded.frame_count(), 2);
         assert_eq!(reloaded.project(FrameId(0)).unwrap(), a);
         assert_eq!(reloaded.project(FrameId(1)).unwrap(), b);
+    }
+
+    fn frame_without_transparency(palette: &Palette, layers: &[Vec<u8>]) -> Frame {
+        let width = layers.first().map_or(1, Vec::len) as u32;
+        let mut frame = Frame::new(uvec2(width, 1), palette.clone());
+        for (index, pixels) in layers.iter().enumerate() {
+            frame.layers.push(Layer::new(
+                LayerMeta::named(format!("layer-{index}")),
+                Surface::Indexed(
+                    IndexedCanvas::from_pixels(width, 1, pixels.clone()).expect("画素数"),
+                ),
+            ));
+        }
+        frame
+    }
+
+    #[test]
+    fn from_frames_uses_an_index_unused_across_every_frame_and_layer_for_transparency() {
+        let palette = Palette::new(vec![
+            Rgba8::rgb(10, 20, 30),
+            Rgba8::rgb(40, 50, 60),
+            Rgba8::rgb(70, 80, 90),
+            Rgba8::rgb(100, 110, 120),
+        ])
+        .expect("パレット");
+        let frames = vec![
+            frame_without_transparency(&palette, &[vec![0, 0], vec![1, 1]]),
+            frame_without_transparency(&palette, &[vec![2, 2], vec![0, 2]]),
+        ];
+
+        let built = Document::from_frames(&frames).expect("Aseprite を組み立てられる");
+        assert_eq!(built.raw().transparent_index(), 3);
+        assert_eq!(built.raw().palette().len(), 4, "既存の空き添字を使う");
+
+        let reloaded = Document::from_bytes(&built.to_bytes().expect("書ける")).expect("読める");
+        for (frame_index, expected) in frames.iter().enumerate() {
+            let actual = reloaded.project(FrameId(frame_index)).expect("射影できる");
+            for (actual_layer, expected_layer) in actual.layers.iter().zip(&expected.layers) {
+                let actual = actual_layer
+                    .surface
+                    .as_indexed()
+                    .expect("インデックスカラー");
+                let expected = expected_layer
+                    .surface
+                    .as_indexed()
+                    .expect("インデックスカラー");
+                assert_eq!(actual.pixels(), expected.pixels());
+                assert!(
+                    actual
+                        .pixels()
+                        .iter()
+                        .all(|pixel| Some(*pixel) != actual.transparent())
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn from_frames_adds_a_transparent_colour_when_every_palette_index_is_used() {
+        let palette =
+            Palette::new(vec![Rgba8::rgb(10, 20, 30), Rgba8::rgb(40, 50, 60)]).expect("パレット");
+        let frame = frame_without_transparency(&palette, &[vec![0, 1]]);
+
+        let built = Document::from_frames(std::slice::from_ref(&frame))
+            .expect("透明色を足して組み立てられる");
+        assert_eq!(built.raw().transparent_index(), 2);
+        assert_eq!(built.raw().palette().len(), 3);
+        assert_eq!(built.raw().palette()[2].a, 0);
+
+        let actual = Document::from_bytes(&built.to_bytes().expect("書ける"))
+            .expect("読める")
+            .project(FrameId(0))
+            .expect("射影できる");
+        let canvas = actual.layers[0]
+            .surface
+            .as_indexed()
+            .expect("インデックスカラー");
+        assert_eq!(canvas.pixels(), &[0, 1]);
+        assert!(
+            canvas
+                .pixels()
+                .iter()
+                .all(|pixel| Some(*pixel) != canvas.transparent())
+        );
+    }
+
+    #[test]
+    fn from_frames_rejects_a_full_palette_when_every_index_is_used() {
+        let palette = Palette::new((0..=u8::MAX).map(|index| Rgba8::rgb(index, 0, 0)).collect())
+            .expect("256 色パレット");
+        let frame = frame_without_transparency(&palette, &[(0..=u8::MAX).collect()]);
+
+        assert!(matches!(
+            Document::from_frames(&[frame]).unwrap_err(),
+            IoError::PaletteTooLarge(257)
+        ));
     }
 
     #[test]

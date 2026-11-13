@@ -208,18 +208,9 @@ pub fn squash(
     if !k.is_finite() || k <= 0.0 {
         return Err(CoreError::SquashBadAmount { amount });
     }
-    // **透明の宣言が無い絵は «全部が絵» である．**
-    //
-    // [`IndexedCanvas::opaque_bbox`] は透明添字が無いと `None` を返すので，
-    // そのまま «空» と読むと**背景タイルのように隙間の無い絵をすべて拒む**．
-    // 実素材 66 枚のうち何枚かがこれで，端から端まで通す試験が捕まえた．
-    let bbox = match canvas.opaque_bbox() {
-        Some(b) => b,
-        None if canvas.transparent().is_none() && canvas.width() > 0 && canvas.height() > 0 => {
-            IRect::new(0, 0, canvas.width(), canvas.height())
-        }
-        None => return Err(CoreError::SquashEmptyCanvas),
-    };
+    // **透明の宣言が無い絵は «全部が絵» である．** `opaque_bbox` がこの定義を
+    // 一元化しており (D188)，`None` は本当に不透明画素が無い場合だけである．
+    let bbox = canvas.opaque_bbox().ok_or(CoreError::SquashEmptyCanvas)?;
     let (w, h) = (bbox.w, bbox.h);
 
     // **高さを先に決め，幅は規則で決める．** どちらを先に決めるかで結果が変わるので，
