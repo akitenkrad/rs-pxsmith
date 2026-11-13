@@ -666,10 +666,7 @@ pub fn resolve(
 
 /// 素材の添字が指す色と，シートにおける透明性を返す．
 ///
-/// 透明の定義は **パレット色の alpha が 0** の 1 つだけである．
-/// `IndexedCanvas::transparent` は他の道具が使う付帯情報だが，CLI のレイヤ平坦化は
-/// 透明色が無い場合にも受け皿として添字 0 を設定する．それを画素の意味として
-/// 読むと，不透明な添字 0 が消えて従来の `map_of` と食い違う．
+/// 画布の透明添字か，パレット色の alpha が 0 なら透明である．
 fn source_color(item: &SheetItem, index: u8) -> Result<(Rgba8, bool)> {
     let color = item
         .palette
@@ -679,7 +676,10 @@ fn source_color(item: &SheetItem, index: u8) -> Result<(Rgba8, bool)> {
             index,
             len: item.palette.len(),
         })?;
-    Ok((color, color.a == 0))
+    Ok((
+        color,
+        item.canvas.transparent() == Some(index) || color.a == 0,
+    ))
 }
 
 /// 1 枚の添字を併合後の添字へ写す表．
@@ -941,12 +941,9 @@ mod tests {
         assert!(doc.cells.iter().all(|cell| cell.palette == Some(0)));
     }
 
-    /// **壊れると: 透明キーを使わない L0 の不透明な添字 0 が消える．**
-    ///
-    /// CLI のレイヤ平坦化は，透明添字が無いフレームにも `Some(0)` を持たせる．
-    /// シートの透明定義はパレット色の alpha だけなので，その付帯情報によらず添字 0 は残る．
+    /// **壊れると: 画布の透明添字とパレット色の alpha で透明の定義が分かれる．**
     #[test]
-    fn opaque_index_zero_survives_with_or_without_a_canvas_transparent_marker() {
+    fn canvas_transparent_index_is_used_by_legacy_and_palette_swap_packing() {
         let palette = Palette::new(vec![Rgba8::rgb(38, 43, 68)]).expect("パレット");
         let make = |name: &str, transparent| PaletteSwapItem {
             item: SheetItem {
@@ -971,14 +968,20 @@ mod tests {
         let (indices, atlas, doc, _) =
             pack_palette_swap(&swap_items, &[], &opts).expect("パレットスワップ梱包");
 
-        for cell in &doc.cells {
-            assert_eq!(
-                indices.get(cell.x as i32, cell.y as i32),
-                Some(Rgba8::new(0, 0, 0, 255)),
-                "{} の不透明な添字 0 が消えた",
-                cell.name
-            );
-        }
+        let marked = &doc.cells[0];
+        let unmarked = &doc.cells[1];
+        assert!(legacy_indices.is_transparent_at(ivec2(marked.x as i32, marked.y as i32)));
+        assert!(!legacy_indices.is_transparent_at(ivec2(unmarked.x as i32, unmarked.y as i32)));
+        assert_eq!(
+            indices.get(marked.x as i32, marked.y as i32),
+            Some(Rgba8::TRANSPARENT),
+            "Some(0) の画素は透明"
+        );
+        assert_eq!(
+            indices.get(unmarked.x as i32, unmarked.y as i32),
+            Some(Rgba8::new(0, 0, 0, 255)),
+            "None の添字 0 は不透明"
+        );
         let resolved = resolve(&indices, &atlas, &doc, None).expect("復元");
         assert_eq!(resolved, expected);
     }

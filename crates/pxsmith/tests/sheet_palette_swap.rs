@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-use pxsmith_core::Rgba8;
+use pxsmith_core::{Frame, IndexedCanvas, Layer, LayerMeta, Palette, Rgba8, Surface, uvec2};
 
 fn repo(path: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -144,7 +144,7 @@ fn pack_then_resolve_matches_plain_sheet_and_variant_changes_only_colour() {
 #[test]
 fn l0_without_a_transparent_key_keeps_opaque_index_zero_when_resolved() {
     let root = scratch();
-    let input = repo("testdata/grid-eval/seeds/kenney_tile_0091.png");
+    let input = repo("testdata/lint-cases/negative/jaggy-00.png");
     let l0 = root.join("tile.px.toml");
     let output = run(&[
         "quantize".as_ref(),
@@ -209,6 +209,40 @@ fn l0_without_a_transparent_key_keeps_opaque_index_zero_when_resolved() {
             .all(|(a, b)| same_colour(*a, *b)),
         "透明キーの無い L0 を復元した色が通常梱包と違う"
     );
+}
+
+#[test]
+fn pack_treats_an_aseprite_transparent_index_as_transparent_even_if_its_colour_is_opaque() {
+    let root = scratch();
+    let input = root.join("opaque-transparent-index.aseprite");
+    let palette =
+        Palette::new(vec![Rgba8::rgb(200, 30, 30), Rgba8::rgb(30, 200, 30)]).expect("パレット");
+    let canvas = IndexedCanvas::from_pixels(2, 1, vec![1, 0])
+        .expect("画素数")
+        .with_transparent(Some(1));
+    let mut frame = Frame::new(uvec2(2, 1), palette);
+    frame.layers.push(Layer::new(
+        LayerMeta::named("art"),
+        Surface::Indexed(canvas),
+    ));
+    pxsmith_io::Document::from_frames(&[frame])
+        .expect("文書を作れる")
+        .write(&input)
+        .expect("Aseprite を書ける");
+
+    let sheet = root.join("sheet.png");
+    let output = run(&[
+        "sheet".as_ref(),
+        "pack".as_ref(),
+        sheet.as_os_str(),
+        "--input".as_ref(),
+        input.as_os_str(),
+    ]);
+    assert_success(&output);
+
+    let sheet = pxsmith_io::png::read_rgba(&sheet).expect("シートを読める");
+    assert_eq!(sheet.get(0, 0), Some(Rgba8::TRANSPARENT));
+    assert_eq!(sheet.get(1, 0), Some(Rgba8::rgb(200, 30, 30)));
 }
 
 #[test]

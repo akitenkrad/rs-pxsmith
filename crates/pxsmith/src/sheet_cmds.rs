@@ -329,13 +329,35 @@ fn resolve_cmd(index: &Path, meta: &Path, variant: Option<&str>, output: &Path) 
 /// レイヤを下から順に載せて 1 枚にする．
 fn flatten(frame: &pxsmith_core::Frame) -> Option<pxsmith_core::IndexedCanvas> {
     let first = frame.layers.first()?.surface.as_indexed()?;
-    let transparent = first.transparent().unwrap_or(0);
-    let mut out = pxsmith_core::IndexedCanvas::filled(frame.size.x, frame.size.y, transparent)
-        .with_transparent(Some(transparent));
+    let transparent = first.transparent();
+    let mut out =
+        pxsmith_core::IndexedCanvas::filled(frame.size.x, frame.size.y, transparent.unwrap_or(0))
+            .with_transparent(transparent);
     for layer in &frame.layers {
         if let Some(c) = layer.surface.as_indexed() {
             out.blit(c, pxsmith_core::ivec2(0, 0), true);
         }
     }
     Some(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pxsmith_core::{Frame, Layer, LayerMeta, Palette, Rgba8, Surface, uvec2};
+
+    #[test]
+    fn flatten_keeps_a_missing_transparent_index_as_none() {
+        let palette = Palette::new(vec![Rgba8::rgb(38, 43, 68)]).expect("パレット");
+        let mut frame = Frame::new(uvec2(1, 1), palette);
+        frame.layers.push(Layer::new(
+            LayerMeta::named("art"),
+            Surface::Indexed(pxsmith_core::IndexedCanvas::filled(1, 1, 0)),
+        ));
+
+        let canvas = flatten(&frame).expect("平坦化できる");
+
+        assert_eq!(canvas.transparent(), None);
+        assert_eq!(canvas.get(0, 0), Some(0));
+    }
 }
