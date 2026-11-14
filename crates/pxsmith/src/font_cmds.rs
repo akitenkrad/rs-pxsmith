@@ -9,7 +9,7 @@ use clap::{Args, Subcommand, ValueEnum};
 use pxsmith_core::font::{Font, FontMode, Glyph};
 use pxsmith_core::{
     FontLayoutError, FontLayoutOptions, IndexedCanvas, Kinsoku, Palette, Rgba8, TextAlign,
-    layout_text,
+    VerticalOrientation, WritingDirection, layout_text, vertical_orientation,
 };
 use pxsmith_io::bdf::{BdfImportOptions, import_bdf};
 use pxsmith_io::pxfont::PxFontDocument;
@@ -21,7 +21,7 @@ pub enum FontCommand {
     Import(ImportArgs),
     /// 文言に必要な字と字形を検査する
     Check(CheckArgs),
-    /// 文字列を横書きで画布へ焼き込む
+    /// 文字列を横書きまたは縦書きで画布へ焼き込む
     Render(RenderArgs),
 }
 
@@ -113,10 +113,10 @@ pub struct RenderArgs {
     /// 行間（px）
     #[arg(long, default_value_t = 0)]
     pub line_spacing: u32,
-    /// 行の寄せ方
+    /// 行の寄せ方（縦書きでは left = 上，center = 中央，right = 下）
     #[arg(long, value_enum, default_value_t = AlignArg::Left)]
     pub align: AlignArg,
-    /// 折り返す行幅（px）
+    /// 折り返す行幅，または縦書きの列の高さ（px）
     #[arg(long)]
     pub wrap: Option<u32>,
     /// カーニングを無効にする
@@ -131,6 +131,12 @@ pub struct RenderArgs {
     /// フォントに無い字を置き換える字（1 字または U+XXXX）
     #[arg(long, value_parser = parse_character)]
     pub missing: Option<char>,
+    /// 上から下，右から左へ縦書きする
+    #[arg(long)]
+    pub vertical: bool,
+    /// N 桁以下の半角数字を 1 字分へ横組みする（--vertical が必要）
+    #[arg(long, value_parser = clap::value_parser!(u32).range(1..), requires = "vertical")]
+    pub tcy: Option<u32>,
 }
 
 pub fn font(command: FontCommand) -> Result<()> {
@@ -150,15 +156,20 @@ fn render(args: &RenderArgs) -> Result<()> {
         .to_font(&args.font)
         .with_context(|| format!("{} は有効な pxfont ではない", args.font.display()))?;
     let options = FontLayoutOptions {
+        direction: if args.vertical {
+            WritingDirection::Vertical
+        } else {
+            WritingDirection::Horizontal
+        },
         letter_spacing: args.letter_spacing,
         line_spacing: args.line_spacing,
         align: args.align.into(),
         wrap: args.wrap,
-        kern: !args.no_kern,
+        kern: !args.no_kern && !args.vertical,
         kinsoku: args.kinsoku.into(),
         hang: args.hang,
         missing: args.missing,
-        ..FontLayoutOptions::default()
+        tcy: args.tcy,
     };
     let laid_out = layout_text(&font, &text, &options).map_err(layout_error)?;
     let drawn_characters = laid_out
@@ -202,9 +213,38 @@ fn render(args: &RenderArgs) -> Result<()> {
             laid_out.report.unconverted_cj
         );
     }
+    if laid_out.report.vertical_variants != 0 {
+        println!(
+            "縦書き変種を使った: {} 件",
+            laid_out.report.vertical_variants
+        );
+    }
+    if laid_out.report.rotated_r != 0 {
+        println!("R を回した: {} 件", laid_out.report.rotated_r);
+    }
+    if laid_out.report.rotated_tr != 0 {
+        println!(
+            "Tr の変種が無いため回した: {} 件",
+            laid_out.report.rotated_tr
+        );
+    }
+    if laid_out.report.upright_tu != 0 {
+        println!(
+            "Tu の変種が無いため正立にした: {} 件",
+            laid_out.report.upright_tu
+        );
+    }
+    if laid_out.report.tcy_groups != 0 {
+        println!("縦中横: {} 組", laid_out.report.tcy_groups);
+    }
+    if laid_out.report.tcy_fallbacks != 0 {
+        println!("縦中横を諦めた: {} 組", laid_out.report.tcy_fallbacks);
+    }
+    let unit = if args.vertical { "列" } else { "行" };
     println!(
-        "焼き込み: {} 行，{}x{} -> {}",
+        "焼き込み: {} {}，{}x{} -> {}",
         laid_out.report.lines.len(),
+        unit,
         canvas.width(),
         canvas.height(),
         output.display()
@@ -708,113 +748,11 @@ fn shown(character: char) -> String {
 }
 
 fn vertical_requires_variant(character: char) -> bool {
-    let code = character as u32;
-    VERTICAL_VARIANT_RANGES
-        .binary_search_by(|&(start, end)| {
-            if code < start {
-                std::cmp::Ordering::Greater
-            } else if code > end {
-                std::cmp::Ordering::Less
-            } else {
-                std::cmp::Ordering::Equal
-            }
-        })
-        .is_ok()
+    matches!(
+        vertical_orientation(character as u32),
+        VerticalOrientation::Tu | VerticalOrientation::Tr
+    )
 }
-
-/// Unicode 18.0.0 `VerticalOrientation.txt` の Tu / Tr を機械生成した範囲．
-const VERTICAL_VARIANT_RANGES: &[(u32, u32)] = &[
-    (0x2018, 0x2018),
-    (0x2019, 0x2019),
-    (0x201C, 0x201C),
-    (0x201D, 0x201D),
-    (0x2329, 0x2329),
-    (0x232A, 0x232A),
-    (0x3001, 0x3002),
-    (0x3008, 0x3008),
-    (0x3009, 0x3009),
-    (0x300A, 0x300A),
-    (0x300B, 0x300B),
-    (0x300C, 0x300C),
-    (0x300D, 0x300D),
-    (0x300E, 0x300E),
-    (0x300F, 0x300F),
-    (0x3010, 0x3010),
-    (0x3011, 0x3011),
-    (0x3014, 0x3014),
-    (0x3015, 0x3015),
-    (0x3016, 0x3016),
-    (0x3017, 0x3017),
-    (0x3018, 0x3018),
-    (0x3019, 0x3019),
-    (0x301A, 0x301A),
-    (0x301B, 0x301B),
-    (0x301C, 0x301C),
-    (0x301D, 0x301D),
-    (0x301E, 0x301F),
-    (0x3030, 0x3030),
-    (0x3041, 0x3041),
-    (0x3043, 0x3043),
-    (0x3045, 0x3045),
-    (0x3047, 0x3047),
-    (0x3049, 0x3049),
-    (0x3063, 0x3063),
-    (0x3083, 0x3083),
-    (0x3085, 0x3085),
-    (0x3087, 0x3087),
-    (0x308E, 0x308E),
-    (0x3095, 0x3096),
-    (0x309B, 0x309C),
-    (0x30A0, 0x30A0),
-    (0x30A1, 0x30A1),
-    (0x30A3, 0x30A3),
-    (0x30A5, 0x30A5),
-    (0x30A7, 0x30A7),
-    (0x30A9, 0x30A9),
-    (0x30C3, 0x30C3),
-    (0x30E3, 0x30E3),
-    (0x30E5, 0x30E5),
-    (0x30E7, 0x30E7),
-    (0x30EE, 0x30EE),
-    (0x30F5, 0x30F6),
-    (0x30FC, 0x30FC),
-    (0x3127, 0x3127),
-    (0x31B4, 0x31B7),
-    (0x31BB, 0x31BB),
-    (0x31F0, 0x31FF),
-    (0x32FF, 0x32FF),
-    (0x3300, 0x3357),
-    (0x337B, 0x337F),
-    (0xFE50, 0xFE52),
-    (0xFE59, 0xFE59),
-    (0xFE5A, 0xFE5A),
-    (0xFE5B, 0xFE5B),
-    (0xFE5C, 0xFE5C),
-    (0xFE5D, 0xFE5D),
-    (0xFE5E, 0xFE5E),
-    (0xFF01, 0xFF01),
-    (0xFF08, 0xFF08),
-    (0xFF09, 0xFF09),
-    (0xFF0C, 0xFF0C),
-    (0xFF0E, 0xFF0E),
-    (0xFF1A, 0xFF1B),
-    (0xFF1F, 0xFF1F),
-    (0xFF3B, 0xFF3B),
-    (0xFF3D, 0xFF3D),
-    (0xFF3F, 0xFF3F),
-    (0xFF5B, 0xFF5B),
-    (0xFF5C, 0xFF5C),
-    (0xFF5D, 0xFF5D),
-    (0xFF5E, 0xFF5E),
-    (0xFF5F, 0xFF5F),
-    (0xFF60, 0xFF60),
-    (0xFFE3, 0xFFE3),
-    (0x1B132, 0x1B132),
-    (0x1B150, 0x1B152),
-    (0x1B155, 0x1B155),
-    (0x1B164, 0x1B168),
-    (0x1F200, 0x1F201),
-];
 
 #[cfg(test)]
 mod tests {
@@ -869,30 +807,6 @@ mod tests {
             Some("vert"),
             &["..#", "..."]
         )));
-    }
-
-    #[test]
-    fn generated_vertical_variant_ranges_match_unicode_data() {
-        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../testdata/unicode/VerticalOrientation.txt");
-        let text = std::fs::read_to_string(path).unwrap();
-        let mut source = Vec::new();
-        for line in text.lines() {
-            let Some((range, rest)) = line.split_once(';') else {
-                continue;
-            };
-            let property = rest.split('#').next().unwrap_or("").trim();
-            if !matches!(property, "Tu" | "Tr") {
-                continue;
-            }
-            let range = range.trim();
-            let (start, end) = range.split_once("..").unwrap_or((range, range));
-            source.push((
-                u32::from_str_radix(start, 16).unwrap(),
-                u32::from_str_radix(end, 16).unwrap(),
-            ));
-        }
-        assert_eq!(VERTICAL_VARIANT_RANGES, source);
     }
 
     #[test]

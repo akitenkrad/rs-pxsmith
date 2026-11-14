@@ -79,6 +79,7 @@ pub mod tilejson;
 pub mod tileset;
 pub mod tween;
 pub mod validate;
+pub mod vertical;
 
 pub use aa::{AaAddOptions, AaReport, add_antialiasing};
 pub use canvas::{IndexedCanvas, RgbaCanvas};
@@ -93,6 +94,7 @@ pub use font_layout::{
     FontLayoutError, FontLayoutOptions, FontLayoutReport, FontLayoutResult, Kinsoku, TextAlign,
     WritingDirection, layout_text,
 };
+pub use vertical::{VerticalOrientation, vertical_orientation};
 
 pub use anim::{CycleSpec, ModTarget, Wave, cycle, duration_ms, ease, reverse_derive};
 pub use autotile::{

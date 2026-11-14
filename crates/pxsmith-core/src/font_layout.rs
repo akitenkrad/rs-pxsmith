@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use unicode_linebreak::{BreakClass, break_property, linebreaks};
 
-use crate::{Font, Glyph, IndexedCanvas};
+use crate::{Font, Glyph, IndexedCanvas, VerticalOrientation, vertical_orientation};
 
 /// 組版の書字方向．
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
@@ -43,6 +43,7 @@ pub struct FontLayoutOptions {
     pub kinsoku: Kinsoku,
     pub hang: bool,
     pub missing: Option<char>,
+    pub tcy: Option<u32>,
 }
 
 impl Default for FontLayoutOptions {
@@ -57,6 +58,7 @@ impl Default for FontLayoutOptions {
             kinsoku: Kinsoku::Normal,
             hang: false,
             missing: None,
+            tcy: None,
         }
     }
 }
@@ -69,6 +71,12 @@ pub struct FontLayoutReport {
     pub forced_breaks: usize,
     pub hanging_punctuation: usize,
     pub unconverted_cj: usize,
+    pub vertical_variants: usize,
+    pub rotated_r: usize,
+    pub rotated_tr: usize,
+    pub upright_tu: usize,
+    pub tcy_groups: usize,
+    pub tcy_fallbacks: usize,
 }
 
 /// 組版済みの画布と報告．
@@ -81,8 +89,6 @@ pub struct FontLayoutResult {
 /// フォントを組版できなかった理由．
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum FontLayoutError {
-    #[error("縦書きの組版は未実装")]
-    VerticalUnsupported,
     #[error("フォントに無い字がある: {characters:?}")]
     MissingGlyphs { characters: Vec<char> },
     #[error("代替字 '{character}' がフォントに無い")]
@@ -109,10 +115,6 @@ pub fn layout_text(
     text: &str,
     options: &FontLayoutOptions,
 ) -> Result<FontLayoutResult, FontLayoutError> {
-    if options.direction == WritingDirection::Vertical {
-        return Err(FontLayoutError::VerticalUnsupported);
-    }
-
     let glyphs = font
         .glyphs
         .iter()
@@ -169,6 +171,9 @@ pub fn layout_text(
             }
         })
         .collect::<String>();
+    if options.direction == WritingDirection::Vertical {
+        return layout_vertical(font, &resolved, options, transparent, &glyphs, report);
+    }
     let kerns = if options.kern {
         font.kerns
             .iter()
@@ -472,6 +477,519 @@ fn draw_line(
     }
 }
 
+#[derive(Clone, Debug)]
+enum VerticalItemKind {
+    Glyph { glyph: usize, rotated: bool },
+    Tcy { glyphs: Vec<usize> },
+}
+
+#[derive(Clone, Debug)]
+struct VerticalItem {
+    text: String,
+    end: usize,
+    kind: VerticalItemKind,
+    width: u32,
+    height: u32,
+}
+
+#[derive(Clone, Debug)]
+enum RawVerticalItem {
+    Ready(VerticalItem),
+    TcyCandidate {
+        characters: Vec<ResolvedChar>,
+        start: usize,
+        end: usize,
+    },
+}
+
+#[derive(Clone, Debug)]
+struct Column {
+    items: Vec<VerticalItem>,
+    height: u32,
+}
+
+fn layout_vertical(
+    font: &Font,
+    text: &str,
+    options: &FontLayoutOptions,
+    transparent: u8,
+    base_glyphs: &BTreeMap<char, usize>,
+    mut report: FontLayoutReport,
+) -> Result<FontLayoutResult, FontLayoutError> {
+    let variants = font
+        .glyphs
+        .iter()
+        .enumerate()
+        .filter(|(_, glyph)| glyph.variant.as_deref() == Some("vert"))
+        .map(|(index, glyph)| (glyph.character, index))
+        .collect::<BTreeMap<_, _>>();
+    let paragraphs = text
+        .split('\n')
+        .map(|paragraph| {
+            let characters = paragraph
+                .chars()
+                .map(|character| ResolvedChar {
+                    character,
+                    glyph: base_glyphs[&character],
+                })
+                .collect::<Vec<_>>();
+            let (breaks, unconverted_cj) = break_positions(paragraph, options.kinsoku);
+            report.unconverted_cj += unconverted_cj;
+            let raw = raw_vertical_items(
+                font,
+                &characters,
+                &variants,
+                transparent,
+                options.tcy,
+                &mut report,
+            )?;
+            Ok((raw, breaks))
+        })
+        .collect::<Result<Vec<_>, FontLayoutError>>()?;
+
+    let mut column_width = paragraphs
+        .iter()
+        .flat_map(|(items, _)| items)
+        .filter_map(|item| match item {
+            RawVerticalItem::Ready(item) => Some(item.width),
+            RawVerticalItem::TcyCandidate { .. } => None,
+        })
+        .max()
+        .unwrap_or(font.meta.line_height);
+    if column_width == 0 {
+        column_width = font.meta.line_height;
+    }
+
+    let paragraphs = paragraphs
+        .into_iter()
+        .map(|(raw, breaks)| {
+            finish_vertical_items(font, raw, column_width, &mut report).map(|items| (items, breaks))
+        })
+        .collect::<Result<Vec<_>, FontLayoutError>>()?;
+    column_width = column_width.max(
+        paragraphs
+            .iter()
+            .flat_map(|(items, _)| items.iter().map(|item| item.width))
+            .max()
+            .unwrap_or(0),
+    );
+
+    let mut columns = Vec::new();
+    for (items, breaks) in paragraphs {
+        wrap_vertical_paragraph(&items, &breaks, options, &mut report, &mut columns)?;
+    }
+
+    let column_count =
+        u32::try_from(columns.len()).map_err(|_| FontLayoutError::DimensionsOverflow)?;
+    let width = column_width
+        .checked_mul(column_count)
+        .and_then(|width| {
+            options
+                .line_spacing
+                .checked_mul(column_count.saturating_sub(1))
+                .and_then(|spacing| width.checked_add(spacing))
+        })
+        .ok_or(FontLayoutError::DimensionsOverflow)?;
+    let height = columns
+        .iter()
+        .map(|column| column.height)
+        .max()
+        .unwrap_or(0);
+    let mut canvas =
+        IndexedCanvas::filled(width, height, transparent).with_transparent(Some(transparent));
+
+    for (index, column) in columns.iter().enumerate() {
+        let index = u32::try_from(index).map_err(|_| FontLayoutError::DimensionsOverflow)?;
+        let reverse = column_count
+            .checked_sub(index + 1)
+            .ok_or(FontLayoutError::DimensionsOverflow)?;
+        let column_x = column_width
+            .checked_add(options.line_spacing)
+            .and_then(|step| step.checked_mul(reverse))
+            .ok_or(FontLayoutError::DimensionsOverflow)?;
+        let mut y = match options.align {
+            TextAlign::Left => 0,
+            TextAlign::Center => (height - column.height) / 2,
+            TextAlign::Right => height - column.height,
+        };
+        for item in &column.items {
+            let x = column_x + (column_width - item.width) / 2;
+            draw_vertical_item(&mut canvas, font, item, x, y);
+            y = y
+                .checked_add(item.height)
+                .and_then(|y| y.checked_add(options.letter_spacing))
+                .ok_or(FontLayoutError::DimensionsOverflow)?;
+        }
+        report
+            .lines
+            .push(column.items.iter().map(|item| item.text.as_str()).collect());
+    }
+
+    Ok(FontLayoutResult { canvas, report })
+}
+
+fn raw_vertical_items(
+    font: &Font,
+    characters: &[ResolvedChar],
+    variants: &BTreeMap<char, usize>,
+    transparent: u8,
+    tcy: Option<u32>,
+    report: &mut FontLayoutReport,
+) -> Result<Vec<RawVerticalItem>, FontLayoutError> {
+    let tcy = tcy.and_then(|value| usize::try_from(value).ok());
+    let mut output = Vec::new();
+    let mut index = 0;
+    while index < characters.len() {
+        if characters[index].character.is_ascii_digit() {
+            let end = characters[index..]
+                .iter()
+                .position(|item| !item.character.is_ascii_digit())
+                .map_or(characters.len(), |offset| index + offset);
+            if tcy.is_some_and(|maximum| maximum != 0 && end - index <= maximum) {
+                output.push(RawVerticalItem::TcyCandidate {
+                    characters: characters[index..end].to_vec(),
+                    start: index,
+                    end,
+                });
+            } else {
+                for (offset, item) in characters[index..end].iter().enumerate() {
+                    output.push(RawVerticalItem::Ready(vertical_glyph_item(
+                        font,
+                        item,
+                        variants,
+                        transparent,
+                        index + offset + 1,
+                        report,
+                    )?));
+                }
+            }
+            index = end;
+            continue;
+        }
+        output.push(RawVerticalItem::Ready(vertical_glyph_item(
+            font,
+            &characters[index],
+            variants,
+            transparent,
+            index + 1,
+            report,
+        )?));
+        index += 1;
+    }
+    Ok(output)
+}
+
+fn vertical_glyph_item(
+    font: &Font,
+    item: &ResolvedChar,
+    variants: &BTreeMap<char, usize>,
+    transparent: u8,
+    end: usize,
+    report: &mut FontLayoutReport,
+) -> Result<VerticalItem, FontLayoutError> {
+    let orientation = vertical_orientation(item.character as u32);
+    let (glyph, rotated) = if let Some(&variant) = variants.get(&item.character) {
+        ensure_vertical_transparency(font, variant, transparent)?;
+        report.vertical_variants += 1;
+        (variant, false)
+    } else {
+        match orientation {
+            VerticalOrientation::U => (item.glyph, false),
+            VerticalOrientation::R => {
+                report.rotated_r += 1;
+                (item.glyph, true)
+            }
+            VerticalOrientation::Tu => {
+                report.upright_tu += 1;
+                (item.glyph, false)
+            }
+            VerticalOrientation::Tr => {
+                report.rotated_tr += 1;
+                (item.glyph, true)
+            }
+        }
+    };
+    let advance = font.glyphs[glyph].effective_advance(&font.meta);
+    let (width, height) = if rotated {
+        (font.meta.line_height, advance)
+    } else {
+        (advance, font.meta.line_height)
+    };
+    Ok(VerticalItem {
+        text: item.character.to_string(),
+        end,
+        kind: VerticalItemKind::Glyph { glyph, rotated },
+        width,
+        height,
+    })
+}
+
+fn ensure_vertical_transparency(
+    font: &Font,
+    glyph: usize,
+    expected: u8,
+) -> Result<(), FontLayoutError> {
+    let character = font.glyphs[glyph].character;
+    let actual = font.glyphs[glyph]
+        .canvas
+        .transparent()
+        .ok_or(FontLayoutError::MissingTransparentIndex { character })?;
+    if actual != expected {
+        return Err(FontLayoutError::InconsistentTransparentIndex {
+            character,
+            expected,
+            actual,
+        });
+    }
+    Ok(())
+}
+
+fn finish_vertical_items(
+    font: &Font,
+    raw: Vec<RawVerticalItem>,
+    column_width: u32,
+    report: &mut FontLayoutReport,
+) -> Result<Vec<VerticalItem>, FontLayoutError> {
+    let mut output = Vec::new();
+    for item in raw {
+        match item {
+            RawVerticalItem::Ready(item) => output.push(item),
+            RawVerticalItem::TcyCandidate {
+                characters,
+                start,
+                end,
+            } => {
+                let width = characters.iter().try_fold(0_u32, |width, item| {
+                    width
+                        .checked_add(font.glyphs[item.glyph].effective_advance(&font.meta))
+                        .ok_or(FontLayoutError::DimensionsOverflow)
+                })?;
+                if width <= column_width {
+                    report.tcy_groups += 1;
+                    output.push(VerticalItem {
+                        text: characters.iter().map(|item| item.character).collect(),
+                        end,
+                        kind: VerticalItemKind::Tcy {
+                            glyphs: characters.iter().map(|item| item.glyph).collect(),
+                        },
+                        width,
+                        height: font.meta.line_height,
+                    });
+                } else {
+                    report.tcy_fallbacks += 1;
+                    for (offset, item) in characters.into_iter().enumerate() {
+                        let width = font.glyphs[item.glyph].effective_advance(&font.meta);
+                        output.push(VerticalItem {
+                            text: item.character.to_string(),
+                            end: start + offset + 1,
+                            kind: VerticalItemKind::Glyph {
+                                glyph: item.glyph,
+                                rotated: false,
+                            },
+                            width,
+                            height: font.meta.line_height,
+                        });
+                    }
+                }
+            }
+        }
+    }
+    Ok(output)
+}
+
+fn wrap_vertical_paragraph(
+    items: &[VerticalItem],
+    breaks: &BTreeSet<usize>,
+    options: &FontLayoutOptions,
+    report: &mut FontLayoutReport,
+    output: &mut Vec<Column>,
+) -> Result<(), FontLayoutError> {
+    if items.is_empty() {
+        output.push(Column {
+            items: Vec::new(),
+            height: 0,
+        });
+        return Ok(());
+    }
+    let Some(limit) = options.wrap else {
+        output.push(make_column(items, options.letter_spacing)?);
+        return Ok(());
+    };
+    let break_items = items
+        .iter()
+        .enumerate()
+        .filter_map(|(index, item)| breaks.contains(&item.end).then_some(index + 1))
+        .collect::<BTreeSet<_>>();
+    let mut start = 0;
+    while start < items.len() {
+        let candidates = break_items
+            .range((start + 1)..)
+            .copied()
+            .collect::<Vec<_>>();
+        let mut fitting = None;
+        let mut hanging = None;
+        for end in candidates.iter().copied() {
+            let trimmed = trim_vertical_end(&items[start..end]);
+            let height = measure_vertical(trimmed, options.letter_spacing)?;
+            if height <= limit {
+                fitting = Some(end);
+                continue;
+            }
+            if options.hang
+                && trimmed
+                    .last()
+                    .and_then(|item| item.text.chars().last())
+                    .is_some_and(is_hanging)
+                && measure_vertical(&trimmed[..trimmed.len() - 1], options.letter_spacing)? <= limit
+            {
+                hanging = Some(end);
+                break;
+            }
+            if fitting.is_some() {
+                break;
+            }
+        }
+        let end = if let Some(end) = hanging {
+            report.hanging_punctuation += 1;
+            end
+        } else if let Some(end) = fitting {
+            end
+        } else {
+            report.forced_breaks += 1;
+            let boundary = candidates.first().copied().unwrap_or(items.len());
+            let mut forced = start + 1;
+            for end in (start + 1)..boundary {
+                if measure_vertical(
+                    trim_vertical_end(&items[start..end]),
+                    options.letter_spacing,
+                )? <= limit
+                {
+                    forced = end;
+                } else {
+                    break;
+                }
+            }
+            forced
+        };
+        output.push(make_column(&items[start..end], options.letter_spacing)?);
+        start = end;
+    }
+    Ok(())
+}
+
+fn make_column(items: &[VerticalItem], letter_spacing: u32) -> Result<Column, FontLayoutError> {
+    let items = trim_vertical_end(items).to_vec();
+    let height = measure_vertical(&items, letter_spacing)?;
+    Ok(Column { items, height })
+}
+
+fn trim_vertical_end(items: &[VerticalItem]) -> &[VerticalItem] {
+    let end = items
+        .iter()
+        .rposition(|item| {
+            item.text
+                .chars()
+                .last()
+                .is_some_and(|character| break_property(character as u32) != BreakClass::Space)
+        })
+        .map_or(0, |index| index + 1);
+    &items[..end]
+}
+
+fn measure_vertical(items: &[VerticalItem], letter_spacing: u32) -> Result<u32, FontLayoutError> {
+    let count = u32::try_from(items.len()).map_err(|_| FontLayoutError::DimensionsOverflow)?;
+    items
+        .iter()
+        .try_fold(0_u32, |height, item| height.checked_add(item.height))
+        .and_then(|height| {
+            letter_spacing
+                .checked_mul(count.saturating_sub(1))
+                .and_then(|spacing| height.checked_add(spacing))
+        })
+        .ok_or(FontLayoutError::DimensionsOverflow)
+}
+
+fn draw_vertical_item(
+    output: &mut IndexedCanvas,
+    font: &Font,
+    item: &VerticalItem,
+    x: u32,
+    y: u32,
+) {
+    match &item.kind {
+        VerticalItemKind::Glyph { glyph, rotated } => {
+            let glyph = &font.glyphs[*glyph];
+            if *rotated {
+                draw_rotated_glyph(output, glyph, item.height, x, y);
+            } else {
+                draw_upright_glyph(output, glyph, item.width, x, y);
+            }
+        }
+        VerticalItemKind::Tcy { glyphs } => {
+            let mut pen = x;
+            for &glyph in glyphs {
+                let glyph = &font.glyphs[glyph];
+                let advance = glyph.effective_advance(&font.meta);
+                draw_upright_glyph(output, glyph, advance, pen, y);
+                pen += advance;
+            }
+        }
+    }
+}
+
+fn draw_upright_glyph(output: &mut IndexedCanvas, glyph: &Glyph, advance: u32, x: u32, y: u32) {
+    for source_y in 0..glyph.canvas.height() {
+        for source_x in 0..advance {
+            let Some(index) = glyph.canvas.get(source_x as i32, source_y as i32) else {
+                continue;
+            };
+            if glyph.canvas.transparent() == Some(index) {
+                continue;
+            }
+            let Some(target_x) = i64::from(x)
+                .checked_add(i64::from(source_x))
+                .and_then(|value| i32::try_from(value).ok())
+            else {
+                continue;
+            };
+            let Some(target_y) = i64::from(y)
+                .checked_add(i64::from(source_y))
+                .and_then(|value| i32::try_from(value).ok())
+            else {
+                continue;
+            };
+            output.set(target_x, target_y, index);
+        }
+    }
+}
+
+fn draw_rotated_glyph(output: &mut IndexedCanvas, glyph: &Glyph, advance: u32, x: u32, y: u32) {
+    let source_height = glyph.canvas.height();
+    for source_y in 0..source_height {
+        for source_x in 0..advance {
+            let Some(index) = glyph.canvas.get(source_x as i32, source_y as i32) else {
+                continue;
+            };
+            if glyph.canvas.transparent() == Some(index) {
+                continue;
+            }
+            let Some(target_x) = i64::from(x)
+                .checked_add(i64::from(source_height - 1 - source_y))
+                .and_then(|value| i32::try_from(value).ok())
+            else {
+                continue;
+            };
+            let Some(target_y) = i64::from(y)
+                .checked_add(i64::from(source_x))
+                .and_then(|value| i32::try_from(value).ok())
+            else {
+                continue;
+            };
+            output.set(target_x, target_y, index);
+        }
+    }
+}
+
 fn is_hanging(character: char) -> bool {
     matches!(character, '、' | '。' | '，' | '．' | '､' | '｡')
 }
@@ -756,17 +1274,39 @@ mod tests {
     }
 
     #[test]
-    fn vertical_direction_is_an_explicit_unimplemented_error() {
-        let error = layout_text(
+    fn vertical_direction_places_the_first_column_on_the_right() {
+        let result = layout_text(
             &font(),
-            "A",
+            "AB",
             &FontLayoutOptions {
                 direction: WritingDirection::Vertical,
+                wrap: Some(3),
                 ..FontLayoutOptions::default()
             },
         )
-        .unwrap_err();
-        assert_eq!(error, FontLayoutError::VerticalUnsupported);
+        .unwrap();
+        assert_eq!(result.report.lines, ["A", "B"]);
+        assert_eq!((result.canvas.width(), result.canvas.height()), (6, 2));
+        assert_eq!(result.canvas.get(3, 0), Some(1));
+        assert_eq!(result.canvas.get(0, 0), Some(1));
+    }
+
+    #[test]
+    fn a_tcy_fallback_can_widen_the_column() {
+        let mut value = font();
+        value.glyphs.push(glyph('1', 4));
+        let result = layout_text(
+            &value,
+            "A1",
+            &FontLayoutOptions {
+                direction: WritingDirection::Vertical,
+                tcy: Some(1),
+                ..FontLayoutOptions::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(result.report.tcy_fallbacks, 1);
+        assert_eq!(result.canvas.width(), 4);
     }
 
     #[test]
