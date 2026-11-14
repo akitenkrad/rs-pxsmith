@@ -453,6 +453,44 @@ pub enum CoreError {
     )]
     AnimNoRamp,
 
+    /// 数字の回転で 1 回の切り替えに使う区間数が 0．
+    #[error("数字の回転の --frames は 1 以上でなければならない")]
+    RollNoFrames,
+
+    /// 回転前後の字数が違う．ゼロ詰めは呼び出し側で行う．
+    #[error("回転前は {from} 字，回転後は {to} 字で字数が一致しない（ゼロ詰めは呼び出し側で行う）")]
+    RollLengthMismatch { from: usize, to: usize },
+
+    /// 数字でない桁が別の字へ変わっている．
+    #[error("{position} 桁目の数字でない字 '{from}' を '{to}' へ変えることはできない")]
+    RollNonDigitChanged {
+        position: usize,
+        from: char,
+        to: char,
+    },
+
+    /// 回転中に必要な基底字形がフォントに無い．
+    #[error("数字の回転に必要な字 '{character}' がフォントに無い")]
+    RollMissingGlyph { character: char },
+
+    /// 字形に透明添字が明示されていない．
+    #[error("数字の回転に使う字 '{character}' に透明添字が明示されていない")]
+    RollMissingTransparentIndex { character: char },
+
+    /// 字形ごとに透明添字が違う．
+    #[error(
+        "数字の回転に使う字 '{character}' の透明添字 {actual} が他の字の透明添字 {expected} と一致しない"
+    )]
+    RollInconsistentTransparentIndex {
+        character: char,
+        expected: u8,
+        actual: u8,
+    },
+
+    /// 回転結果の寸法またはフレーム数が扱える範囲を超えた．
+    #[error("数字の回転結果の寸法またはフレーム数が扱える範囲を超えた")]
+    RollDimensionsOverflow,
+
     /// 中割りの `t` が $[0, 1]$ の外．**外挿は `pxsmith anim extrapolate` の仕事**である．
     #[error("中割りの t は 0 以上 1 以下でなければならない ({t})")]
     TweenBadT { t: f32 },

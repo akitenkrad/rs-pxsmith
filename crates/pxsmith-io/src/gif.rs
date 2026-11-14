@@ -55,6 +55,8 @@ pub struct GifReport {
     pub padded: usize,
     /// 丸めた表示時間 (頼まれた ms, 実際の ms)．**同じ値は 1 度だけ**．
     pub rounded: Vec<(u32, u32)>,
+    /// 表示時間を丸めたフレーム数．
+    pub rounded_frames: usize,
     /// いちばん多い色数．
     pub max_colors: usize,
 }
@@ -130,8 +132,11 @@ pub fn write_progress(path: &Path, frames: &[GifFrame]) -> Result<GifReport> {
 
         let delay = (f.delay_ms as f32 / 10.0).round().max(1.0) as u16;
         let actual = delay as u32 * 10;
-        if actual != f.delay_ms && !report.rounded.iter().any(|(w, _)| *w == f.delay_ms) {
-            report.rounded.push((f.delay_ms, actual));
+        if actual != f.delay_ms {
+            report.rounded_frames += 1;
+            if !report.rounded.iter().any(|(w, _)| *w == f.delay_ms) {
+                report.rounded.push((f.delay_ms, actual));
+            }
         }
 
         let mut frame = gif::Frame {

@@ -72,6 +72,7 @@ pub mod project;
 pub mod quantize;
 pub mod ramp;
 pub mod resample;
+pub mod roll;
 pub mod shade;
 pub mod sheet;
 pub mod smear;
@@ -124,6 +125,7 @@ pub use palette::{ChromaCurve, Palette, Ramp};
 pub use palreport::{ColourArea, ContrastPair, PaletteReport};
 pub use project::{Facing, ProjectOptions, ProjectReport, Projection, SourcePlane, Step, project};
 pub use ramp::{LightPreset, LightSource, LightingModel, RampSpec, generate_ramp};
+pub use roll::{RollDirection, RollOptions, roll};
 pub use shade::{
     Lamp, ShadeOptions, Shading, bounce_distance_field, incidence, normal_field, shade, shade_mask,
     shade_to_canvas,

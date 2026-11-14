@@ -3,13 +3,14 @@
 //! `px <group> <verb>` はレシピの `op = "<group>.<verb>"` に 1:1 対応する
 //! (設計書 4.2)．
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand};
-use pxsmith_core::Frame;
 use pxsmith_core::frame::FrameKind;
+use pxsmith_core::{Frame, IndexedCanvas, Palette, Rgba8};
 use pxsmith_io::hex;
 use pxsmith_io::l0::{L0Document, Violation};
 use pxsmith_io::{Document, FrameId};
@@ -448,6 +449,33 @@ pub(crate) fn dispatch(command: Command) -> Result<()> {
 /// > して，`.aseprite` だけのときは «スコープが効かない» と併記する**．
 pub(crate) fn save_frames(path: &std::path::Path, frames: &[Frame], name: &str) -> Result<()> {
     let text = path.to_string_lossy();
+    if text.ends_with(".gif") {
+        let gif_frames = frames
+            .iter()
+            .enumerate()
+            .map(|(index, frame)| flatten_gif_frame(frame, format!("{name}_{index}")))
+            .collect::<Result<Vec<_>>>()?;
+        let report = pxsmith_io::gif::write_progress(path, &gif_frames)
+            .with_context(|| format!("{} を GIF として書き出せない", path.display()))?;
+        println!(
+            "  GIF -> {} ({} フレーム ・{}x{} ・最大 {} 色 ・無限ループ)",
+            path.display(),
+            report.frames,
+            report.size.0,
+            report.size.1,
+            report.max_colors
+        );
+        if report.rounded_frames != 0 {
+            println!(
+                "  表示時間を GIF の 10 ms 刻みに丸めた: {} フレーム",
+                report.rounded_frames
+            );
+            for (wanted, actual) in report.rounded {
+                println!("    {wanted} ms -> {actual} ms");
+            }
+        }
+        return Ok(());
+    }
     if text.ends_with(".px.toml") || text.ends_with(".toml") {
         let palette_ref = path.with_extension("hex");
         // **参照は隣のファイル名だけにする** — 絶対パスを書くと，L0 を別の場所へ
@@ -482,6 +510,49 @@ pub(crate) fn save_frames(path: &std::path::Path, frames: &[Frame], name: &str) 
         );
     }
     Ok(())
+}
+
+/// 作業層のフレームを等倍の 1 枚絵に畳み，GIF の局所パレットへ正確に添字化する．
+fn flatten_gif_frame(frame: &Frame, label: String) -> Result<pxsmith_io::gif::GifFrame> {
+    let image = pxsmith_view::render::to_rgba_image(
+        frame,
+        &RenderOptions {
+            zoom: 1,
+            checkerboard: false,
+            ..RenderOptions::default()
+        },
+    );
+    let mut colors = vec![Rgba8::TRANSPARENT];
+    let mut indices = BTreeMap::from([(Rgba8::TRANSPARENT, 0u8)]);
+    let mut pixels = Vec::with_capacity(image.width() as usize * image.height() as usize);
+    for pixel in image.pixels() {
+        let mut color = Rgba8::new(pixel[0], pixel[1], pixel[2], pixel[3]);
+        if color.a == 0 {
+            color = Rgba8::TRANSPARENT;
+        }
+        let index = match indices.get(&color).copied() {
+            Some(index) => index,
+            None => {
+                if colors.len() == Palette::MAX_COLORS {
+                    bail!("フレーム '{label}' は透明色を含めて 256 色を超えるため GIF にできない");
+                }
+                let index = colors.len() as u8;
+                colors.push(color);
+                indices.insert(color, index);
+                index
+            }
+        };
+        pixels.push(index);
+    }
+    let palette = Palette::new(colors).context("GIF の局所パレットを作れない")?;
+    let canvas = IndexedCanvas::from_pixels(image.width(), image.height(), pixels)?
+        .with_transparent(Some(0));
+    Ok(pxsmith_io::gif::GifFrame {
+        canvas,
+        palette,
+        delay_ms: frame.duration_ms,
+        label,
+    })
 }
 
 /// 拡張子から入力の種類を見分けてフレーム列を読む．

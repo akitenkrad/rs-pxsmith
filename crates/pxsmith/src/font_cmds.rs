@@ -422,6 +422,29 @@ fn prepare_output(
     }
 }
 
+/// 組版レポートを持たないフォント画布を `font render` と同じ色規則で出力用にする．
+pub(crate) fn prepare_animation_output(
+    font: &Font,
+    font_path: &Path,
+    canvas: IndexedCanvas,
+    palette_path: Option<&Path>,
+    ink: Option<u8>,
+) -> Result<(IndexedCanvas, Palette)> {
+    match font.meta.mode {
+        FontMode::Mono => prepare_mono_output(canvas, palette_path, ink),
+        FontMode::Color => {
+            let source_transparent = canvas.transparent().context("組版画布に透明添字が無い")?;
+            let used = canvas
+                .pixels()
+                .iter()
+                .copied()
+                .filter(|index| *index != source_transparent)
+                .collect::<BTreeSet<_>>();
+            prepare_color_indices(font, font_path, canvas, used, palette_path, ink)
+        }
+    }
+}
+
 fn prepare_mono_output(
     mut canvas: IndexedCanvas,
     palette_path: Option<&Path>,
@@ -446,8 +469,34 @@ fn prepare_mono_output(
 fn prepare_color_output(
     font: &Font,
     font_path: &Path,
-    mut canvas: IndexedCanvas,
+    canvas: IndexedCanvas,
     drawn_characters: &BTreeSet<char>,
+    palette_path: Option<&Path>,
+    ink: Option<u8>,
+) -> Result<(IndexedCanvas, Palette)> {
+    let used = font
+        .glyphs
+        .iter()
+        .filter(|glyph| glyph.variant.is_none() && drawn_characters.contains(&glyph.character))
+        .flat_map(|glyph| {
+            glyph
+                .canvas
+                .pixels()
+                .iter()
+                .copied()
+                .map(move |index| (glyph, index))
+        })
+        .filter(|(glyph, index)| glyph.canvas.transparent() != Some(*index))
+        .map(|(_, index)| index)
+        .collect::<BTreeSet<_>>();
+    prepare_color_indices(font, font_path, canvas, used, palette_path, ink)
+}
+
+fn prepare_color_indices(
+    font: &Font,
+    font_path: &Path,
+    mut canvas: IndexedCanvas,
+    used: BTreeSet<u8>,
     palette_path: Option<&Path>,
     ink: Option<u8>,
 ) -> Result<(IndexedCanvas, Palette)> {
@@ -472,21 +521,6 @@ fn prepare_color_output(
         None => source.clone(),
     };
 
-    let used = font
-        .glyphs
-        .iter()
-        .filter(|glyph| glyph.variant.is_none() && drawn_characters.contains(&glyph.character))
-        .flat_map(|glyph| {
-            glyph
-                .canvas
-                .pixels()
-                .iter()
-                .copied()
-                .map(move |index| (glyph, index))
-        })
-        .filter(|(glyph, index)| glyph.canvas.transparent() != Some(*index))
-        .map(|(_, index)| index)
-        .collect::<BTreeSet<_>>();
     let mut missing = BTreeSet::new();
     let mut remap = (0..=u8::MAX).collect::<Vec<_>>();
     for source_index in used {

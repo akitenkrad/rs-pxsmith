@@ -17,6 +17,7 @@ use pxsmith_core::geom::Mask;
 use pxsmith_core::math::{IVec2, ivec2};
 use pxsmith_core::palette::{ChromaCurve, Ramp};
 use pxsmith_core::ramp::{LightPreset, build_lighting};
+use pxsmith_core::roll::{RollDirection, RollOptions, roll};
 use pxsmith_core::shade::{ShadeOptions, shade_to_canvas};
 use pxsmith_core::smear::{SmearMethod, SmearOptions, covers_ends, smear_mask};
 use pxsmith_core::subpixel::{SubpixelMethod, SubpixelOptions, SubpixelScope};
@@ -26,6 +27,7 @@ use pxsmith_core::tween::{
 
 use crate::color_cmds::{CurveArg, PresetArg};
 use crate::shape_cmds::parse_light;
+use pxsmith_io::pxfont::PxFontDocument;
 
 #[derive(Subcommand)]
 pub enum AnimCommand {
@@ -69,6 +71,11 @@ pub enum AnimCommand {
         #[command(flatten)]
         args: AfterimageArgs,
     },
+    /// 桁ごとに数字を縦へ回す．時間は `anim ease` で付ける
+    Roll {
+        #[command(flatten)]
+        args: RollArgs,
+    },
 }
 
 pub fn anim(command: AnimCommand) -> Result<()> {
@@ -81,7 +88,106 @@ pub fn anim(command: AnimCommand) -> Result<()> {
         AnimCommand::Squash { args } => squash_cmd(&args),
         AnimCommand::Subpixel { args } => subpixel_cmd(&args),
         AnimCommand::Afterimage { args } => afterimage_cmd(&args),
+        AnimCommand::Roll { args } => roll_cmd(&args),
     }
+}
+
+// --------------------------------------------------------------------- roll
+
+#[derive(Copy, Clone, Debug, Default, clap::ValueEnum)]
+pub enum RollDirectionArg {
+    #[default]
+    Up,
+    Down,
+}
+
+impl From<RollDirectionArg> for RollDirection {
+    fn from(value: RollDirectionArg) -> Self {
+        match value {
+            RollDirectionArg::Up => Self::Up,
+            RollDirectionArg::Down => Self::Down,
+        }
+    }
+}
+
+#[derive(Args, Clone, Debug)]
+pub struct RollArgs {
+    /// `.pxfont.toml` フォント
+    pub font: PathBuf,
+    /// 回転前の文字列
+    #[arg(long)]
+    pub from: String,
+    /// 回転後の文字列
+    #[arg(long)]
+    pub to: String,
+    /// 1 回の字の切り替えに使う区間数
+    #[arg(long, value_parser = clap::value_parser!(u32).range(1..))]
+    pub frames: u32,
+    /// 出力 (`.px.toml` または `.aseprite`)
+    pub output: PathBuf,
+    /// 回転方向 (`up` または `down`)
+    #[arg(long, value_enum, default_value_t = RollDirectionArg::Up)]
+    pub direction: RollDirectionArg,
+    /// 出力に使う `.hex` パレット
+    #[arg(long)]
+    pub palette: Option<PathBuf>,
+    /// 単色フォントの墨に使うパレット添字
+    #[arg(long)]
+    pub ink: Option<u8>,
+    /// 字間 (px)
+    #[arg(long, default_value_t = 0)]
+    pub letter_spacing: u32,
+}
+
+fn roll_cmd(args: &RollArgs) -> Result<()> {
+    let document = PxFontDocument::read(&args.font)
+        .with_context(|| format!("{} を読めない", args.font.display()))?;
+    let font = document
+        .to_font(&args.font)
+        .with_context(|| format!("{} は有効な pxfont ではない", args.font.display()))?;
+    let options = RollOptions {
+        frames: args.frames,
+        direction: args.direction.into(),
+        letter_spacing: args.letter_spacing,
+    };
+    let canvases = roll(&font, &args.from, &args.to, &options)?;
+    let last = canvases.len().saturating_sub(1);
+    let mut frames = Vec::with_capacity(canvases.len());
+    for (index, canvas) in canvases.into_iter().enumerate() {
+        let (canvas, palette) = crate::font_cmds::prepare_animation_output(
+            &font,
+            &args.font,
+            canvas,
+            args.palette.as_deref(),
+            args.ink,
+        )?;
+        let mut frame = Frame::new(canvas.size(), palette);
+        frame.kind = if index == 0 || index == last {
+            FrameKind::Key
+        } else {
+            FrameKind::Inbetween
+        };
+        frame.layers.push(Layer::new(
+            LayerMeta::named("roll"),
+            Surface::Indexed(canvas),
+        ));
+        frames.push(frame);
+    }
+    crate::save_frames(&args.output, &frames, "roll")?;
+    println!(
+        "{}: {} -> {} — {} フレーム ・方向 {} ・字間 {} px",
+        args.font.display(),
+        args.from,
+        args.to,
+        frames.len(),
+        match options.direction {
+            RollDirection::Up => "up",
+            RollDirection::Down => "down",
+        },
+        options.letter_spacing
+    );
+    println!("  時間は持たない．pxsmith anim ease で付けること");
+    Ok(())
 }
 
 // -------------------------------------------------------------------- tween
@@ -253,7 +359,11 @@ pub struct EaseArgs {
     #[arg(long, default_value_t = 24.0)]
     pub fps: f32,
     /// コマ打ち．1 つなら全フレームに，複数ならフレームごとに当てる (イージング)
-    #[arg(long, value_delimiter = ',', default_values_t = vec![2u32])]
+    #[arg(
+        long,
+        value_delimiter = ',',
+        default_values_t = vec![2u32]
+    )]
     pub hold: Vec<u32>,
 }
 
