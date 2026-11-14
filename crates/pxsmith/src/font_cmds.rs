@@ -8,8 +8,9 @@ use anyhow::{Context, Result, bail};
 use clap::{Args, Subcommand, ValueEnum};
 use pxsmith_core::font::{Font, FontMode, Glyph};
 use pxsmith_core::{
-    FontLayoutError, FontLayoutOptions, IndexedCanvas, Kinsoku, Palette, Rgba8, TextAlign,
-    VerticalOrientation, WritingDirection, layout_text, vertical_orientation,
+    BmFontError, BmFontOptions, FontLayoutError, FontLayoutOptions, IndexedCanvas, Kinsoku,
+    Palette, Rgba8, TextAlign, VerticalOrientation, WritingDirection, build_bmfont, layout_text,
+    vertical_orientation,
 };
 use pxsmith_io::bdf::{BdfImportOptions, import_bdf};
 use pxsmith_io::pxfont::PxFontDocument;
@@ -23,6 +24,8 @@ pub enum FontCommand {
     Check(CheckArgs),
     /// 文字列を横書きまたは縦書きで画布へ焼き込む
     Render(RenderArgs),
+    /// AngelCode BMFont のテキスト記述とページ PNG を書き出す
+    Bmfont(BmFontArgs),
 }
 
 #[derive(Args)]
@@ -139,12 +142,133 @@ pub struct RenderArgs {
     pub tcy: Option<u32>,
 }
 
+#[derive(Args)]
+pub struct BmFontArgs {
+    /// `.pxfont.toml` フォント
+    pub font: PathBuf,
+    /// AngelCode BMFont のテキスト記述（`.fnt`）
+    pub output: PathBuf,
+    /// このファイルに現れる字だけを書き出す
+    #[arg(long)]
+    pub chars_file: Option<PathBuf>,
+    /// 正方形ページの一辺（2 の冪）
+    #[arg(long, default_value_t = 256, value_parser = parse_page_size)]
+    pub page_size: u32,
+}
+
 pub fn font(command: FontCommand) -> Result<()> {
     match command {
         FontCommand::Import(args) => import(&args),
         FontCommand::Check(args) => check(&args),
         FontCommand::Render(args) => render(&args),
+        FontCommand::Bmfont(args) => bmfont(&args),
     }
+}
+
+fn bmfont(args: &BmFontArgs) -> Result<()> {
+    validate_bmfont_extension(&args.output)?;
+    let stem = args
+        .output
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .context("BMFont の出力ファイル名が UTF-8 でない")?;
+    if stem.contains('"') {
+        bail!("BMFont の出力ファイル名に引用符は使えない");
+    }
+    let document = PxFontDocument::read(&args.font)
+        .with_context(|| format!("{} を読めない", args.font.display()))?;
+    let font = document
+        .to_font(&args.font)
+        .with_context(|| format!("{} は有効な pxfont ではない", args.font.display()))?;
+    let characters = args
+        .chars_file
+        .as_ref()
+        .map(|path| read_chars(path))
+        .transpose()?;
+    let palette = match font.meta.mode {
+        FontMode::Mono => None,
+        FontMode::Color => {
+            let spec = font
+                .meta
+                .palette
+                .as_ref()
+                .context("多色フォントに [palette] が無い")?;
+            let path = args
+                .font
+                .parent()
+                .unwrap_or_else(|| Path::new("."))
+                .join(&spec.reference);
+            Some(
+                pxsmith_io::hex::read(&path)
+                    .with_context(|| format!("{} を読めない", path.display()))?,
+            )
+        }
+    };
+    let mut options = BmFontOptions::new(args.page_size, stem);
+    if let Some(characters) = &characters {
+        options = options.with_characters(characters);
+    }
+    if let Some(palette) = &palette {
+        options = options.with_palette(palette);
+    }
+    let output = build_bmfont(&font, &options).map_err(bmfont_error)?;
+    let parent = args.output.parent().unwrap_or_else(|| Path::new("."));
+    for (page, canvas) in output.pages.iter().enumerate() {
+        let path = parent.join(format!("{stem}_{page}.png"));
+        pxsmith_io::png::write_rgba(&path, canvas)
+            .with_context(|| format!("{} を書き出せない", path.display()))?;
+    }
+    pxsmith_io::atomic::write(&args.output, output.descriptor.as_bytes())
+        .with_context(|| format!("{} を書き出せない", args.output.display()))?;
+
+    println!(
+        "BMFont: {} 字，{} ページ -> {}",
+        output.report.glyphs,
+        output.report.pages,
+        args.output.display()
+    );
+    if output.report.skipped_vertical != 0 {
+        println!(
+            "縦書き変種を書かなかった: {} 件",
+            output.report.skipped_vertical
+        );
+    }
+    if let Some(copyright) = &font.meta.copyright {
+        println!("著作権表示: {copyright}");
+    }
+    Ok(())
+}
+
+fn bmfont_error(error: BmFontError) -> anyhow::Error {
+    match error {
+        BmFontError::MissingGlyphs { characters } => anyhow::anyhow!(
+            "フォントに無い字 {} 件: {}",
+            characters.len(),
+            shown_chars(&characters, usize::MAX)
+        ),
+        other => anyhow::Error::new(other),
+    }
+}
+
+fn validate_bmfont_extension(path: &Path) -> Result<()> {
+    if path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("fnt"))
+    {
+        return Ok(());
+    }
+    bail!("BMFont の出力は .fnt にすること")
+}
+
+fn parse_page_size(value: &str) -> std::result::Result<u32, String> {
+    let page_size = value
+        .parse::<u32>()
+        .map_err(|_| format!("'{value}' はページ寸法として読めない"))?;
+    if !page_size.is_power_of_two() {
+        return Err(format!("page-size {page_size} は 2 の冪でなければならない"));
+    }
+    Ok(page_size)
 }
 
 fn render(args: &RenderArgs) -> Result<()> {

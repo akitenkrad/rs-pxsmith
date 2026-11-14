@@ -44,6 +44,7 @@ pub mod afterimage;
 pub mod anim;
 pub mod atmos;
 pub mod autotile;
+pub mod bmfont;
 pub mod canvas;
 pub mod clean;
 pub mod cleanedge;
@@ -82,6 +83,7 @@ pub mod validate;
 pub mod vertical;
 
 pub use aa::{AaAddOptions, AaReport, add_antialiasing};
+pub use bmfont::{BmFontError, BmFontOptions, BmFontOutput, BmFontReport, build_bmfont};
 pub use canvas::{IndexedCanvas, RgbaCanvas};
 pub use color::{Oklab, Rgba8};
 pub use cvd::{CvdOptions, CvdReport, Deficiency};
