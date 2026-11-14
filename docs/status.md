@@ -518,6 +518,21 @@ GitHub の `akitenkrad/rs-pxforge` を **`akitenkrad/rs-pxsmith` へ改名**し�
 > `--workspace` はそこで止まるので，**末尾だけ読むと «ok» に見える**
 > (最後に走ったのは通った試験である) ．D138 «飛ばした件を数える» と同じ側．
 
+### 0.2.0 を公開した (2026-11-14)
+
+`Part::anchors` の型を変えた (MYTASK-3481) ので，**8 クレートすべてを 0.2.0 として公開した**．
+公開元は `98dccb5` であり，crates.io の `.cargo_vcs_info.json` もこのコミットを指す．
+変更点と移行の方法は [`CHANGELOG.md`](../CHANGELOG.md) にまとめた．
+
+- **既存クレートの新版なので 429 には当たらなかった．** `cargo publish --workspace`
+  1 回で依存順に 8 件とも載った (新版のバーストは 30．上の D179 の表) ．
+- 出す前に，梱包の中身を公開済みの 0.1.0 の tarball と突き合わせた．増えたのは
+  今回足したソースと試験だけで，消えたファイルは無く，`LICENSE-*` ・`NOTICE` も入っていた．
+- 公開後に登録所から `cargo install pxsmith --version 0.2.0` で入れ直し，
+  新しいサブコマンド (`palette cvd`) が動くことを確かめた．
+- 0.1.0 の元コミットは `067a9b8` である (crates.io の `.cargo_vcs_info.json` で確かめた．
+  タグは打っていない) ．
+
 ### crates.io へ公開した — 新規クレートはバースト 5 で止まる (2026-08-15 ・D179)
 
 `cargo publish --workspace` を実行し，**8 クレートすべてを 0.1.0 として公開した**．
