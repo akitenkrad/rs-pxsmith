@@ -1,0 +1,9 @@
+# Formats whose tests compare canonical bytes are checked out with LF on every
+# platform. Reading CRLF input is supported and tested separately; this only
+# keeps Windows checkouts of the fixtures identical to what the writers emit.
+*.px.toml     text eol=lf
+*.pxfont.toml text eol=lf
+*.hex         text eol=lf
+*.fnt         text eol=lf
+*.tres        text eol=lf
+*.sheet.json  text eol=lf
