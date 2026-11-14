@@ -81,6 +81,7 @@ pxsmith watch hero.px.toml --zoom 8
 | [ライブラリ](https://github.com/akitenkrad/rs-pxsmith/blob/main/docs/library.ja.md) | Rust から利用する方法と `pixels!` マクロ |
 | [設計](https://github.com/akitenkrad/rs-pxsmith/blob/main/docs/architecture.ja.md) | クレートの分割，設計判断，閾値の決定方法 |
 | [どう作ったか](https://github.com/akitenkrad/rs-pxsmith/blob/main/docs/engineering.ja.md) | 開発の思想と，それを生んだ失敗の記録 |
+| [変更履歴](https://github.com/akitenkrad/rs-pxsmith/blob/main/CHANGELOG.ja.md) | 版ごとの変更と，互換性のない変更をまたぐ移行の方法 |
 
 測定そのものの記録は
 [`docs/status.md`](https://github.com/akitenkrad/rs-pxsmith/blob/main/docs/status.md)

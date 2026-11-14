@@ -1438,7 +1438,7 @@ checksum = "d55d956fa96f5ec02be2e13af0e20391a5aa83d6a074e3ad368959d0fab299ea"
 
 [[package]]
 name = "pxsmith"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "blake3",
@@ -1457,7 +1457,7 @@ dependencies = [
 
 [[package]]
 name = "pxsmith-calib"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -1473,7 +1473,7 @@ dependencies = [
 
 [[package]]
 name = "pxsmith-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "aseprite-io",
  "palette",
@@ -1485,7 +1485,7 @@ dependencies = [
 
 [[package]]
 name = "pxsmith-gen"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "blake3",
  "pxsmith-core",
@@ -1499,7 +1499,7 @@ dependencies = [
 
 [[package]]
 name = "pxsmith-io"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "aseprite-io",
  "gif",
@@ -1512,7 +1512,7 @@ dependencies = [
 
 [[package]]
 name = "pxsmith-lint"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "pxsmith-core",
  "serde",
@@ -1521,7 +1521,7 @@ dependencies = [
 
 [[package]]
 name = "pxsmith-macro"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "proc-macro2",
  "pxsmith-core",
@@ -1532,7 +1532,7 @@ dependencies = [
 
 [[package]]
 name = "pxsmith-recipe"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "blake3",
  "serde",
@@ -1543,7 +1543,7 @@ dependencies = [
 
 [[package]]
 name = "pxsmith-view"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "image",
  "pxsmith-core",

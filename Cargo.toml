@@ -41,7 +41,7 @@ repository = "https://github.com/akitenkrad/rs-pxsmith"
 #
 # **替えていないのは L0 の拡張子 `.px.toml` だけ** — これは道具の名前ではなく
 # **形式の名前**であり，替えると既存の資産が読めなくなる．
-version = "0.1.0"
+version = "0.2.0"
 
 [workspace.dependencies]
 anyhow = "1.0.100"
@@ -52,14 +52,14 @@ flate2 = "1.1"
 gif = "0.14"
 image = "0.25.10"
 palette = "0.7.7"
-pxsmith-core = { path = "crates/pxsmith-core", version = "0.1.0" }
-pxsmith-gen = { path = "crates/pxsmith-gen", version = "0.1.0" }
+pxsmith-core = { path = "crates/pxsmith-core", version = "0.2.0" }
+pxsmith-gen = { path = "crates/pxsmith-gen", version = "0.2.0" }
 quantette = { version = "0.6", default-features = false, features = ["kmeans", "std"] }
-pxsmith-io = { path = "crates/pxsmith-io", version = "0.1.0" }
-pxsmith-lint = { path = "crates/pxsmith-lint", version = "0.1.0" }
-pxsmith-macro = { path = "crates/pxsmith-macro", version = "0.1.0" }
-pxsmith-recipe = { path = "crates/pxsmith-recipe", version = "0.1.0" }
-pxsmith-view = { path = "crates/pxsmith-view", version = "0.1.0" }
+pxsmith-io = { path = "crates/pxsmith-io", version = "0.2.0" }
+pxsmith-lint = { path = "crates/pxsmith-lint", version = "0.2.0" }
+pxsmith-macro = { path = "crates/pxsmith-macro", version = "0.2.0" }
+pxsmith-recipe = { path = "crates/pxsmith-recipe", version = "0.2.0" }
+pxsmith-view = { path = "crates/pxsmith-view", version = "0.2.0" }
 rayon = "1.11"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"

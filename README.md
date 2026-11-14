@@ -83,6 +83,7 @@ in a position to fail.
 | [Library](https://github.com/akitenkrad/rs-pxsmith/blob/main/docs/library.md) | Using the crates from Rust, and the `pixels!` macro |
 | [Architecture](https://github.com/akitenkrad/rs-pxsmith/blob/main/docs/architecture.md) | The crate split, the design decisions, and how the thresholds were chosen |
 | [How this was built](https://github.com/akitenkrad/rs-pxsmith/blob/main/docs/engineering.md) | The development philosophy, and the mistakes that produced it |
+| [Changelog](https://github.com/akitenkrad/rs-pxsmith/blob/main/CHANGELOG.md) | What changed in each release, and how to move across a breaking one |
 
 The record of the measurements themselves is in
 [`docs/status.md`](https://github.com/akitenkrad/rs-pxsmith/blob/main/docs/status.md)

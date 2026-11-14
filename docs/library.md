@@ -28,7 +28,7 @@ and `ansi_colours` from the dependency tree entirely, while `render`, `diff`,
 `onion` and `TerminalKind` remain available.
 
 ```toml
-pxsmith-view = { version = "0.1", default-features = false }
+pxsmith-view = { version = "0.2", default-features = false }
 ```
 
 The library name keeps the underscore form, so imports read

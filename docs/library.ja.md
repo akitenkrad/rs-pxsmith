@@ -28,7 +28,7 @@ LGPL の依存に到達するクレートは `pxsmith-view` だけであり，�
 そのまま使えます．
 
 ```toml
-pxsmith-view = { version = "0.1", default-features = false }
+pxsmith-view = { version = "0.2", default-features = false }
 ```
 
 ライブラリ名はアンダースコア形になるため，取り込みは `use pxsmith_core::…` と記述します．
