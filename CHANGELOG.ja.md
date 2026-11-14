@@ -7,7 +7,7 @@
 `0.x` に適用する [Semantic Versioning](https://semver.org/lang/ja/) に従います．
 つまり，副版 (minor) が上がると公開 API が壊れることがあります．
 
-## [0.3.0] - 未公開
+## [0.3.0] - 2026-11-14
 
 この版はドット絵のフォントと UI 部品を足し，公開構造体にフィールドが増えるため
 `pxsmith-core` と `pxsmith-io` の公開 API を壊します．L0 テキスト形式は版 1 のままであり，
@@ -144,6 +144,6 @@ crates.io への最初の公開です: `pxsmith-core`・`pxsmith-io`・`pxsmith-
 `pxsmith-recipe`・`pxsmith-macro`・`pxsmith-gen`・`pxsmith-view` と，
 コマンドラインツール `pxsmith`．
 
-[0.3.0]: https://github.com/akitenkrad/rs-pxsmith/compare/98dccb5...HEAD
+[0.3.0]: https://github.com/akitenkrad/rs-pxsmith/compare/98dccb5...3ef788d
 [0.2.0]: https://github.com/akitenkrad/rs-pxsmith/compare/067a9b8...98dccb5
 [0.1.0]: https://github.com/akitenkrad/rs-pxsmith/tree/067a9b81a6efb517e6c47f24af8d0d8b836743bf

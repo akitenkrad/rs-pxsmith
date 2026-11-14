@@ -518,6 +518,16 @@ GitHub の `akitenkrad/rs-pxforge` を **`akitenkrad/rs-pxsmith` へ改名**し�
 > `--workspace` はそこで止まるので，**末尾だけ読むと «ok» に見える**
 > (最後に走ったのは通った試験である) ．D138 «飛ばした件を数える» と同じ側．
 
+### 0.3.0 を公開した — フォントと UI 部品 (2026-11-14)
+
+MYTASK-3480 (F-1〜F-9 = MYTASK-3551〜3559) の機能を **8 クレートすべて 0.3.0 として公開した**．公開元は `3ef788d` (crates.io の `.cargo_vcs_info.json` もこのコミットを指す)．`L0Meta` と `SheetCell` に `nine_slice` が増えたことと，フレーム列の出力が未知の拡張子をエラーにするようになったことが互換性のない変更．中身は [`CHANGELOG.md`](../CHANGELOG.md)，判断は Obsidian の開発ノート D189〜D205．
+
+- 足したもの: `font import` (BDF ・TTF/OTF/TTC) ・`font check` ・`font render` (横書き ・縦書き ・禁則 ・カーニング) ・`font bmfont` ・`nineslice preview` ・`export godot` ・`anim roll` ・フレーム列の `.gif` 出力．
+- 実フォント (美咲ゴシック 7,171 字) で BDF ・TTF の埋め込み ・TTF の輪郭の 3 経路が全字一致し，BMFont の読み戻しも全字一致した．**Godot 4.7.2 での描画を撮影し，BMFont ・9-slice 3 方式 ・シートの一部を使う StyleBox が pxsmith の出力と画素単位で一致した** (`examples/godot-ui/`)．
+- **公開の直前に CI が赤だったことに気付いた**．0.2.0 の後の修正 (`09cd28b`) から Windows と clippy で落ち続けていた — ローカルの試験だけを見ていた．原因は 3 つ: 単体試験の一時ディレクトリ名にスレッド名 (`tests::foo`) を入れていて Windows で `:` が使えない ・Windows の git が試験素材を CRLF にしてバイト比較が落ちる (`.gitattributes` で LF に固定) ・CI の clippy 1.100 だけが出す指摘 (ローカルは 1.99)．**公開の前に CI の結果を見る**．
+- crates.io の説明文 (公開すると版ごとに固定される) を新機能に合わせて直してから出した．
+- 公開後に登録所から `cargo install pxsmith --version 0.3.0` で入れ直し，`font import` と `font render` が動くことを確かめた．
+
 ### 0.2.0 を公開した (2026-11-14)
 
 `Part::anchors` の型を変えた (MYTASK-3481) ので，**8 クレートすべてを 0.2.0 として公開した**．
