@@ -56,6 +56,7 @@ pub mod edit;
 pub mod error;
 pub mod export;
 pub mod font;
+pub mod font_layout;
 pub mod frame;
 pub mod geom;
 pub mod grid;
@@ -88,6 +89,10 @@ pub use direction::{
     mirror_frame,
 };
 pub use font::{Font, FontColorKey, FontError, FontMeta, FontMode, FontPalette, Glyph, Kern};
+pub use font_layout::{
+    FontLayoutError, FontLayoutOptions, FontLayoutReport, FontLayoutResult, Kinsoku, TextAlign,
+    WritingDirection, layout_text,
+};
 
 pub use anim::{CycleSpec, ModTarget, Wave, cycle, duration_ms, ease, reverse_derive};
 pub use autotile::{

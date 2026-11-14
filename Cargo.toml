@@ -70,6 +70,7 @@ quote = "1.0"
 syn = "2.0"
 toml = "1.1"
 ttf-parser = { version = "=0.25.1", features = ["opentype-layout"] }
+unicode-linebreak = "=0.1.5"
 # **生成 AI のバックエンドは HTTP でしか喋らない** (D156)．Rust に公式 SDK が
 # 無いので生の HTTP で呼ぶ．`ureq` は同期 ・小さく ・rustls なので OpenSSL を
 # 引き込まない — 道具は 1 発ずつ叩く CLI であって非同期ランタイムは要らない．

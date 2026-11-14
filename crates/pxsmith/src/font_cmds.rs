@@ -1,11 +1,16 @@
-//! `pxsmith font` — フォントの取り込みと字の不足検査．
+//! `pxsmith font` — フォントの取り込み，字の不足検査，文字列の焼き込み．
 
 use std::collections::BTreeSet;
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
-use clap::{Args, Subcommand};
-use pxsmith_core::font::{Font, Glyph};
+use clap::{Args, Subcommand, ValueEnum};
+use pxsmith_core::font::{Font, FontMode, Glyph};
+use pxsmith_core::{
+    FontLayoutError, FontLayoutOptions, IndexedCanvas, Kinsoku, Palette, Rgba8, TextAlign,
+    layout_text,
+};
 use pxsmith_io::bdf::{BdfImportOptions, import_bdf};
 use pxsmith_io::pxfont::PxFontDocument;
 use pxsmith_io::ttf::{TtfImportOptions, import_ttf};
@@ -16,6 +21,8 @@ pub enum FontCommand {
     Import(ImportArgs),
     /// 文言に必要な字と字形を検査する
     Check(CheckArgs),
+    /// 文字列を横書きで画布へ焼き込む
+    Render(RenderArgs),
 }
 
 #[derive(Args)]
@@ -50,10 +57,344 @@ pub struct CheckArgs {
     pub vertical: bool,
 }
 
+#[derive(Copy, Clone, Debug, Default, ValueEnum)]
+pub enum AlignArg {
+    #[default]
+    Left,
+    Center,
+    Right,
+}
+
+impl From<AlignArg> for TextAlign {
+    fn from(value: AlignArg) -> Self {
+        match value {
+            AlignArg::Left => Self::Left,
+            AlignArg::Center => Self::Center,
+            AlignArg::Right => Self::Right,
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug, Default, ValueEnum)]
+pub enum KinsokuArg {
+    #[default]
+    Normal,
+    Strict,
+}
+
+impl From<KinsokuArg> for Kinsoku {
+    fn from(value: KinsokuArg) -> Self {
+        match value {
+            KinsokuArg::Normal => Self::Normal,
+            KinsokuArg::Strict => Self::Strict,
+        }
+    }
+}
+
+#[derive(Args)]
+pub struct RenderArgs {
+    /// `.pxfont.toml` フォント
+    pub font: PathBuf,
+    /// `TEXT OUTPUT`，または --text-file 使用時の `OUTPUT`
+    #[arg(value_names = ["TEXT", "OUTPUT"], num_args = 1..=2)]
+    pub text_and_output: Vec<OsString>,
+    /// UTF-8 の文言ファイル（位置引数の文字列と排他）
+    #[arg(long)]
+    pub text_file: Option<PathBuf>,
+    /// 出力に使う `.hex` パレット
+    #[arg(long)]
+    pub palette: Option<PathBuf>,
+    /// 単色フォントの墨に使うパレット添字
+    #[arg(long)]
+    pub ink: Option<u8>,
+    /// 字間（px）
+    #[arg(long, default_value_t = 0)]
+    pub letter_spacing: u32,
+    /// 行間（px）
+    #[arg(long, default_value_t = 0)]
+    pub line_spacing: u32,
+    /// 行の寄せ方
+    #[arg(long, value_enum, default_value_t = AlignArg::Left)]
+    pub align: AlignArg,
+    /// 折り返す行幅（px）
+    #[arg(long)]
+    pub wrap: Option<u32>,
+    /// カーニングを無効にする
+    #[arg(long)]
+    pub no_kern: bool,
+    /// 小書き仮名の行頭禁則
+    #[arg(long, value_enum, default_value_t = KinsokuArg::Normal)]
+    pub kinsoku: KinsokuArg,
+    /// 行末の句読点を 1 字だけ行幅の外へ出す
+    #[arg(long)]
+    pub hang: bool,
+    /// フォントに無い字を置き換える字（1 字または U+XXXX）
+    #[arg(long, value_parser = parse_character)]
+    pub missing: Option<char>,
+}
+
 pub fn font(command: FontCommand) -> Result<()> {
     match command {
         FontCommand::Import(args) => import(&args),
         FontCommand::Check(args) => check(&args),
+        FontCommand::Render(args) => render(&args),
+    }
+}
+
+fn render(args: &RenderArgs) -> Result<()> {
+    let (text, output) = render_input(args)?;
+    validate_render_extension(&output)?;
+    let document = PxFontDocument::read(&args.font)
+        .with_context(|| format!("{} を読めない", args.font.display()))?;
+    let font = document
+        .to_font(&args.font)
+        .with_context(|| format!("{} は有効な pxfont ではない", args.font.display()))?;
+    let options = FontLayoutOptions {
+        letter_spacing: args.letter_spacing,
+        line_spacing: args.line_spacing,
+        align: args.align.into(),
+        wrap: args.wrap,
+        kern: !args.no_kern,
+        kinsoku: args.kinsoku.into(),
+        hang: args.hang,
+        missing: args.missing,
+        ..FontLayoutOptions::default()
+    };
+    let laid_out = layout_text(&font, &text, &options).map_err(layout_error)?;
+    let drawn_characters = laid_out
+        .report
+        .lines
+        .iter()
+        .flat_map(|line| line.chars())
+        .collect::<BTreeSet<_>>();
+    let (canvas, palette) = prepare_output(
+        &font,
+        &args.font,
+        laid_out.canvas,
+        &drawn_characters,
+        args.palette.as_deref(),
+        args.ink,
+    )?;
+    crate::color_cmds::write_indexed(&output, &canvas, &palette)?;
+
+    for (character, count) in &laid_out.report.replacements {
+        println!(
+            "置換: {} -> {} {count} 件",
+            shown(*character),
+            shown(args.missing.expect("置換があれば代替字がある"))
+        );
+    }
+    if laid_out.report.forced_breaks != 0 {
+        println!(
+            "語の途中を字単位で折り返した: {} 件",
+            laid_out.report.forced_breaks
+        );
+    }
+    if laid_out.report.hanging_punctuation != 0 {
+        println!(
+            "句読点を行幅の外へぶら下げた: {} 件",
+            laid_out.report.hanging_punctuation
+        );
+    }
+    if laid_out.report.unconverted_cj != 0 {
+        println!(
+            "normal 禁則用の同じ UTF-8 長の ID 類が無かった: {} 件",
+            laid_out.report.unconverted_cj
+        );
+    }
+    println!(
+        "焼き込み: {} 行，{}x{} -> {}",
+        laid_out.report.lines.len(),
+        canvas.width(),
+        canvas.height(),
+        output.display()
+    );
+    Ok(())
+}
+
+fn render_input(args: &RenderArgs) -> Result<(String, PathBuf)> {
+    match (&args.text_file, args.text_and_output.as_slice()) {
+        (None, [text, output]) => Ok((
+            text.to_str()
+                .context("位置引数の文字列が UTF-8 でない")?
+                .to_string(),
+            PathBuf::from(output),
+        )),
+        (Some(path), [output]) => Ok((
+            std::fs::read_to_string(path)
+                .with_context(|| format!("{} を UTF-8 として読めない", path.display()))?
+                .replace("\r\n", "\n"),
+            PathBuf::from(output),
+        )),
+        (None, _) => bail!("位置引数に TEXT と OUTPUT を指定すること"),
+        (Some(_), _) => bail!("--text-file と位置引数の TEXT は同時に指定できない"),
+    }
+}
+
+fn layout_error(error: FontLayoutError) -> anyhow::Error {
+    match error {
+        FontLayoutError::MissingGlyphs { characters } => anyhow::anyhow!(
+            "フォントに無い字 {} 件: {}",
+            characters.len(),
+            shown_chars(&characters, usize::MAX)
+        ),
+        other => anyhow::Error::new(other),
+    }
+}
+
+fn prepare_output(
+    font: &Font,
+    font_path: &Path,
+    canvas: IndexedCanvas,
+    drawn_characters: &BTreeSet<char>,
+    palette_path: Option<&Path>,
+    ink: Option<u8>,
+) -> Result<(IndexedCanvas, Palette)> {
+    match font.meta.mode {
+        FontMode::Mono => prepare_mono_output(canvas, palette_path, ink),
+        FontMode::Color => {
+            prepare_color_output(font, font_path, canvas, drawn_characters, palette_path, ink)
+        }
+    }
+}
+
+fn prepare_mono_output(
+    mut canvas: IndexedCanvas,
+    palette_path: Option<&Path>,
+    ink: Option<u8>,
+) -> Result<(IndexedCanvas, Palette)> {
+    let palette_path = palette_path.context("単色フォントには --palette が必要")?;
+    let ink = ink.context("単色フォントには --ink が必要")?;
+    let mut palette = pxsmith_io::hex::read(palette_path)
+        .with_context(|| format!("{} を読めない", palette_path.display()))?;
+    if ink as usize >= palette.len() {
+        bail!("--ink {ink} はパレットの範囲外（色数 {}）", palette.len());
+    }
+    let transparent = ensure_transparent(&mut palette)?;
+    let source_transparent = canvas.transparent().context("組版画布に透明添字が無い")?;
+    let mut map = (0..=u8::MAX).collect::<Vec<_>>();
+    map[source_transparent as usize] = transparent;
+    map[1] = ink;
+    canvas.remap(&map)?;
+    Ok((canvas, palette))
+}
+
+fn prepare_color_output(
+    font: &Font,
+    font_path: &Path,
+    mut canvas: IndexedCanvas,
+    drawn_characters: &BTreeSet<char>,
+    palette_path: Option<&Path>,
+    ink: Option<u8>,
+) -> Result<(IndexedCanvas, Palette)> {
+    if ink.is_some() {
+        bail!("多色フォントに --ink は指定できない");
+    }
+    let spec = font
+        .meta
+        .palette
+        .as_ref()
+        .context("多色フォントに [palette] が無い")?;
+    let source_path = font_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join(&spec.reference);
+    let source = pxsmith_io::hex::read(&source_path)
+        .with_context(|| format!("{} を読めない", source_path.display()))?;
+    let mut output = match palette_path {
+        Some(path) => {
+            pxsmith_io::hex::read(path).with_context(|| format!("{} を読めない", path.display()))?
+        }
+        None => source.clone(),
+    };
+
+    let used = font
+        .glyphs
+        .iter()
+        .filter(|glyph| glyph.variant.is_none() && drawn_characters.contains(&glyph.character))
+        .flat_map(|glyph| {
+            glyph
+                .canvas
+                .pixels()
+                .iter()
+                .copied()
+                .map(move |index| (glyph, index))
+        })
+        .filter(|(glyph, index)| glyph.canvas.transparent() != Some(*index))
+        .map(|(_, index)| index)
+        .collect::<BTreeSet<_>>();
+    let mut missing = BTreeSet::new();
+    let mut remap = (0..=u8::MAX).collect::<Vec<_>>();
+    for source_index in used {
+        let color = source.get(source_index).with_context(|| {
+            format!(
+                "多色フォントの添字 {source_index} が {} の範囲外",
+                source_path.display()
+            )
+        })?;
+        match output
+            .entries()
+            .iter()
+            .position(|candidate| *candidate == color)
+        {
+            Some(index) => remap[source_index as usize] = index as u8,
+            None => {
+                missing.insert(color.to_hex_string());
+            }
+        }
+    }
+    if !missing.is_empty() {
+        bail!(
+            "出力パレットに多色フォントの色が {} 色無い: {}",
+            missing.len(),
+            missing.into_iter().collect::<Vec<_>>().join(" ")
+        );
+    }
+    let transparent = ensure_transparent(&mut output)?;
+    let source_transparent = canvas.transparent().context("組版画布に透明添字が無い")?;
+    remap[source_transparent as usize] = transparent;
+    canvas.remap(&remap)?;
+    Ok((canvas, output))
+}
+
+fn ensure_transparent(palette: &mut Palette) -> Result<u8> {
+    match palette.entries().iter().position(|color| color.a == 0) {
+        Some(index) => Ok(index as u8),
+        None => palette
+            .push(Rgba8::TRANSPARENT)
+            .context("透明背景のためのパレット添字を確保できない"),
+    }
+}
+
+fn validate_render_extension(path: &Path) -> Result<()> {
+    let name = path.to_string_lossy();
+    if name.ends_with(".px.toml")
+        || path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| {
+                extension.eq_ignore_ascii_case("aseprite") || extension.eq_ignore_ascii_case("png")
+            })
+    {
+        return Ok(());
+    }
+    bail!("出力は .px.toml／.aseprite／.png のいずれかにすること")
+}
+
+fn parse_character(value: &str) -> std::result::Result<char, String> {
+    if let Some(hex) = value.strip_prefix("U+") {
+        if !(4..=6).contains(&hex.len()) || !hex.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Err(format!("'{value}' を U+XXXX の符号位置として読めない"));
+        }
+        let code = u32::from_str_radix(hex, 16)
+            .map_err(|_| format!("'{value}' を U+XXXX の符号位置として読めない"))?;
+        return char::from_u32(code)
+            .ok_or_else(|| format!("'{value}' は Unicode の符号位置でない"));
+    }
+    let mut characters = value.chars();
+    match (characters.next(), characters.next()) {
+        (Some(character), None) => Ok(character),
+        _ => Err(format!("'{value}' は 1 文字でない")),
     }
 }
 
