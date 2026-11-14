@@ -23,6 +23,9 @@ builds the workspace binary. It writes `misaki.fnt`, `misaki_0.png`,
 `gpos.fnt`, and `gpos_0.png`. It also renders `misaki_expected.png` and
 `gpos_expected.png` directly with `pxsmith font render` for pixel comparison.
 Intermediate `.pxfont.toml` files are kept in a temporary directory.
+The script also writes `window.png` and the three 9-slice reference images
+`window-stretch-30x22.png`, `window-tile-30x22.png`, and
+`window-tile-fit-30x22.png`.
 
 ## Running and capturing
 
@@ -40,3 +43,14 @@ colour. Compare `(0, 20, 11, 8)` in the same way with `gpos_expected.png`.
 
 Godot creates `.import` files and the `.godot/` cache on import. They are not
 part of this example; `.godot/` is ignored by Git.
+
+To capture the 9-slice scene with Godot 4.7, run:
+
+```sh
+godot --path examples/godot-ui res://nineslice.tscn -- --capture /tmp/9.png
+```
+
+Compare the capture regions `(0, 0, 30, 22)`, `(32, 0, 30, 22)`, and
+`(64, 0, 30, 22)` pixel-for-pixel with the stretch, tile, and tile-fit
+reference images respectively. The background is opaque, so transparent
+pixels in a future window fixture remain visible in the capture.

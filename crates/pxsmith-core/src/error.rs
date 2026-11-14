@@ -35,6 +35,32 @@ pub enum CoreError {
         actual: usize,
     },
 
+    /// 9-slice の中央が元画像に残らない．
+    #[error(
+        "9-slice の余白 (左 {left}，上 {top}，右 {right}，下 {bottom}) が元画像 {width}x{height} に中央を 1 px 以上残さない"
+    )]
+    NineSliceMargins {
+        width: u32,
+        height: u32,
+        left: u32,
+        top: u32,
+        right: u32,
+        bottom: u32,
+    },
+
+    /// 9-slice の四辺が描画先へ収まらない．
+    #[error(
+        "9-slice の余白 (左 {left}，上 {top}，右 {right}，下 {bottom}) が描画先 {width}x{height} に収まらない"
+    )]
+    NineSliceTarget {
+        width: u32,
+        height: u32,
+        left: u32,
+        top: u32,
+        right: u32,
+        bottom: u32,
+    },
+
     /// 存在しないレイヤ添字を参照した．
     #[error("レイヤ添字 {index} は範囲外 (レイヤ数 {len})")]
     LayerOutOfRange { index: usize, len: usize },

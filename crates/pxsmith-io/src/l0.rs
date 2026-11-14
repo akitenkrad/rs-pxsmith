@@ -22,7 +22,7 @@ use std::path::{Path, PathBuf};
 use pxsmith_core::canvas::IndexedCanvas;
 use pxsmith_core::frame::{Depth, FrameKind, Layer, LayerMeta, Surface};
 use pxsmith_core::math::uvec2;
-use pxsmith_core::{Frame, Palette};
+use pxsmith_core::{AxisStretch, Frame, NineSlice, Palette};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{IoError, Result};
@@ -66,6 +66,8 @@ pub struct L0Meta {
     pub depth: Option<String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub anchors: BTreeMap<String, [i32; 2]>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nine_slice: Option<NineSlice>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub subpixel_exclude: bool,
     /// `autotile_quadrants` のときだけ象限として解釈する (設計書 4.3)．
@@ -127,6 +129,41 @@ fn inline_anchors(anchors: &BTreeMap<String, [i32; 2]>) -> String {
         .collect::<Vec<_>>()
         .join(", ");
     format!("{{ {entries} }}")
+}
+
+fn inline_nine_slice(nine_slice: NineSlice) -> String {
+    let mut entries = vec![
+        format!("left = {}", nine_slice.left),
+        format!("top = {}", nine_slice.top),
+        format!("right = {}", nine_slice.right),
+        format!("bottom = {}", nine_slice.bottom),
+    ];
+    if nine_slice.stretch_x == nine_slice.stretch_y {
+        if nine_slice.stretch_x != AxisStretch::Stretch {
+            entries.push(format!(
+                "stretch = \"{}\"",
+                stretch_name(nine_slice.stretch_x)
+            ));
+        }
+    } else {
+        entries.push(format!(
+            "stretch_x = \"{}\"",
+            stretch_name(nine_slice.stretch_x)
+        ));
+        entries.push(format!(
+            "stretch_y = \"{}\"",
+            stretch_name(nine_slice.stretch_y)
+        ));
+    }
+    format!("{{ {} }}", entries.join(", "))
+}
+
+fn stretch_name(stretch: AxisStretch) -> &'static str {
+    match stretch {
+        AxisStretch::Stretch => "stretch",
+        AxisStretch::Tile => "tile",
+        AxisStretch::TileFit => "tile_fit",
+    }
 }
 
 fn toml_key(key: &str) -> String {
@@ -333,6 +370,9 @@ impl L0Document {
         for frame in &self.frames {
             let canvas = decode(&frame.data, &map, transparent, path, &frame.name)?;
             let size = (canvas.width(), canvas.height());
+            if let Some(nine_slice) = self.meta.nine_slice {
+                nine_slice.validate_source(size.0, size.1)?;
+            }
             match expected {
                 None => expected = Some(size),
                 Some(e) if e != size => {
@@ -473,6 +513,7 @@ impl L0Document {
                     layer: layer_name,
                     depth: depth.map(|d| d.as_str().to_string()),
                     anchors: BTreeMap::new(),
+                    nine_slice: None,
                     subpixel_exclude,
                     kind: None,
                     tile_size: None,
@@ -498,6 +539,7 @@ impl L0Document {
         // マップをそのまま直列化すると `[meta.anchors]`／`[frame.anchors]` という
         // 別表になる．L0 の正規形では人が読み書きしやすい 1 行のインライン表にする．
         let meta_anchors = std::mem::take(&mut shadow.meta.anchors);
+        let nine_slice = shadow.meta.nine_slice.take();
         let frame_anchors: Vec<_> = shadow
             .frames
             .iter_mut()
@@ -523,6 +565,16 @@ impl L0Document {
             text.insert_str(
                 palette,
                 &format!("anchors = {}\n", inline_anchors(&meta_anchors)),
+            );
+        }
+
+        if let Some(nine_slice) = nine_slice {
+            let palette = text
+                .find("\n[palette]")
+                .expect("直列化した L0 には [palette] がある");
+            text.insert_str(
+                palette,
+                &format!("nine_slice = {}\n", inline_nine_slice(nine_slice)),
             );
         }
 

@@ -9,6 +9,7 @@
 
 use std::path::{Path, PathBuf};
 
+use pxsmith_core::AxisStretch;
 use pxsmith_io::l0::L0Document;
 use pxsmith_io::{Document, FrameId, hex};
 
@@ -52,6 +53,72 @@ duration_ms = 100
 anchors = { head = [2, 1], ankle = [0, 2] }
 data = '''
 .0.
+000
+'''
+"#;
+
+const L0_WITH_DEFAULT_NINE_SLICE: &str = r#"[meta]
+format = 1
+name = "window"
+nine_slice = { left = 1, top = 1, right = 1, bottom = 1 }
+
+[palette]
+ref = "window.hex"
+
+[palette.map]
+0 = 0
+
+[[frame]]
+name = "window"
+kind = "key"
+duration_ms = 100
+data = '''
+000
+000
+000
+'''
+"#;
+
+const L0_WITH_COMMON_NINE_SLICE: &str = r#"[meta]
+format = 1
+name = "window"
+nine_slice = { left = 1, top = 1, right = 1, bottom = 1, stretch = "tile" }
+
+[palette]
+ref = "window.hex"
+
+[palette.map]
+0 = 0
+
+[[frame]]
+name = "window"
+kind = "key"
+duration_ms = 100
+data = '''
+000
+000
+000
+'''
+"#;
+
+const L0_WITH_AXIS_NINE_SLICE: &str = r#"[meta]
+format = 1
+name = "window"
+nine_slice = { left = 1, top = 1, right = 1, bottom = 1, stretch_x = "tile", stretch_y = "tile_fit" }
+
+[palette]
+ref = "window.hex"
+
+[palette.map]
+0 = 0
+
+[[frame]]
+name = "window"
+kind = "key"
+duration_ms = 100
+data = '''
+000
+000
 000
 '''
 "#;
@@ -291,4 +358,110 @@ fn l0_without_frame_anchors_is_byte_identical_after_read_and_write() {
         doc.to_toml().expect("書ける"),
         CANONICAL_L0_WITHOUT_FRAME_ANCHORS
     );
+}
+
+#[test]
+fn nine_slice_forms_are_byte_identical_after_read_and_write() {
+    let cases = [
+        (
+            L0_WITH_DEFAULT_NINE_SLICE,
+            AxisStretch::Stretch,
+            AxisStretch::Stretch,
+        ),
+        (
+            L0_WITH_COMMON_NINE_SLICE,
+            AxisStretch::Tile,
+            AxisStretch::Tile,
+        ),
+        (
+            L0_WITH_AXIS_NINE_SLICE,
+            AxisStretch::Tile,
+            AxisStretch::TileFit,
+        ),
+    ];
+    for (text, stretch_x, stretch_y) in cases {
+        let doc = L0Document::parse(text, Path::new("window.px.toml")).expect("9-slice を読める");
+        let nine_slice = doc.meta.nine_slice.expect("宣言が残る");
+        assert_eq!(nine_slice.stretch_x, stretch_x);
+        assert_eq!(nine_slice.stretch_y, stretch_y);
+        assert_eq!(doc.to_toml().expect("書ける"), text);
+    }
+}
+
+#[test]
+fn common_and_axis_stretch_cannot_be_mixed() {
+    let text = L0_WITH_COMMON_NINE_SLICE.replace(
+        "stretch = \"tile\"",
+        "stretch = \"tile\", stretch_x = \"tile_fit\"",
+    );
+    let error =
+        L0Document::parse(&text, Path::new("conflict.px.toml")).expect_err("競合する指定はエラー");
+    assert!(
+        error.to_string().contains("同時に指定できない"),
+        "予期しないエラー: {error}"
+    );
+}
+
+#[test]
+fn nine_slice_follows_anchors_before_the_palette() {
+    let text = L0_WITH_DEFAULT_NINE_SLICE.replacen(
+        "name = \"window\"\n",
+        "name = \"window\"\nanchors = { origin = [1, 2] }\n",
+        1,
+    );
+    let doc = L0Document::parse(&text, Path::new("anchored-window.px.toml"))
+        .expect("アンカーと 9-slice を読める");
+    let written = doc.to_toml().expect("書ける");
+    assert_eq!(written, text);
+    assert!(written.find("anchors =").unwrap() < written.find("nine_slice =").unwrap());
+    assert!(written.find("nine_slice =").unwrap() < written.find("[palette]").unwrap());
+}
+
+#[test]
+fn nine_slice_margins_must_leave_a_source_centre() {
+    let root = scratch("nine-slice-validation");
+    std::fs::create_dir_all(&root).expect("作業場所を作れる");
+    std::fs::write(root.join("window.hex"), "1a1c2c\n").expect("パレットを書ける");
+    let text = L0_WITH_DEFAULT_NINE_SLICE.replace("right = 1", "right = 2");
+    let doc = L0Document::parse(&text, &root.join("window.px.toml")).expect("構文は読める");
+    let error = doc
+        .to_frames(&root.join("window.px.toml"))
+        .expect_err("中央が残らない余白はエラー");
+    assert!(error.to_string().contains("中央を 1 px 以上"), "{error}");
+}
+
+#[test]
+fn every_repository_l0_is_byte_identical_after_read_and_write() {
+    let repository = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let mut paths = Vec::new();
+    for subtree in ["testdata", "examples"] {
+        collect_l0(&repository.join(subtree), &mut paths);
+    }
+    paths.sort();
+    for path in &paths {
+        let original = std::fs::read_to_string(path).expect("L0 を読める");
+        let document = L0Document::parse(&original, path).expect("L0 を解釈できる");
+        assert_eq!(
+            document.to_toml().expect("L0 を書ける"),
+            original,
+            "{} の正規形が変わった",
+            path.display()
+        );
+    }
+    eprintln!("{} 件の .px.toml がバイト一致で往復した", paths.len());
+    assert!(!paths.is_empty(), "往復対象の .px.toml が無い");
+}
+
+fn collect_l0(directory: &Path, paths: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(directory) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_l0(&path, paths);
+        } else if path.to_string_lossy().ends_with(".px.toml") {
+            paths.push(path);
+        }
+    }
 }

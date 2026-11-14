@@ -16,6 +16,8 @@ fi
 
 misaki_font="$work_dir/misaki.pxfont.toml"
 gpos_font="$work_dir/gpos.pxfont.toml"
+tile_window="$work_dir/window-tile.px.toml"
+tile_fit_window="$work_dir/window-tile-fit.px.toml"
 misaki_text=$(sed -n '1,2p' "$project_dir/misaki_chars.txt")
 
 "$pxsmith" font import \
@@ -33,6 +35,29 @@ misaki_text=$(sed -n '1,2p' "$project_dir/misaki_chars.txt")
     "$project_dir/misaki_expected.png" \
     --palette "$project_dir/white.hex" \
     --ink 0
+
+cp "$project_dir/window.hex" "$work_dir/window.hex"
+sed 's/bottom = 4 }/bottom = 4, stretch = "tile" }/' \
+    "$project_dir/window.px.toml" > "$tile_window"
+sed 's/bottom = 4 }/bottom = 4, stretch = "tile_fit" }/' \
+    "$project_dir/window.px.toml" > "$tile_fit_window"
+
+"$pxsmith" nineslice preview \
+    "$project_dir/window.px.toml" \
+    "$project_dir/window.png" \
+    --size 12x12
+"$pxsmith" nineslice preview \
+    "$project_dir/window.px.toml" \
+    "$project_dir/window-stretch-30x22.png" \
+    --size 30x22
+"$pxsmith" nineslice preview \
+    "$tile_window" \
+    "$project_dir/window-tile-30x22.png" \
+    --size 30x22
+"$pxsmith" nineslice preview \
+    "$tile_fit_window" \
+    "$project_dir/window-tile-fit-30x22.png" \
+    --size 30x22
 
 "$pxsmith" font import \
     "$repo_dir/testdata/fonts/synthetic/pxsynth-gpos.ttf" \

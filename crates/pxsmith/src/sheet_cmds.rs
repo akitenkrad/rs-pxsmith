@@ -102,6 +102,7 @@ fn pack_cmd(args: &PackArgs) -> Result<()> {
     }
     let mut items: Vec<SheetItem> = Vec::new();
     let mut palette_sources: Vec<(Option<String>, Option<pxsmith_core::Palette>)> = Vec::new();
+    let mut nine_slices = Vec::new();
     for path in &args.inputs {
         if crate::color_cmds::is_png(path) {
             bail!(
@@ -110,6 +111,19 @@ fn pack_cmd(args: &PackArgs) -> Result<()> {
                 path.display()
             );
         }
+        let nine_slice = if path.to_string_lossy().ends_with(".px.toml")
+            || path.to_string_lossy().ends_with(".toml")
+        {
+            Some(
+                pxsmith_io::l0::L0Document::read(path)
+                    .with_context(|| format!("{} を L0 として読めない", path.display()))?
+                    .meta
+                    .nine_slice,
+            )
+        } else {
+            None
+        }
+        .flatten();
         let frames = crate::load_frames(path)?;
         if frames.is_empty() {
             bail!("{} にフレームが 1 つも無い", path.display());
@@ -139,6 +153,7 @@ fn pack_cmd(args: &PackArgs) -> Result<()> {
                 palette: frame.palette.clone(),
                 duration_ms: frame.duration_ms,
             });
+            nine_slices.push(nine_slice);
             if let Some(source) = &palette_source {
                 palette_sources.push(source.clone());
             }
@@ -155,7 +170,7 @@ fn pack_cmd(args: &PackArgs) -> Result<()> {
         .file_name()
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_else(|| "sheet.png".to_string());
-    let (doc, report) = if args.palette_swap {
+    let (mut doc, report) = if args.palette_swap {
         let swap_items: Vec<PaletteSwapItem> = items
             .iter()
             .cloned()
@@ -188,6 +203,9 @@ fn pack_cmd(args: &PackArgs) -> Result<()> {
         write_indexed(&args.output, &canvas, &palette)?;
         (doc, report)
     };
+    for (cell, nine_slice) in doc.cells.iter_mut().zip(nine_slices) {
+        cell.nine_slice = nine_slice;
+    }
     let meta = args
         .meta
         .clone()

@@ -24,6 +24,7 @@ mod direction_cmds;
 mod export_cmds;
 mod font_cmds;
 mod gen_cmds;
+mod nineslice_cmds;
 mod run_cmds;
 mod shape_cmds;
 mod sheet_cmds;
@@ -186,6 +187,11 @@ pub(crate) enum Command {
     Sheet {
         #[command(subcommand)]
         command: sheet_cmds::SheetCommand,
+    },
+    /// L0 の 9-slice 宣言を確認する
+    Nineslice {
+        #[command(subcommand)]
+        command: nineslice_cmds::NinesliceCommand,
     },
     /// 正規 JSON を出力先の形式へ変換する (設計書 4.4)
     Export {
@@ -403,6 +409,7 @@ pub(crate) fn dispatch(command: Command) -> Result<()> {
         Command::Anim { command } => anim_cmds::anim(command),
         Command::Atmos { args } => atmos_cmds::atmos_cmd(&args),
         Command::Sheet { command } => sheet_cmds::sheet(command),
+        Command::Nineslice { command } => nineslice_cmds::nineslice(command),
         Command::Export { command } => export_cmds::export(command),
         Command::Gen { command } => gen_cmds::generate(command),
         Command::View { path, display } => view(&path, &display),
@@ -551,6 +558,13 @@ fn text(command: TextCommand) -> Result<()> {
         }
         TextCommand::Import { input, output } => {
             let frames = load_frames(&input)?;
+            // `Frame` は L0 の `[meta]` を持たないので，9-slice の宣言が落ちることは
+            // 入力の L0 を見て知らせる (`.aseprite` に 9-slice の置き場は無い)．
+            let name = input.to_string_lossy();
+            let has_nine_slice = (name.ends_with(".px.toml") || name.ends_with(".toml"))
+                && L0Document::read(&input)
+                    .map(|doc| doc.meta.nine_slice.is_some())
+                    .unwrap_or(false);
             let doc = Document::from_frames(&frames).with_context(|| {
                 format!("{} から .aseprite を組み立てられない", input.display())
             })?;
@@ -562,6 +576,12 @@ fn text(command: TextCommand) -> Result<()> {
                 output.display(),
                 frames.len()
             );
+            if has_nine_slice {
+                println!(
+                    "  ** .aseprite は nine_slice を持てない ** — L0 の 9-slice 宣言は失われる．\n\
+                     9-slice を引き継ぐなら .px.toml のまま使うこと"
+                );
+            }
             Ok(())
         }
     }

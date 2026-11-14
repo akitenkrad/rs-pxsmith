@@ -43,6 +43,7 @@ use crate::canvas::{IndexedCanvas, RgbaCanvas};
 use crate::color::Rgba8;
 use crate::error::{CoreError, Result};
 use crate::math::ivec2;
+use crate::nineslice::NineSlice;
 use crate::palette::Palette;
 
 pub const FORMAT_VERSION: u32 = 1;
@@ -103,6 +104,8 @@ pub struct SheetCell {
     /// format 2 でこの升が参照する基のパレット行．
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub palette: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nine_slice: Option<NineSlice>,
 }
 
 fn is_zero(v: &u32) -> bool {
@@ -361,6 +364,7 @@ pub fn pack(
             h: item.canvas.height(),
             duration_ms: item.duration_ms,
             palette: None,
+            nine_slice: None,
         });
     }
 
@@ -536,6 +540,7 @@ pub fn pack_palette_swap(
             h: item.canvas.height(),
             duration_ms: item.duration_ms,
             palette: Some(item_rows[index]),
+            nine_slice: None,
         });
     }
 
