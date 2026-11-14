@@ -7,7 +7,6 @@ default_advance = 3
 
 [[glyph]]
 char = "U+0020"
-advance = 2
 data = '''
 ..
 ..

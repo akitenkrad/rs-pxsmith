@@ -510,4 +510,40 @@ data = '''
         let output = PxFontDocument::from_font(&font).unwrap().to_toml().unwrap();
         assert!(output.contains("char = \"U+0020\""), "{output}");
     }
+
+    #[test]
+    fn canonical_advance_is_omitted_only_when_it_matches_the_implicit_advance() {
+        let document = PxFontDocument::parse(BASIC, Path::new("test.pxfont.toml")).unwrap();
+        let base = document.to_font(Path::new("test.pxfont.toml")).unwrap();
+
+        let mut same_as_width = base.clone();
+        same_as_width.glyphs[0].advance = Some(2);
+        assert_eq!(
+            PxFontDocument::from_font(&same_as_width).unwrap().glyphs[0].advance,
+            None
+        );
+
+        let mut different_from_width = base.clone();
+        different_from_width.glyphs[0].advance = Some(1);
+        assert_eq!(
+            PxFontDocument::from_font(&different_from_width)
+                .unwrap()
+                .glyphs[0]
+                .advance,
+            Some(1)
+        );
+
+        let mut zero_width = base;
+        zero_width.glyphs[0].canvas = IndexedCanvas::filled(0, 2, 0).with_transparent(Some(0));
+        zero_width.glyphs[0].advance = Some(2);
+        assert_eq!(
+            PxFontDocument::from_font(&zero_width).unwrap().glyphs[0].advance,
+            None
+        );
+        zero_width.glyphs[0].advance = Some(1);
+        assert_eq!(
+            PxFontDocument::from_font(&zero_width).unwrap().glyphs[0].advance,
+            Some(1)
+        );
+    }
 }

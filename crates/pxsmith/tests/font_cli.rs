@@ -27,6 +27,25 @@ fn run(args: &[&std::ffi::OsStr]) -> Output {
 }
 
 #[test]
+fn help_describes_all_import_formats_and_shared_clipping() {
+    let font_help = run(&["font".as_ref(), "--help".as_ref()]);
+    assert!(font_help.status.success());
+    let font_stdout = String::from_utf8_lossy(&font_help.stdout);
+    assert!(
+        font_stdout.contains("BDF ・TTF ・OTF ・TTC を `.pxfont.toml` へ取り込む"),
+        "{font_stdout}"
+    );
+
+    let import_help = run(&["font".as_ref(), "import".as_ref(), "--help".as_ref()]);
+    assert!(import_help.status.success());
+    let import_stdout = String::from_utf8_lossy(&import_help.stdout);
+    assert!(
+        import_stdout.contains("升からはみ出す字形を切る"),
+        "{import_stdout}"
+    );
+}
+
+#[test]
 fn check_returns_one_and_lists_missing_characters() {
     let root = scratch("missing");
     let text = root.join("text.txt");

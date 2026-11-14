@@ -18,7 +18,7 @@ use pxsmith_io::ttf::{TtfImportOptions, import_ttf};
 
 #[derive(Subcommand)]
 pub enum FontCommand {
-    /// BDF を `.pxfont.toml` へ取り込む
+    /// BDF ・TTF ・OTF ・TTC を `.pxfont.toml` へ取り込む
     Import(ImportArgs),
     /// 文言に必要な字と字形を検査する
     Check(CheckArgs),
@@ -35,7 +35,7 @@ pub struct ImportArgs {
     /// このファイルに現れる字だけを取り込む
     #[arg(long)]
     pub chars_file: Option<PathBuf>,
-    /// 升からはみ出す BDF の BBX を切る
+    /// 升からはみ出す字形を切る
     #[arg(long)]
     pub clip: bool,
     /// TTF/OTF/TTC の 1 em の画素数

@@ -53,9 +53,18 @@ pub struct Glyph {
 }
 
 impl Glyph {
-    /// 個別指定が無いときはフォントの既定字送りを使う．
+    /// 個別指定が無いときは画布の幅を使い，幅 0 の字だけフォントの既定字送りを使う．
     pub fn effective_advance(&self, meta: &FontMeta) -> u32 {
-        self.advance.unwrap_or(meta.default_advance)
+        self.advance.unwrap_or_else(|| self.implicit_advance(meta))
+    }
+
+    fn implicit_advance(&self, meta: &FontMeta) -> u32 {
+        let width = self.canvas.width();
+        if width == 0 {
+            meta.default_advance
+        } else {
+            width
+        }
     }
 }
 
@@ -184,6 +193,11 @@ impl Font {
 
     /// グリフとカーニングを正規形の符号位置順へ並べる．
     pub fn canonicalize(&mut self) {
+        for glyph in &mut self.glyphs {
+            if glyph.advance == Some(glyph.implicit_advance(&self.meta)) {
+                glyph.advance = None;
+            }
+        }
         self.glyphs
             .sort_by(|a, b| (a.character, &a.variant).cmp(&(b.character, &b.variant)));
         self.kerns.sort_by(|a, b| {
@@ -223,6 +237,22 @@ mod tests {
             glyphs,
             kerns,
         }
+    }
+
+    #[test]
+    fn omitted_advance_uses_nonzero_canvas_width() {
+        let mut g = glyph('A', None);
+        g.canvas = crate::IndexedCanvas::filled(3, 3, 0).with_transparent(Some(0));
+        let value = font(vec![g], vec![]);
+        assert_eq!(value.glyphs[0].effective_advance(&value.meta), 3);
+    }
+
+    #[test]
+    fn omitted_advance_uses_default_for_zero_width_canvas() {
+        let mut g = glyph('A', None);
+        g.canvas = crate::IndexedCanvas::filled(0, 3, 0).with_transparent(Some(0));
+        let value = font(vec![g], vec![]);
+        assert_eq!(value.glyphs[0].effective_advance(&value.meta), 2);
     }
 
     #[test]

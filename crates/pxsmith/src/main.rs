@@ -449,7 +449,11 @@ pub(crate) fn dispatch(command: Command) -> Result<()> {
 /// > して，`.aseprite` だけのときは «スコープが効かない» と併記する**．
 pub(crate) fn save_frames(path: &std::path::Path, frames: &[Frame], name: &str) -> Result<()> {
     let text = path.to_string_lossy();
-    if text.ends_with(".gif") {
+    let extension = path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .map(str::to_ascii_lowercase);
+    if extension.as_deref() == Some("gif") {
         let gif_frames = frames
             .iter()
             .enumerate()
@@ -498,6 +502,32 @@ pub(crate) fn save_frames(path: &std::path::Path, frames: &[Frame], name: &str) 
             .with_context(|| format!("{} を書き出せない", palette_ref.display()))?;
         println!("  パレット -> {}", palette_ref.display());
         return Ok(());
+    }
+    if extension.as_deref() == Some("png") {
+        let [frame] = frames else {
+            bail!(
+                "PNG へ書き出せるのは 1 フレームだけである．複数フレームには .gif か .aseprite を使うこと"
+            );
+        };
+        let image = pxsmith_view::render::to_rgba_image(
+            frame,
+            &RenderOptions {
+                zoom: 1,
+                checkerboard: false,
+                ..RenderOptions::default()
+            },
+        );
+        let pixels = image
+            .pixels()
+            .map(|pixel| Rgba8::new(pixel[0], pixel[1], pixel[2], pixel[3]))
+            .collect();
+        let canvas = pxsmith_core::RgbaCanvas::from_pixels(image.width(), image.height(), pixels)?;
+        pxsmith_io::png::write_rgba(path, &canvas)
+            .with_context(|| format!("{} を PNG として書き出せない", path.display()))?;
+        return Ok(());
+    }
+    if !matches!(extension.as_deref(), Some("aseprite" | "ase")) {
+        bail!("出力は .px.toml／.toml／.gif／.aseprite／.ase／.png のいずれかにすること");
     }
     let doc = Document::from_frames(frames).context("フレーム列を組み立てられない")?;
     doc.write(path)
@@ -817,5 +847,76 @@ fn verify(command: VerifyCommand) -> Result<()> {
             }
             Ok(())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pxsmith_core::{Layer, LayerMeta, Surface};
+
+    fn frame() -> Frame {
+        let palette = Palette::new(vec![Rgba8::rgb(9, 8, 7), Rgba8::rgb(1, 2, 3)]).unwrap();
+        let canvas = IndexedCanvas::from_pixels(2, 1, vec![0, 1])
+            .unwrap()
+            .with_transparent(Some(0));
+        let mut frame = Frame::new(canvas.size(), palette);
+        frame.layers.push(Layer::new(
+            LayerMeta::named("art"),
+            Surface::Indexed(canvas),
+        ));
+        frame
+    }
+
+    fn scratch(name: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "pxsmith-save-frames-{name}-{}-{}",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("test")
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        root
+    }
+
+    #[test]
+    fn save_frames_writes_one_frame_as_rgba_png() {
+        let output = scratch("png-one").join("frame.png");
+        save_frames(&output, &[frame()], "frame").unwrap();
+
+        let image = pxsmith_io::png::read_rgba(&output).unwrap();
+        assert_eq!(image.get(0, 0), Some(Rgba8::TRANSPARENT));
+        assert_eq!(image.get(1, 0), Some(Rgba8::rgb(1, 2, 3)));
+    }
+
+    #[test]
+    fn save_frames_rejects_multiple_frames_for_png() {
+        let output = scratch("png-many").join("frames.png");
+        let error = save_frames(&output, &[frame(), frame()], "frames").unwrap_err();
+        let message = error.to_string();
+        assert!(message.contains(".gif"), "{message}");
+        assert!(message.contains(".aseprite"), "{message}");
+        assert!(!output.exists(), "エラー時に出力が作られた");
+    }
+
+    #[test]
+    fn save_frames_rejects_an_unknown_extension() {
+        let output = scratch("unknown").join("frames.bin");
+        let error = save_frames(&output, &[frame()], "frames").unwrap_err();
+        let message = error.to_string();
+        for extension in [".px.toml", ".gif", ".aseprite", ".ase", ".png"] {
+            assert!(
+                message.contains(extension),
+                "{extension} が案内に無い: {message}"
+            );
+        }
+        assert!(!output.exists(), "エラー時に出力が作られた");
+    }
+
+    #[test]
+    fn save_frames_writes_ase_extension_as_aseprite() {
+        let output = scratch("ase").join("frame.ase");
+        save_frames(&output, &[frame()], "frame").unwrap();
+        let document = Document::read(&output).unwrap();
+        assert_eq!(document.frame_count(), 1);
     }
 }
