@@ -21,6 +21,9 @@ pub enum IoError {
     #[error(transparent)]
     Core(#[from] pxsmith_core::CoreError),
 
+    #[error(transparent)]
+    Font(#[from] pxsmith_core::font::FontError),
+
     #[error("{path}:{line}: {message}")]
     Parse {
         path: PathBuf,
@@ -82,6 +85,9 @@ pub enum IoError {
         path: PathBuf,
         violation: crate::l0::Violation,
     },
+
+    #[error("{count} 字が升からはみ出す: {}", details.join("；"))]
+    BdfOutside { count: usize, details: Vec<String> },
 }
 
 pub type Result<T> = std::result::Result<T, IoError>;

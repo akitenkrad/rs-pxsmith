@@ -1,0 +1,53 @@
+[meta]
+format = 1
+name = "handmade-mono"
+line_height = 3
+baseline = 2
+default_advance = 3
+
+[[glyph]]
+char = "U+0020"
+advance = 2
+data = '''
+..
+..
+..
+'''
+
+[[glyph]]
+char = "A"
+data = '''
+.#.
+###
+#.#
+'''
+
+[[glyph]]
+char = "B"
+advance = 2
+data = '''
+...
+...
+...
+'''
+
+[[glyph]]
+char = "、"
+data = '''
+...
+.#.
+#..
+'''
+
+[[glyph]]
+char = "ー"
+variant = "vert"
+data = '''
+.#.
+.#.
+.#.
+'''
+
+[[kern]]
+pair = "AV"
+amount = -1

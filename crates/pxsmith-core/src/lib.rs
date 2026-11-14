@@ -55,6 +55,7 @@ pub mod direction;
 pub mod edit;
 pub mod error;
 pub mod export;
+pub mod font;
 pub mod frame;
 pub mod geom;
 pub mod grid;
@@ -86,6 +87,7 @@ pub use direction::{
     Direction, ExpandMode, ExpandOptions, ExpandReport, ReshadeSpec, expand, mirror_canvas,
     mirror_frame,
 };
+pub use font::{Font, FontColorKey, FontError, FontMeta, FontMode, FontPalette, Glyph, Kern};
 
 pub use anim::{CycleSpec, ModTarget, Wave, cycle, duration_ms, ease, reverse_derive};
 pub use autotile::{

@@ -9,12 +9,14 @@
 //! | [`atomic`] | 原子的な出力 | 3.7 |
 
 pub mod atomic;
+pub mod bdf;
 pub mod document;
 pub mod error;
 pub mod gif;
 pub mod hex;
 pub mod l0;
 pub mod png;
+pub mod pxfont;
 
 pub use atomic::AtomicOutput;
 pub use document::{Document, ProjectOptions};

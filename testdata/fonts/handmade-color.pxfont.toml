@@ -1,0 +1,24 @@
+[meta]
+format = 1
+name = "handmade-color"
+mode = "color"
+line_height = 2
+baseline = 1
+default_advance = 2
+source = "handmade.aseprite"
+copyright = "Public Domain"
+
+[palette]
+ref = "handmade.hex"
+
+[palette.map]
+"." = "transparent"
+r = 0
+y = 1
+
+[[glyph]]
+char = "★"
+data = '''
+ry
+.r
+'''

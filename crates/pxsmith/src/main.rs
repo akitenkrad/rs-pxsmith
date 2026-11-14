@@ -22,6 +22,7 @@ mod color_cmds;
 mod compose_cmds;
 mod direction_cmds;
 mod export_cmds;
+mod font_cmds;
 mod gen_cmds;
 mod run_cmds;
 mod shape_cmds;
@@ -51,6 +52,11 @@ pub(crate) enum Command {
     Anchor {
         #[command(subcommand)]
         command: anchor_cmds::AnchorCommand,
+    },
+    /// ビットマップフォントの取り込みと字の検査
+    Font {
+        #[command(subcommand)]
+        command: font_cmds::FontCommand,
     },
     /// パレットの操作 (設計書 4.5 / 6.6)
     Palette {
@@ -351,6 +357,7 @@ pub(crate) fn dispatch(command: Command) -> Result<()> {
     match command {
         Command::Text { command } => text(command),
         Command::Anchor { command } => anchor_cmds::anchor(command),
+        Command::Font { command } => font_cmds::font(command),
         Command::Palette { command } => color_cmds::palette(command),
         Command::Quantize {
             input,
