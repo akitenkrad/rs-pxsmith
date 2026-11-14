@@ -14,7 +14,7 @@ use pxsmith_core::cvd::{CvdOptions, CvdPair, CvdReport, DEFAULT_THRESHOLD, Defic
 use pxsmith_core::grid::{GridParams, downscale_modal, estimate_grid, local_grid, uniformity};
 use pxsmith_core::quantize::{ApplyOptions, Dither, QuantizeMethod, ReduceOptions};
 use pxsmith_core::ramp::{LightPreset, RampSpec, build_lighting, generate_ramp};
-use pxsmith_core::{ChromaCurve, Palette, Rgba8};
+use pxsmith_core::{ChromaCurve, Palette, Rgba8, Surface};
 use pxsmith_io::{FrameId, hex, png};
 
 #[derive(Debug)]
@@ -707,8 +707,7 @@ fn apply(
     dither: DitherArg,
     weight_l: f32,
 ) -> Result<()> {
-    let palette = load_palette(palette_path)?;
-    let img = load_rgba(input)?;
+    let mut palette = load_palette(palette_path)?;
     let opts = ApplyOptions {
         w_l: weight_l,
         dither: match dither {
@@ -717,8 +716,64 @@ fn apply(
             DitherArg::Error => Dither::ErrorDiffusion { strength: 1.0 },
         },
     };
-    let indexed = pxsmith_core::quantize::apply_palette(&img, &palette, &opts);
-    write_indexed(output, &indexed, &palette)?;
+
+    if is_png(input) {
+        let image =
+            png::read_rgba(input).with_context(|| format!("{} を読めない", input.display()))?;
+        ensure_transparent_entry(
+            &mut palette,
+            image.pixels().iter().any(|color| color.a == 0),
+        )?;
+        let indexed = pxsmith_core::quantize::apply_palette(&image, &palette, &opts);
+        write_indexed(output, &indexed, &palette)?;
+    } else {
+        let source_l0 = if is_l0(input) {
+            Some(
+                pxsmith_io::l0::L0Document::read(input)
+                    .with_context(|| format!("{} を L0 として読めない", input.display()))?,
+            )
+        } else {
+            None
+        };
+        let mut frames = crate::load_frames(input)?;
+        let has_transparent_pixels = frames.iter().any(|frame| {
+            frame.layers.iter().any(|layer| match &layer.surface {
+                Surface::Indexed(canvas) => canvas
+                    .bounds()
+                    .iter()
+                    .any(|point| canvas.is_transparent_at(point)),
+                Surface::Rgba(canvas) => canvas.pixels().iter().any(|color| color.a == 0),
+                Surface::Tiles { .. } => false,
+            })
+        });
+        ensure_transparent_entry(&mut palette, has_transparent_pixels)?;
+
+        for frame in &mut frames {
+            let source_palette = frame.palette.clone();
+            for layer in &mut frame.layers {
+                let image = match &layer.surface {
+                    Surface::Indexed(canvas) => png::resolve(canvas, &source_palette),
+                    Surface::Rgba(canvas) => canvas.clone(),
+                    Surface::Tiles { .. } => {
+                        bail!(
+                            "レイヤ '{}' はタイルマップなのでパレットへ強制できない",
+                            layer.meta.name
+                        )
+                    }
+                };
+                layer.surface = Surface::Indexed(pxsmith_core::quantize::apply_palette(
+                    &image, &palette, &opts,
+                ));
+            }
+            frame.palette = palette.clone();
+        }
+        crate::save_frames(output, &frames, "palette-apply")?;
+        if let Some(source) = source_l0
+            && is_l0(output)
+        {
+            restore_l0_metadata(&source, output)?;
+        }
+    }
     println!(
         "{} -> {} ({} 色のパレットへ強制，w_L={weight_l})",
         input.display(),
@@ -726,6 +781,44 @@ fn apply(
         palette.len()
     );
     Ok(())
+}
+
+fn is_l0(path: &Path) -> bool {
+    let name = path.to_string_lossy();
+    name.ends_with(".px.toml") || name.ends_with(".toml")
+}
+
+fn ensure_transparent_entry(palette: &mut Palette, needed: bool) -> Result<()> {
+    if needed && !palette.entries().iter().any(|color| color.a == 0) {
+        palette.push(Rgba8::TRANSPARENT)?;
+    }
+    Ok(())
+}
+
+fn restore_l0_metadata(source: &pxsmith_io::l0::L0Document, output: &Path) -> Result<()> {
+    let mut written = pxsmith_io::l0::L0Document::read(output)
+        .with_context(|| format!("{} を L0 として読み戻せない", output.display()))?;
+    if written.frames.len() != source.frames.len() {
+        bail!(
+            "palette apply の書出し前後でフレーム数が変わった ({} -> {})",
+            source.frames.len(),
+            written.frames.len()
+        );
+    }
+
+    let palette = written.palette;
+    written.meta = source.meta.clone();
+    written.palette = palette;
+    for (destination, original) in written.frames.iter_mut().zip(&source.frames) {
+        destination.name.clone_from(&original.name);
+        destination.kind.clone_from(&original.kind);
+        destination.duration_ms = original.duration_ms;
+        destination.quadrant = original.quadrant;
+        destination.anchors.clone_from(&original.anchors);
+    }
+    written
+        .write(output)
+        .with_context(|| format!("{} の L0 メタデータを書き戻せない", output.display()))
 }
 
 /// `pxsmith quantize`．

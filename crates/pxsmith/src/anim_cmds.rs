@@ -628,12 +628,27 @@ fn smear_cmd(args: &SmearArgs) -> Result<()> {
         smear.components.2
     );
     if !smear.connects() {
-        println!(
-            "  ** {} つに切れている ** — 繋がった形になっていない．\n\
-             --align none は包含定理から «2 枚の和集合» にしかならないので，\n\
-             速い動きでは必ず切れる (--align centroid にすること)",
-            smear.components.2
-        );
+        match align {
+            TweenAlign::None => println!(
+                "  ** {} つに切れている ** — 繋がった形になっていない．\n\
+                 --align none は包含定理から «2 枚の和集合» にしかならないので，\n\
+                 速い動きでは必ず切れる (--align centroid にすること)",
+                smear.components.2
+            ),
+            TweenAlign::Centroid if smear.components.0 != 1 || smear.components.1 != 1 => {
+                println!(
+                    "  ** {} つに切れている ** — 重心を合わせても繋がらない．\n\
+                     両端の形が違いすぎる — 入力の成分数が A={}・B={} で，\n\
+                     離れた部品がある．キーを足すか，部品ごとに伸ばすこと",
+                    smear.components.2, smear.components.0, smear.components.1
+                );
+            }
+            TweenAlign::Centroid => println!(
+                "  ** {} つに切れている ** — 重心を合わせても繋がらない．\n\
+                 両端の形が違いすぎる．キーを足すか，部品ごとに伸ばすこと",
+                smear.components.2
+            ),
+        }
     }
     if !covers_ends(&ma, &mb, &smear.mask) {
         println!("  ** 両端を含んでいない ** — 符号の規約が壊れている");

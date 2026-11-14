@@ -215,6 +215,9 @@ fn diffuse(img: &RgbaCanvas, palette: &Palette, w_l: f32, strength: f32) -> Inde
                 if nx < 0 || nx >= w || ny >= h {
                     continue;
                 }
+                if img.get(nx, ny).is_none_or(|color| color.a == 0) {
+                    continue;
+                }
                 let k = weight / 16.0;
                 let slot = &mut error[idx(nx, ny)];
                 slot.l += diff.l * k;
@@ -646,10 +649,23 @@ mod tests {
         entries.extend_from_slice(ramp_palette().entries());
         let palette = Palette::new(entries).unwrap();
 
-        let out = apply_palette(&img, &palette, &ApplyOptions::default());
-        assert_eq!(out.transparent(), Some(0));
-        assert_eq!(out.get(0, 0), Some(0));
-        assert_ne!(out.get(1, 0), Some(0));
+        for dither in [
+            Dither::None,
+            Dither::ORDERED,
+            Dither::ErrorDiffusion { strength: 1.0 },
+        ] {
+            let out = apply_palette(
+                &img,
+                &palette,
+                &ApplyOptions {
+                    dither,
+                    ..ApplyOptions::default()
+                },
+            );
+            assert_eq!(out.transparent(), Some(0), "{dither:?}");
+            assert_eq!(out.get(0, 0), Some(0), "{dither:?}");
+            assert_ne!(out.get(1, 0), Some(0), "{dither:?}");
+        }
     }
 
     #[test]

@@ -24,6 +24,13 @@ the command reports how many frames were rounded and to what. GIF is an output
 format only: no command reads it back, so apply timing with `anim ease` before
 the GIF is written.
 
+L0, PNG and GIF can hold only one visible layer per frame. When a command such
+as `compose` produces several layers, these formats flatten them from bottom to
+top and print one line saying so; `.aseprite` keeps the layers. L0 flattening
+copies existing indexed colours exactly and never creates a blended colour. A
+partly transparent layer or a non-normal blend mode is therefore an explicit
+error instead of silently adding a colour that was not in the palette.
+
 L0 anchors in `[meta]` are defaults shared by every frame. A `[[frame]]` may
 override any of them without repeating the rest:
 
@@ -155,6 +162,12 @@ are the union across all parts and all output frames, so a moving anchor cannot
 make packed frame cells change size. If offsets vary, the report shows the
 frame-zero offset and the x/y ranges; constant offsets retain the previous
 single-offset report.
+
+For `.px.toml`, `.png` and `.gif` output, `compose` flattens the part layers in
+their declared order, with later parts covering earlier ones and transparent
+pixels leaving lower parts visible. The result is pixel-identical to the
+layered `.aseprite` output at actual size. `.aseprite` output continues to keep
+one layer per part.
 
 `project` requires both `--from` and `--facing`. Which face is being laid down,
 and which way it points, cannot be read off the pixels, so a guess would fail
@@ -559,6 +572,22 @@ index texture rather than resolved colours.
 See [`examples/godot-palette-swap/`](../examples/godot-palette-swap/) for a
 Godot 4.7 canvas shader, exact texture import settings, three row selections,
 and a command-line screenshot mode.
+
+## Applying a palette
+
+```sh
+pxsmith palette apply walk.px.toml walk-dark.px.toml --palette palettes/dark.hex
+pxsmith palette apply walk.aseprite walk-dark.aseprite \
+  --palette palettes/dark.hex --dither ordered
+```
+
+`palette apply` processes every frame and layer. It preserves frame count,
+durations and layer metadata for L0 and Aseprite; L0 also keeps its document and
+frame names, `kind`, default and per-frame anchors, and other L0 metadata.
+Fully transparent pixels stay transparent for `none`, `ordered` and `error`
+dithering and do not receive diffusion error. If the target palette has no
+transparent entry, one is appended to the output palette; only opaque pixels
+are matched to target colours.
 
 ## Inspecting
 

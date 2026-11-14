@@ -10,7 +10,7 @@ use std::process::ExitCode;
 use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand};
 use pxsmith_core::frame::FrameKind;
-use pxsmith_core::{Frame, IndexedCanvas, Palette, Rgba8};
+use pxsmith_core::{Frame, IndexedCanvas, Layer, LayerMeta, Palette, Rgba8, Surface};
 use pxsmith_io::hex;
 use pxsmith_io::l0::{L0Document, Violation};
 use pxsmith_io::{Document, FrameId};
@@ -453,7 +453,9 @@ pub(crate) fn save_frames(path: &std::path::Path, frames: &[Frame], name: &str) 
         .extension()
         .and_then(|extension| extension.to_str())
         .map(str::to_ascii_lowercase);
+    let has_multiple_layers = frames.iter().any(|frame| frame.layers.len() > 1);
     if extension.as_deref() == Some("gif") {
+        report_flattening(has_multiple_layers, "GIF");
         let gif_frames = frames
             .iter()
             .enumerate()
@@ -481,6 +483,14 @@ pub(crate) fn save_frames(path: &std::path::Path, frames: &[Frame], name: &str) 
         return Ok(());
     }
     if text.ends_with(".px.toml") || text.ends_with(".toml") {
+        let flattened;
+        let frames = if has_multiple_layers {
+            report_flattening(true, "L0");
+            flattened = flatten_indexed_frames(frames)?;
+            flattened.as_slice()
+        } else {
+            frames
+        };
         let palette_ref = path.with_extension("hex");
         // **参照は隣のファイル名だけにする** — 絶対パスを書くと，L0 を別の場所へ
         // 移した瞬間に読めなくなる (パレットは必ず隣に書いている)
@@ -509,6 +519,7 @@ pub(crate) fn save_frames(path: &std::path::Path, frames: &[Frame], name: &str) 
                 "PNG へ書き出せるのは 1 フレームだけである．複数フレームには .gif か .aseprite を使うこと"
             );
         };
+        report_flattening(has_multiple_layers, "PNG");
         let image = pxsmith_view::render::to_rgba_image(
             frame,
             &RenderOptions {
@@ -540,6 +551,63 @@ pub(crate) fn save_frames(path: &std::path::Path, frames: &[Frame], name: &str) 
         );
     }
     Ok(())
+}
+
+fn report_flattening(flattened: bool, format: &str) {
+    if flattened {
+        println!("  複数レイヤを平坦化 -> {format} の単一レイヤ");
+    }
+}
+
+/// 表示時と同じ下から上の順序で，インデックスカラーレイヤを 1 枚へ畳む．
+///
+/// 色は各フレームのパレットに既にある添字だけを写す．不透明度やブレンドモードを
+/// 適用すると新しい色が必要になるため，完全に不透明な通常レイヤ以外は明示的に断る．
+fn flatten_indexed_frames(frames: &[Frame]) -> Result<Vec<Frame>> {
+    let mut out = frames.to_vec();
+    pxsmith_core::frame::unify_palettes(&mut out)
+        .context("単一レイヤ形式へ平坦化するパレットを束ねられない")?;
+
+    for frame in &mut out {
+        let transparent = frame
+            .palette
+            .entries()
+            .iter()
+            .position(|color| color.a == 0)
+            .context("平坦化するパレットに透明色が無い")? as u8;
+        let mut canvas = IndexedCanvas::filled(frame.size.x, frame.size.y, transparent)
+            .with_transparent(Some(transparent));
+        for layer in &frame.layers {
+            if !layer.meta.visible {
+                continue;
+            }
+            if layer.meta.opacity != 255
+                || layer
+                    .meta
+                    .group_opacity
+                    .iter()
+                    .any(|opacity| *opacity != 255)
+                || layer.meta.blend != pxsmith_core::BlendMode::Normal
+            {
+                bail!(
+                    "レイヤ '{}' は不透明度またはブレンドモードを持つため，パレットにない色を作らず平坦化できない",
+                    layer.meta.name
+                );
+            }
+            let source = layer.surface.as_indexed().with_context(|| {
+                format!(
+                    "レイヤ '{}' はインデックスカラーでないため L0 へ平坦化できない",
+                    layer.meta.name
+                )
+            })?;
+            canvas.blit(source, pxsmith_core::ivec2(0, 0), true);
+        }
+        frame.layers = vec![Layer::new(
+            LayerMeta::named("flattened"),
+            Surface::Indexed(canvas),
+        )];
+    }
+    Ok(out)
 }
 
 /// 作業層のフレームを等倍の 1 枚絵に畳み，GIF の局所パレットへ正確に添字化する．

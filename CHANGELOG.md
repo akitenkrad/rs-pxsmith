@@ -7,6 +7,21 @@ All crates in this workspace share one version number. The format follows
 [Semantic Versioning](https://semver.org/) as Cargo applies it to `0.x`
 releases: a change in the minor number may break the public API.
 
+## [Unreleased]
+
+### Fixed
+
+- `compose` now flattens every part, in layer order, for single-layer L0, PNG
+  and GIF output instead of silently keeping only the first layer in L0
+  (MYTASK-3576). Aseprite output still preserves layers.
+- `palette apply` now processes every frame and layer and preserves frame
+  count, durations and L0 names, kinds and anchors (MYTASK-3577).
+- `palette apply` now keeps transparent pixels transparent with every dither
+  mode and appends transparency when the target palette lacks it
+  (MYTASK-3578).
+- `anim smear` now gives alignment-specific guidance when a smear remains
+  disconnected after centroid alignment (MYTASK-3579).
+
 ## [0.3.0] - 2026-11-14
 
 This release adds pixel fonts and UI parts, and breaks the public API of

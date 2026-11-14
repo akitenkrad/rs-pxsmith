@@ -21,6 +21,12 @@ GIF は等倍で，無限ループで書きます．透明な画素は GIF の�
 丸めたフレームの数と丸めた値を報告します．GIF は書き出し専用で，読み込むコマンドは
 ありません．時間は GIF を書く前に `anim ease` で付けてください．
 
+L0・PNG・GIF は各フレームに可視レイヤを 1 枚しか持てません．`compose` などが複数レイヤを
+作った場合，これらの形式では下から上へ平坦化し，その旨を 1 行で報告します．`.aseprite` は
+レイヤを保ちます．L0 の平坦化は既存の添字色だけを正確に写し，混色を新しく作りません．
+半透明レイヤや通常以外のブレンドモードは，パレットに無い色を黙って足す代わりに明示的な
+エラーにします．
+
 L0 の `[meta]` に書いたアンカーは，全フレームに共通する既定値です．`[[frame]]` の中に
 `anchors` を書くと，そのフレームだけ名前ごとに上書きでき，残りの名前は既定値のまま
 使われます．
@@ -155,6 +161,11 @@ pxsmith guide g.png --projection iso --from top --cell 16 --size 256x256
 フレームの大きさが揃うので，`sheet pack` の升がずれません．ずれがフレームごとに
 変わる場合，報告には第 0 フレームのずれと x・y の範囲を表示します．ずれが一定なら
 従来どおり 1 つのずれだけを表示します．
+
+`compose` の出力が `.px.toml`・`.png`・`.gif` の場合，パーツの宣言順にレイヤを平坦化します．
+後のパーツが前のパーツを覆い，透明画素では下のパーツが見えます．結果は，レイヤを持つ
+`.aseprite` 出力を等倍で表示した画素と一致します．`.aseprite` 出力は従来どおりパーツごとの
+レイヤを保ちます．
 
 ## 拡縮と回転
 
@@ -514,6 +525,20 @@ pxsmith sheet resolve out/sheet.png --meta out/sheet.sheet.json \
 Godot 4.7 で色違いを表示する最小例 (canvas_item シェーダ・テクスチャの取り込み設定・
 3 つの行の切り替え・コマンドラインからの撮影) は
 [`examples/godot-palette-swap/`](../examples/godot-palette-swap/) にあります．
+
+## パレットを強制する
+
+```sh
+pxsmith palette apply walk.px.toml walk-dark.px.toml --palette palettes/dark.hex
+pxsmith palette apply walk.aseprite walk-dark.aseprite \
+  --palette palettes/dark.hex --dither ordered
+```
+
+`palette apply` は全フレーム・全レイヤを処理します．L0 と Aseprite ではフレーム数・表示時間・
+レイヤのメタデータを保ち，L0 では文書とフレームの名前・`kind`・既定およびフレームごとの
+アンカー・その他の L0 メタデータも保ちます．完全に透明な画素は `none`・`ordered`・`error` の
+どのディザ方式でも透明のままで，誤差拡散の対象にもなりません．強制先のパレットに透明色が
+無ければ出力パレットの末尾に足し，不透明な画素だけを強制先の色へ写します．
 
 ## 調べる
 
