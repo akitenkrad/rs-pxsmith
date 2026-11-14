@@ -107,22 +107,29 @@ fn vertical_check_reports_tu_or_tr_without_a_variant() {
 }
 
 #[test]
-fn ttf_import_is_recognised_but_not_implemented() {
+fn ttf_import_writes_a_pxfont_document() {
     let root = scratch("ttf");
+    let written = root.join("out.pxfont.toml");
     let output = run(&[
         "font".as_ref(),
         "import".as_ref(),
-        fixture("misaki/misaki_gothic.ttf").as_os_str(),
-        root.join("out.pxfont.toml").as_os_str(),
+        fixture("synthetic/pxsynth-gpos.ttf").as_os_str(),
+        written.as_os_str(),
         "--size".as_ref(),
         "8".as_ref(),
     ]);
-    assert_eq!(output.status.code(), Some(1));
     assert!(
-        String::from_utf8_lossy(&output.stderr).contains("未実装"),
-        "TTF が使い方の誤りとして扱われた:\n{}",
+        output.status.success(),
+        "TTF 取り込みに失敗した:\n{}",
         String::from_utf8_lossy(&output.stderr)
     );
+    let font = PxFontDocument::read(&written)
+        .unwrap()
+        .to_font(&written)
+        .unwrap();
+    assert_eq!(font.meta.line_height, 8);
+    assert_eq!(font.meta.baseline, 6);
+    assert!(font.glyphs.iter().any(|glyph| glyph.character == 'A'));
 }
 
 #[test]

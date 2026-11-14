@@ -17,6 +17,8 @@ pub mod hex;
 pub mod l0;
 pub mod png;
 pub mod pxfont;
+mod raster;
+pub mod ttf;
 
 pub use atomic::AtomicOutput;
 pub use document::{Document, ProjectOptions};

@@ -25,6 +25,7 @@
 | `grid-eval/real/ai-output/NNN.png` (28 件) | 実データ枠の**正例**．下の 28 枚を周期 32 で縮小し，こちらが決めた倍率 (2〜12) で拡大し直したもの．正解は拡大倍率 | 同下 | 同下 |
 | `grid-eval/real/ai-output/neg-*.png` (28 件) | 実データ枠の**負例**．ドット絵風だが整数の格子が無い画像．元画像の中央 256 画素角を切り出しただけで再標本化はしていない | 自作 — ChatGPT で生成 (2026-08-11) ．原寸は `grid-eval/real/local/_sources/ai-output/` (追跡しない) | CC0 (自作)．OpenAI 規約により出力の権利は利用者に属する |
 | `fonts/misaki/misaki_gothic.bdf` ・`misaki_gothic.ttf` | 美咲ゴシック (8x8．JIS X 0208 の約 6,900 字＋記号．BDF は ISO10646，TTF は輪郭とビットマップの埋め込みを持つ) 2021-05-05 版．フォント機能 (MYTASK-3551 〜) の実フォント．**TTF の取り込みを BDF 版と突き合わせる**ために両方を置く | 門真なむ — https://littlelimit.net/misaki.htm | 無条件の許諾 («Unlimited permission is granted to use, copy, and distribute it, with or without modification, either commercially and noncommercially»)．原文は同ディレクトリの `misaki.txt` |
+| `fonts/synthetic/pxsynth-{gpos,kern}.ttf` | 画素の格子に沿った輪郭で描いた合成 TTF (1 em = 8 px)．`vert` (GSUB) ・GPOS のカーニング ・`kern` 表のカーニング ・格子に乗らない字 `O` を持つ．TTF 取り込み (MYTASK-3552) の期待値が正確に分かる素材 | 自作 — 同ディレクトリの `make_fonts.py` (fontTools) で生成 | CC0 (自作) |
 | `unicode/VerticalOrientation.txt` | UAX #50 の `Vertical_Orientation` (Unicode 18.0.0)．縦書きの字の向きの表を生成し，突き合わせる | Unicode Consortium — https://www.unicode.org/Public/UCD/latest/ucd/VerticalOrientation.txt | Unicode License．原文は `crates/pxsmith-io/data/LICENSE-unicode.txt` |
 
 JIS X 0208 (1990) → Unicode の対応表 `JIS0208.TXT` は，BDF 取り込みが実行時に使う crate 同梱データとして `crates/pxsmith-io/data/` へ移した．出典は Unicode Consortium の https://www.unicode.org/Public/MAPPINGS/OBSOLETE/EASTASIA/JIS/JIS0208.TXT であり，同じディレクトリの `LICENSE-unicode.txt` とともに配る．

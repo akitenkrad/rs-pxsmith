@@ -8,6 +8,7 @@ use clap::{Args, Subcommand};
 use pxsmith_core::font::{Font, Glyph};
 use pxsmith_io::bdf::{BdfImportOptions, import_bdf};
 use pxsmith_io::pxfont::PxFontDocument;
+use pxsmith_io::ttf::{TtfImportOptions, import_ttf};
 
 #[derive(Subcommand)]
 pub enum FontCommand {
@@ -27,9 +28,15 @@ pub struct ImportArgs {
     /// 升からはみ出す BDF の BBX を切る
     #[arg(long)]
     pub clip: bool,
-    /// TTF/OTF の 1 em の画素数（TTF/OTF 取り込みは未実装）
+    /// TTF/OTF/TTC の 1 em の画素数
     #[arg(long)]
     pub size: Option<u32>,
+    /// 埋め込みビットマップがあっても輪郭をラスタライズする
+    #[arg(long)]
+    pub outline: bool,
+    /// TTC の face 添字（既定 0）
+    #[arg(long)]
+    pub face: Option<u32>,
 }
 
 #[derive(Args)]
@@ -59,18 +66,9 @@ fn import(args: &ImportArgs) -> Result<()> {
         .to_ascii_lowercase();
     match extension.as_str() {
         "bdf" => import_bdf_file(args),
-        "ttf" | "otf" | "ttc" => {
-            let size = args.size.map_or_else(
-                || "（--size 未指定）".to_string(),
-                |size| format!("（--size {size}）"),
-            );
-            bail!(
-                "{} の {extension} 取り込みは未実装 {size}",
-                args.input.display()
-            )
-        }
+        "ttf" | "otf" | "ttc" => import_ttf_file(args),
         _ => bail!(
-            "{} の拡張子には対応していない（BDF は .bdf，TTF/OTF/TTC は未実装）",
+            "{} の拡張子には対応していない（.bdf / .ttf / .otf / .ttc を指定すること）",
             args.input.display()
         ),
     }
@@ -79,6 +77,12 @@ fn import(args: &ImportArgs) -> Result<()> {
 fn import_bdf_file(args: &ImportArgs) -> Result<()> {
     if args.size.is_some() {
         bail!("--size は TTF/OTF/TTC 専用であり，BDF には指定できない");
+    }
+    if args.outline {
+        bail!("--outline は TTF/OTF/TTC 専用であり，BDF には指定できない");
+    }
+    if args.face.is_some() {
+        bail!("--face は TTC 専用であり，BDF には指定できない");
     }
     let text = std::fs::read_to_string(&args.input)
         .with_context(|| format!("{} を読めない", args.input.display()))?;
@@ -109,6 +113,92 @@ fn import_bdf_file(args: &ImportArgs) -> Result<()> {
         imported.report.filtered_out,
         imported.report.clipped
     );
+    println!("出力: {}", args.output.display());
+    if let Some(copyright) = &imported.font.meta.copyright {
+        println!("著作権表示: {copyright}");
+    }
+    Ok(())
+}
+
+fn import_ttf_file(args: &ImportArgs) -> Result<()> {
+    let size = args
+        .size
+        .ok_or_else(|| anyhow::anyhow!("TTF/OTF/TTC の取り込みには --size が必要"))?;
+    let size = u16::try_from(size)
+        .ok()
+        .filter(|size| *size != 0)
+        .ok_or_else(|| anyhow::anyhow!("--size は 1..=65535 で指定すること"))?;
+    let data = std::fs::read(&args.input)
+        .with_context(|| format!("{} を読めない", args.input.display()))?;
+    let chars = args
+        .chars_file
+        .as_ref()
+        .map(|path| read_chars(path))
+        .transpose()?;
+    let imported = import_ttf(
+        &data,
+        &args.input,
+        &TtfImportOptions {
+            size,
+            face: args.face.unwrap_or(0),
+            outline: args.outline,
+            clip: args.clip,
+            chars,
+        },
+    )
+    .with_context(|| {
+        format!(
+            "{} を OpenType フォントとして取り込めない",
+            args.input.display()
+        )
+    })?;
+    PxFontDocument::from_font(&imported.font)
+        .context("取り込んだフォントを文書へ変換できない")?
+        .write(&args.output)
+        .with_context(|| format!("{} を書き出せない", args.output.display()))?;
+    println!(
+        "取り込み: {} / {} 字，対象外 {} 字，切り取り {} 字",
+        imported.report.imported_characters,
+        imported.report.mapped_characters,
+        imported.report.filtered_out,
+        imported.report.clipped
+    );
+    println!(
+        "字形経路: 埋め込み {} 字，輪郭 {} 字，strike に無い {} 字，ppem 不一致 {} 字，非1ビット {} 字",
+        imported.report.embedded_bitmaps,
+        imported.report.outline_glyphs,
+        imported.report.bitmap_missing,
+        imported.report.bitmap_wrong_ppem,
+        imported.report.bitmap_unsupported_format
+    );
+    println!(
+        "寸法: line_height {}（丸め差 {:+.3} px），baseline {}（丸め差 {:+.3} px），advance 丸め {} 字",
+        imported.font.meta.line_height,
+        imported.report.line_height_rounding,
+        imported.font.meta.baseline,
+        imported.report.baseline_rounding,
+        imported.report.rounded_advances
+    );
+    println!(
+        "OpenType: 縦書き {} 字（未対応 lookup {} 件），カーニング {} 組",
+        imported.report.vertical_glyphs,
+        imported.report.unsupported_vertical_lookups,
+        imported.report.kern_pairs
+    );
+    println!(
+        "輪郭格子外: {} / {} 字",
+        imported.report.off_grid_glyphs, imported.report.imported_characters
+    );
+    if imported.report.imported_characters != 0 {
+        let ratio =
+            imported.report.off_grid_glyphs as f64 / imported.report.imported_characters as f64;
+        if ratio > 0.05 {
+            println!(
+                "助言: 輪郭の点が画素格子に乗らない字が {:.1}% あるため，ドット絵用でない輪郭はつぶれる可能性がある",
+                ratio * 100.0
+            );
+        }
+    }
     println!("出力: {}", args.output.display());
     if let Some(copyright) = &imported.font.meta.copyright {
         println!("著作権表示: {copyright}");

@@ -18,6 +18,7 @@ pxsmith-core = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 toml = { workspace = true }
+ttf-parser = { workspace = true }
 
 [dev-dependencies]
 pxsmith-core = { workspace = true }

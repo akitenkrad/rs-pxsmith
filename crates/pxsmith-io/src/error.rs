@@ -88,6 +88,22 @@ pub enum IoError {
 
     #[error("{count} 字が升からはみ出す: {}", details.join("；"))]
     BdfOutside { count: usize, details: Vec<String> },
+
+    #[error("{path} を OpenType フォントとして読めない: {detail}")]
+    TtfParse { path: PathBuf, detail: String },
+
+    #[error("{path} の face {face} は範囲外（face 数 {faces}）")]
+    TtfFaceOutOfRange {
+        path: PathBuf,
+        face: u32,
+        faces: u32,
+    },
+
+    #[error("TTF/OTF/TTC の --size は 1 以上でなければならない")]
+    TtfInvalidSize,
+
+    #[error("{count} 字が升からはみ出す: {}", details.join("；"))]
+    TtfOutside { count: usize, details: Vec<String> },
 }
 
 pub type Result<T> = std::result::Result<T, IoError>;
