@@ -12,6 +12,18 @@ the palette is held in a separate `.hex` file. `.aseprite` files round-trip byte
 for byte, so pxsmith can sit in the middle of an existing Aseprite workflow
 without taking ownership of the file.
 
+Commands that write a sequence of frames (the `anim` commands, `compose`,
+`direction`, `scale`, `rotate` and the like) choose the format from the output
+name: `.px.toml` writes L0 with its palette beside it, `.gif` writes an animated
+GIF, and `.aseprite` writes an Aseprite file. A GIF is written at actual size and
+loops forever. Transparent pixels become the GIF transparent colour, and each
+frame's colours are mapped exactly into its own local colour table, so nothing
+is requantised; a frame that would need more than 256 colours, transparency
+included, is an error. GIF delays have 10 ms steps, so durations are rounded and
+the command reports how many frames were rounded and to what. GIF is an output
+format only: no command reads it back, so apply timing with `anim ease` before
+the GIF is written.
+
 L0 anchors in `[meta]` are defaults shared by every frame. A `[[frame]]` may
 override any of them without repeating the rest:
 
@@ -78,6 +90,10 @@ pxsmith anim ease walk.px.toml eased.px.toml --fps 30 --hold 2,1,1,1,2
 pxsmith anim smear out.px.toml --from a.px.toml --to b.px.toml --base 8A6A4A
 pxsmith anim squash in.px.toml out.px.toml --amount -0.3
 pxsmith anim subpixel in.px.toml out.px.toml --method tangent
+
+# Rolling digits, as a score counter does (see "Rolling digits" below)
+pxsmith anim roll out/misaki.pxfont.toml --from 0129 --to 0131 --frames 4 \
+    out/score-roll.px.toml --palette palettes/sweetie-16.hex --ink 12
 
 # Check the result against hardware constraints (non-zero exit on violation)
 pxsmith lint out.px.toml
@@ -156,12 +172,345 @@ than sampling, so four quarter turns return the original image exactly.
 `cleanedge` pays off when a rotation is combined with an upscale; at 1:1 the
 default `nearest` gives the better result, and the CLI says so at run time.
 
+## Fonts and text
+
+Pixel fonts are kept in their own text format, `.pxfont.toml`, rather than in
+L0. An existing BDF, TTF, OTF or TTC font is imported once; after that the font
+is checked against the text a game actually uses, text is rendered with it into
+artwork, and it is exported as an AngelCode BMFont for a game engine.
+
+```sh
+# Import a BDF font, or only the characters a text file uses
+pxsmith font import testdata/fonts/misaki/misaki_gothic.bdf out/misaki.pxfont.toml
+pxsmith font import testdata/fonts/misaki/misaki_gothic.bdf out/ui.pxfont.toml \
+    --chars-file script.txt
+
+# Import TTF/OTF/TTC fonts at a given pixel size
+pxsmith font import testdata/fonts/misaki/misaki_gothic.ttf out/misaki-ttf.pxfont.toml --size 8
+pxsmith font import testdata/fonts/synthetic/pxsynth-gpos.ttf out/gpos.pxfont.toml --size 8
+
+# Check that the font has every character the text needs (exit status 1 if not)
+pxsmith font check out/ui.pxfont.toml --text-file script.txt
+pxsmith font check out/misaki.pxfont.toml --text-file script.txt menu.txt
+pxsmith font check out/misaki.pxfont.toml --text-file menu.txt --vertical
+
+# Render text, then export the font for an engine
+pxsmith font render out/misaki.pxfont.toml "SCORE 0120" out/score.px.toml \
+    --palette palettes/sweetie-16.hex --ink 12
+pxsmith font bmfont out/misaki.pxfont.toml out/misaki.fnt
+```
+
+### The `.pxfont.toml` format
+
+A font is one file. Each glyph is drawn as a whole cell, its advance wide and
+the font's line height tall, so the baseline position is fixed by the cell
+rather than worked out from offsets by hand. Trimming to the ink box is left to
+the exporters.
+
+```toml
+[meta]
+format = 1
+name = "tiny"
+line_height = 3
+baseline = 2
+default_advance = 3
+
+[[glyph]]
+char = "U+0020"
+data = '''
+..
+..
+..
+'''
+
+[[glyph]]
+char = "A"
+data = '''
+.#.
+###
+#.#
+'''
+
+[[glyph]]
+char = "ー"
+variant = "vert"
+data = '''
+.#.
+.#.
+.#.
+'''
+
+[[kern]]
+pair = "AV"
+amount = -1
+```
+
+- `[meta]` holds `format` (always 1), `name`, `line_height` (the cell height in
+  pixels), `baseline` (pixels from the top of the cell to the baseline, at most
+  `line_height`) and `default_advance`. `source` and `copyright` are optional
+  and record where the font came from; importers fill them in.
+- Glyphs are single-colour by default: `#` is ink and `.` is transparent, and
+  the ink colour is chosen when the text is rendered. A colour font declares
+  `mode = "color"` in `[meta]` and carries the same `[palette]` table as L0
+  (`ref` to a `.hex` file, and a `map` of one-character keys, with `.` for
+  transparent). The two modes are not mixed in one font.
+- `char` is one character or `U+XXXX`. The canonical form writes whitespace
+  and control characters as `U+XXXX` and everything else as the character
+  itself.
+- `data` must have exactly `line_height` rows of equal width. `advance` is
+  optional; a glyph without one advances by the width of its `data`, so a
+  narrow glyph drawn narrow needs nothing more. `default_advance` is used only
+  for a glyph whose `data` is empty. The canonical form writes `advance` only
+  when it differs from that.
+- `variant = "vert"` marks the form a character takes in vertical text. The
+  same character and variant may appear only once.
+- `[[kern]]` adjusts the horizontal advance between a pair of exactly two
+  characters by `amount` pixels. Each pair may appear only once.
+- The canonical form orders glyphs by code point with the base glyph before its
+  variants, and kerning pairs by code point. `mode = "mono"` is accepted but not
+  written.
+
+### Importing fonts
+
+`font import` chooses the reader from the input extension (`.bdf`, `.ttf`,
+`.otf` or `.ttc`) and reports how many characters were imported, skipped and
+clipped. The font's copyright notice is copied into `copyright` and printed.
+
+- **BDF 2.1.** `line_height` and `baseline` come from `FONT_ASCENT` and
+  `FONT_DESCENT`, and each glyph is placed in its cell from its `BBX`. Fonts
+  registered as `ISO10646` are read directly; `JISX0208` fonts are mapped to
+  Unicode through the Unicode Consortium's `JIS0208.TXT` table, which ships
+  with `pxsmith-io`. Glyphs without a code point (`ENCODING -1`) and characters
+  the table cannot map are skipped and counted.
+- **TTF, OTF and TTC.** `--size` (pixels per em) is required, and `--face N`
+  selects a face in a collection (default 0). A 1-bit embedded bitmap strike
+  at exactly that size is used as it is. Otherwise the outline is rasterised
+  without antialiasing: a pixel is ink when its centre lies inside the outline
+  by the nonzero winding rule, so a pixel font drawn on the grid comes back dot
+  for dot. `--outline` forces the outline path even when a strike exists. The
+  share of glyphs whose outline points are off the pixel grid is reported, with
+  advice when it exceeds 5%, because a font not drawn for pixels will be
+  damaged by this rasterisation.
+- GSUB `vert`/`vrt2` single substitutions become `variant = "vert"` glyphs
+  (`vrt2` wins when both apply). GPOS pair kerning becomes `[[kern]]`, rounded
+  to pixels; the `kern` table is used only when the font has no GPOS kerning.
+- A glyph whose ink falls outside its cell makes the whole import fail and is
+  listed. `--clip` cuts it to the cell instead and counts the clipped glyphs.
+- `--chars-file FILE` imports only the characters that appear in that file
+  (line breaks are ignored).
+
+Misaki Gothic's TTF carries both an 8 ppem bitmap strike and outlines; both
+paths reproduce the BDF import for all 7,171 glyphs.
+
+### Checking a font against the text
+
+`font check` reads one or more text files and fails with exit status 1 when
+the font lacks any character they use, listing the characters. With
+`--vertical` it also fails on characters that need a vertical form
+(`Vertical_Orientation` Tu or Tr) but have no `variant = "vert"` glyph.
+
+Shape advice is printed but does not change the exit status: glyphs with ink in
+their right-most column, which touch the next glyph when that glyph has ink in
+its left-most column (box drawing, block elements and vertical forms are
+excluded, since they are meant to join), glyphs with no ink at all (whitespace
+excluded), and glyphs whose advance is narrower than their `data`.
+
+### Rendering text
+
+`font render` lays text out and writes it on a transparent background as
+`.px.toml`, `.aseprite` or `.png`. The text is either a positional argument
+before the output, or a UTF-8 file given with `--text-file`, in which case only
+the output is positional.
+
+```sh
+# Wrapped dialogue, centred, with hanging punctuation
+pxsmith font render out/misaki.pxfont.toml --text-file script.txt out/script.png \
+    --palette palettes/sweetie-16.hex --ink 12 --wrap 64 --hang --line-spacing 2 --align center
+
+# Vertical text in 64 px columns, with two-digit numbers set side by side
+pxsmith font render out/misaki.pxfont.toml --text-file script.txt out/script-v.png \
+    --palette palettes/sweetie-16.hex --ink 12 --vertical --wrap 64 --tcy 2
+
+# Kerning: the GPOS pair AV is one pixel tighter (use --no-kern to compare)
+pxsmith font render out/gpos.pxfont.toml AV out/av.png --palette palettes/sweetie-16.hex --ink 12
+```
+
+- A single-colour font needs `--palette` and `--ink`, the palette index used for
+  the ink. A colour font keeps its glyph colours and rejects `--ink`. Without
+  `--palette` it uses the font's own palette; with one, every colour of the
+  glyphs actually drawn must be in it, and missing colours are listed. A
+  transparent entry is added to the palette when it has none.
+- `--letter-spacing` and `--line-spacing` add pixels between characters and
+  between lines. `--align left|center|right` aligns lines within the widest
+  line.
+- Kerning pairs from `[[kern]]` are applied to horizontal text unless
+  `--no-kern` is given.
+- A character the font lacks is an error that lists every such character.
+  `--missing C` (one character, or `U+XXXX`) substitutes C instead and reports
+  how many were replaced.
+- Line breaks in the text are kept. `--wrap N` wraps lines at N pixels, with
+  break opportunities taken from UAX #14 (the Unicode line breaking algorithm)
+  through the `unicode-linebreak` crate, so Japanese line-start and line-end
+  rules, and not breaking inside words or numbers, follow the Unicode classes
+  rather than a hand-written table. A word longer than the line is broken
+  between characters, and the count is reported.
+- `--kinsoku normal` (the default) allows a line to start with a small kana or
+  the prolonged sound mark (UAX #14 class CJ). `--kinsoku strict` does not, as
+  in the strict rules of JLReq.
+- `--hang` lets one closing comma or full stop (`、。，．` and their halfwidth
+  forms) hang past the line width instead of being pushed to the next line
+  with the preceding character.
+
+`--vertical` sets the text top to bottom in columns that run right to left, and
+`--wrap` becomes the column height. Line breaking, `--kinsoku` and `--hang` work
+as in horizontal text, with punctuation hanging past the column foot, and
+`--align left|center|right` aligns each column to the top, middle or bottom. Each character's
+orientation comes from the Unicode `Vertical_Orientation` property (UAX #50):
+
+| Value | With a `vert` glyph | Without one |
+| --- | --- | --- |
+| U | the `vert` glyph | upright |
+| R | the `vert` glyph | turned a quarter clockwise |
+| Tu | the `vert` glyph | upright, and counted |
+| Tr | the `vert` glyph | turned a quarter clockwise, and counted |
+
+Quarter turns are exact pixel substitutions. An upright character takes its
+advance in width and the line height in height; a turned one takes the
+reverse. `--tcy N` (vertical only) sets runs of up to N ASCII digits side by
+side in one character slot, and falls back to upright digits, with a count,
+when the run is wider than the column. Kerning is horizontal only and is not
+applied in vertical text.
+
+### BMFont output
+
+`font bmfont` writes the AngelCode BMFont text format and RGBA page images.
+
+```sh
+pxsmith font bmfont out/misaki.pxfont.toml out/misaki.fnt
+pxsmith font bmfont out/misaki.pxfont.toml out/ui.fnt --chars-file script.txt --page-size 128
+```
+
+- The output must end in `.fnt`. Pages are written next to it as
+  `<stem>_0.png`, `<stem>_1.png`, and so on.
+- Each glyph is trimmed to its ink box and shelf-packed, tallest first, with a
+  one pixel gap into square pages of `--page-size` pixels (a power of two,
+  default 256). The same input always gives the same output. `xoffset` and
+  `yoffset` are measured from the glyph cell, so the cell geometry survives the
+  trim; whitespace becomes a 0x0 glyph with only an advance.
+- Single-colour fonts are written white on transparent, for tinting in the
+  engine (for example with `modulate` in Godot). Colour fonts keep their
+  colours.
+- `[[kern]]` pairs become `kerning` lines. Vertical forms are not written,
+  since the format has no vertical layout, and the number left out is
+  reported.
+- `--chars-file` limits the output to the characters in that file; a character
+  the font lacks is an error. Kerning pairs are kept only when both characters
+  are written.
+- The font's `copyright` is printed at the end. The tool does not take on a
+  font's licence obligations, but it does not drop the owner's notice either.
+
+[`examples/godot-ui/`](../examples/godot-ui/) shows two such fonts in Godot 4.7
+`Label` nodes. A capture there matches `font render` pixel for pixel, kerning
+included.
+
+### Rolling digits
+
+`anim roll` turns one string of digits into another the way a score counter
+does.
+
+```sh
+pxsmith anim roll out/misaki.pxfont.toml --from 0129 --to 0131 --frames 4 \
+    out/score-roll.px.toml --palette palettes/sweetie-16.hex --ink 12
+pxsmith anim ease out/score-roll.px.toml out/score-roll.gif --fps 60 --hold 1,1,2,3,4,1,1,2,3
+```
+
+- Each changed digit scrolls inside its own cell (as wide as the widest
+  character that digit shows), so nothing crosses into the neighbouring digit.
+  With the default `--direction up` the old digit leaves upward and the
+  digits count up, wrapping from 9 to 0; `--direction down` reverses both.
+- Each change takes `--frames` intervals. A digit that changes several times
+  passes through the intermediate digits, and digits with fewer changes start
+  later, so every digit lands together. `0129` to `0131` with `--frames 4`
+  gives 9 frames: the ones digit goes 9, 0, 1 and the tens digit moves only
+  during the second half.
+- `--from` and `--to` must have the same number of characters (pad with zeros
+  yourself). Characters that are not digits may appear but must not change.
+- The first and last frames are key frames and match `font render` of the two
+  strings; the rest are inbetweens. The frames carry no timing of their own:
+  apply it with `anim ease`, as with the other `anim` commands.
+- `--palette`, `--ink` and `--letter-spacing` work as in `font render`.
+
+## UI parts
+
+### 9-slice declarations
+
+An L0 file may declare 9-slice borders in `[meta]`:
+
+```toml
+[meta]
+format = 1
+name = "window"
+nine_slice = { left = 4, top = 4, right = 4, bottom = 4, stretch = "tile" }
+```
+
+`stretch` is `"stretch"` (the default), `"tile"` or `"tile_fit"`, the same three
+modes as Godot's `AxisStretchMode`. Use `stretch_x` and `stretch_y` instead to
+set the axes separately. The borders must leave at least one pixel of centre in
+each direction. Files without `nine_slice` keep their canonical bytes, and the
+L0 format version remains 1. `.aseprite` has no place for the declaration, so
+`text import` warns that it is lost when the source L0 has one.
+
+```sh
+pxsmith nineslice preview examples/godot-ui/window.px.toml out/window.png --size 64x32 --size 120x48
+```
+
+`nineslice preview` stretches the first frame to each `--size WxH` and writes a
+PNG. With one size the output name is used as given; with several, the size is
+appended to the stem (`window-64x32.png`, `window-120x48.png`). The stretching
+is a port of Godot 4.7's nine-patch mapping, evaluated in `f32` at pixel
+centres, and Godot 4.7.2 `NinePatchRect` captures match it for all three modes
+with zero differing pixels. When a tiled band's first and last pixels differ,
+the command advises that the seam will show. A target smaller than the
+borders is an error, as is an L0 file without `nine_slice`.
+
+### Godot StyleBoxTexture export
+
+`sheet pack` copies each input's `nine_slice` into its cell in the sheet
+metadata, so an exporter can read it without the source files. `export godot`
+then writes one `StyleBoxTexture` resource per 9-slice cell.
+
+```sh
+pxsmith sheet pack out/ui.png --input examples/godot-ui/window.px.toml \
+    --input examples/sprites/hero_body.px.toml --meta out/ui.sheet.json
+pxsmith export godot --sheet out/ui.sheet.json --out-dir out/godot --res-dir res://ui
+```
+
+- Each cell with `nine_slice` becomes `<cell name>.stylebox.tres` in
+  `--out-dir`, in Godot 4.7's text resource format: the sheet texture as an
+  `ExtResource` under `--res-dir` (which must start with `res://`), the
+  texture margins, both axis stretch modes, and a `region_rect` taken from the
+  cell's origin and the source image's own width and height. Using the cell
+  rectangle instead would put the uniform grid's padding inside the 9-slice.
+- No `uid` is written; Godot assigns one on import. No `.import` file is
+  written either, so set nearest-neighbour filtering in the Godot project.
+- Cells without `nine_slice`, and the Theme resource, are not written, and the
+  command reports how many it left out. A palette-swap (format 2) sheet is
+  exported with a warning that its texture holds palette indices and needs the
+  shader.
+
+In [`examples/godot-ui/`](../examples/godot-ui/), panels styled with the
+exported resources in Godot 4.7.2 match the `nineslice preview` output for all
+three stretch modes with zero differing pixels.
+
 ## Exporting
 
 ```sh
 pxsmith sheet pack out/sheet.png --input a.px.toml --input b.px.toml --meta out/sheet.sheet.json
 pxsmith export tiled map.json --tsx out/sheet.tsx --sheet out/sheet.sheet.json
 ```
+
+`export godot` writes Godot `StyleBoxTexture` resources for 9-slice cells; see
+[UI parts](#ui-parts). Godot terrain sets are not exported.
 
 `sheet pack` normally merges the colours used by every input into one palette.
 Use palette-swap output when that merged palette would exceed 256 colours, or

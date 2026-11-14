@@ -100,5 +100,10 @@ pxsmith watch hero.px.toml --zoom 8
 あり，その条件のもとで利用しています．要求される著作権表示は
 [NOTICE](https://github.com/akitenkrad/rs-pxsmith/blob/main/NOTICE) に記載しました．
 
-`testdata/` に置いた素材は CC0 または MIT であり，出所は `testdata/SOURCES.md` に
-記録しています．再配布できない素材はコミットしていません．
+`pxsmith-io` は，BDF の取り込みが実行時に使う Unicode Consortium の JIS X 0208 対応表
+(`crates/pxsmith-io/data/JIS0208.TXT`) を同梱しています．この表は Unicode License v3 のもとで
+配布しており，条文は `crates/pxsmith-io/data/LICENSE-unicode.txt` にあります．
+
+`testdata/` に置いた素材は，美咲ゴシック (作者が無条件の許諾のもとで配布) と Unicode の
+`VerticalOrientation.txt` (Unicode License v3) を除き，CC0 または MIT です．個々の出所と条件は
+`testdata/SOURCES.md` に記録しています．再配布できない素材はコミットしていません．

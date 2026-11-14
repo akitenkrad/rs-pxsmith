@@ -7,6 +7,89 @@ All crates in this workspace share one version number. The format follows
 [Semantic Versioning](https://semver.org/) as Cargo applies it to `0.x`
 releases: a change in the minor number may break the public API.
 
+## [0.3.0] - unreleased
+
+This release adds pixel fonts and UI parts, and breaks the public API of
+`pxsmith-core` and `pxsmith-io` by adding fields to public structs. The L0 text
+format stays at version 1, and every `.px.toml` file written by 0.2 reads
+unchanged; an L0 file that uses the new `nine_slice` declaration cannot be read
+by 0.2. Sheet metadata keeps formats 1 and 2, and a 0.2 reader ignores the new
+`nine_slice` field in it.
+
+### Breaking changes
+
+- `pxsmith_io::l0::L0Meta` gains `nine_slice: Option<NineSlice>`. It implements
+  `Default`, so struct literals can end in `..Default::default()`; otherwise
+  add `nine_slice: None`.
+- `pxsmith_core::sheet::SheetCell` gains `nine_slice: Option<NineSlice>`.
+  `SheetCell` does not implement `Default`, so struct literals must add
+  `nine_slice: None`.
+- `pxsmith_io::gif::GifReport` gains `rounded_frames`, the number of frames
+  whose delay was rounded. It implements `Default`.
+- `CoreError` gains variants for 9-slice, Godot export and digit rolling, and
+  `IoError` gains `Font` and variants for BDF and TrueType import. Both enums
+  are `#[non_exhaustive]`, so exhaustive matches do not break.
+- **Commands that write frames no longer treat every unknown extension as
+  `.aseprite`.** `.aseprite` and `.ase` write Aseprite, `.px.toml` writes L0,
+  `.gif` writes a GIF, and `.png` writes a PNG when there is exactly one frame.
+  A `.png` with several frames, or any other extension, is now an error that
+  names the accepted ones. Before, `anim tween ... out.png` silently wrote
+  Aseprite data under a `.png` name.
+
+### Added
+
+- **Pixel font format.** `.pxfont.toml` holds a font as one TOML file: each
+  glyph is drawn as a whole cell (advance × line height), single-colour with
+  `#` and `.` by default or multi-colour with `mode = "color"` and an L0-style
+  `[palette]`, with `variant = "vert"` glyphs for vertical text and `[[kern]]`
+  pairs. The library side is `pxsmith_core::font` and
+  `pxsmith_io::pxfont::PxFontDocument`.
+- `pxsmith font import` reads BDF 2.1 (`pxsmith_io::bdf`) and TTF, OTF and TTC
+  (`pxsmith_io::ttf`) at a given `--size`. A 1-bit embedded strike at that size
+  is used as it is; otherwise outlines are rasterised by pixel-centre winding
+  with no antialiasing (`--outline` forces this). JIS X 0208 BDF fonts are
+  mapped through the bundled Unicode `JIS0208.TXT` table, GSUB `vert`/`vrt2`
+  become vertical variants, and GPOS or `kern` pair kerning becomes
+  `[[kern]]`. Glyphs that leave their cell are an error unless `--clip` is
+  given; `--chars-file` limits the import, and `--face` selects a TTC face.
+- `pxsmith font check` fails when a text uses characters the font lacks, and
+  with `--vertical` when vertical forms are missing. It advises on glyphs with
+  ink in the right-most column, glyphs with no ink, and advances narrower than
+  the glyph.
+- `pxsmith font render` writes text as L0, `.aseprite` or PNG, horizontally or
+  with `--vertical` (columns right to left, orientation from UAX #50, quarter
+  turns by exact pixel substitution, tate-chu-yoko with `--tcy`). It applies
+  kerning, wraps with UAX #14 line breaking through `unicode-linebreak`, and
+  offers `--kinsoku normal|strict`, `--hang`, `--align`, letter and line
+  spacing, and `--missing`. The library side is
+  `pxsmith_core::font_layout::layout_text` and `pxsmith_core::vertical`.
+- `pxsmith font bmfont` writes the AngelCode BMFont text format and RGBA pages,
+  shelf-packed deterministically, with kerning pairs. Single-colour fonts are
+  white for tinting. The library side is `pxsmith_core::bmfont`.
+- **9-slice.** L0 `[meta]` accepts an optional `nine_slice` table (borders,
+  and `stretch`, `tile` or `tile_fit` per axis). `pxsmith nineslice preview`
+  stretches it exactly as Godot 4.7 does and warns about visible tile seams.
+  `pxsmith sheet pack` copies the declaration into the sheet metadata, and
+  `text import` warns that `.aseprite` cannot hold it. The library side is
+  `pxsmith_core::nineslice`.
+- `pxsmith export godot` writes a Godot 4.7 `StyleBoxTexture` resource
+  (`.tres`) for each 9-slice cell of a sheet, from the sheet metadata alone.
+  The library side is `pxsmith_core::export::godot_styleboxes`.
+- `pxsmith anim roll` rolls one string of digits into another, odometer
+  style, with each digit scrolling inside its own cell. Timing is applied with
+  `anim ease`. The library side is `pxsmith_core::roll`.
+- **GIF output.** Every command that writes a sequence of frames now writes an
+  animated GIF when the output ends in `.gif`: actual size, looping,
+  transparency kept, colours mapped exactly per frame, and delays rounded to
+  10 ms with the rounded frames reported.
+- `examples/godot-ui/` shows BMFont labels, `NinePatchRect` and
+  `StyleBoxTexture` panels in Godot 4.7.2, with captures that match
+  `font render` and `nineslice preview` pixel for pixel.
+- New dependencies: `ttf-parser` 0.25.1 (MIT OR Apache-2.0) in `pxsmith-io` and
+  `unicode-linebreak` 0.1.5 (Apache-2.0) in `pxsmith-core`. `pxsmith-io` now
+  ships the Unicode Consortium's `JIS0208.TXT` mapping table in `data/`, under
+  the Unicode License v3 included beside it.
+
 ## [0.2.0] - 2026-11-14
 
 This release breaks the public API of `pxsmith-core`. The L0 text format stays
@@ -73,5 +156,6 @@ First release on crates.io: `pxsmith-core`, `pxsmith-io`, `pxsmith-lint`,
 `pxsmith-recipe`, `pxsmith-macro`, `pxsmith-gen`, `pxsmith-view` and the
 `pxsmith` command line tool.
 
+[0.3.0]: https://github.com/akitenkrad/rs-pxsmith/compare/98dccb5...HEAD
 [0.2.0]: https://github.com/akitenkrad/rs-pxsmith/compare/067a9b8...98dccb5
 [0.1.0]: https://github.com/akitenkrad/rs-pxsmith/tree/067a9b81a6efb517e6c47f24af8d0d8b836743bf

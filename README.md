@@ -102,5 +102,13 @@ used here so that the code can be consumed from either side of that ecosystem.
 torcado and is used under its own terms. The attribution it requires is recorded
 in [NOTICE](https://github.com/akitenkrad/rs-pxsmith/blob/main/NOTICE).
 
-Test material under `testdata/` is CC0 or MIT, and its provenance is recorded in
-`testdata/SOURCES.md`. Material that cannot be redistributed is not committed.
+`pxsmith-io` ships the Unicode Consortium's JIS X 0208 mapping table
+(`crates/pxsmith-io/data/JIS0208.TXT`), which BDF import uses at run time. It is
+distributed under the Unicode License v3, whose text is in
+`crates/pxsmith-io/data/LICENSE-unicode.txt`.
+
+Test material under `testdata/` is CC0 or MIT, apart from the Misaki Gothic font
+(distributed by its author with unlimited permission) and the Unicode
+`VerticalOrientation.txt` (Unicode License v3). The provenance and terms of each
+item are recorded in `testdata/SOURCES.md`. Material that cannot be
+redistributed is not committed.
