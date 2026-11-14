@@ -1,0 +1,32 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://main.gd" id="1_script"]
+[ext_resource type="StyleBox" path="res://window_stretch.stylebox.tres" id="2_stretch"]
+[ext_resource type="StyleBox" path="res://window_tile.stylebox.tres" id="3_tile"]
+[ext_resource type="StyleBox" path="res://window_tile_fit.stylebox.tres" id="4_tile_fit"]
+
+[node name="StyleBoxes" type="Node2D"]
+script = ExtResource("1_script")
+
+[node name="Background" type="ColorRect" parent="."]
+offset_right = 128.0
+offset_bottom = 32.0
+color = Color(0.101961, 0.109804, 0.172549, 1)
+mouse_filter = 2
+
+[node name="Stretch" type="Panel" parent="."]
+offset_right = 30.0
+offset_bottom = 22.0
+theme_override_styles/panel = ExtResource("2_stretch")
+
+[node name="Tile" type="Panel" parent="."]
+offset_left = 32.0
+offset_right = 62.0
+offset_bottom = 22.0
+theme_override_styles/panel = ExtResource("3_tile")
+
+[node name="TileFit" type="Panel" parent="."]
+offset_left = 64.0
+offset_right = 94.0
+offset_bottom = 22.0
+theme_override_styles/panel = ExtResource("4_tile_fit")

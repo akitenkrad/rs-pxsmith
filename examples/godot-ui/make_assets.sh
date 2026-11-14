@@ -18,6 +18,9 @@ misaki_font="$work_dir/misaki.pxfont.toml"
 gpos_font="$work_dir/gpos.pxfont.toml"
 tile_window="$work_dir/window-tile.px.toml"
 tile_fit_window="$work_dir/window-tile-fit.px.toml"
+sheet_stretch_window="$work_dir/window_stretch.px.toml"
+sheet_tile_window="$work_dir/window_tile.px.toml"
+sheet_tile_fit_window="$work_dir/window_tile_fit.px.toml"
 misaki_text=$(sed -n '1,2p' "$project_dir/misaki_chars.txt")
 
 "$pxsmith" font import \
@@ -41,6 +44,11 @@ sed 's/bottom = 4 }/bottom = 4, stretch = "tile" }/' \
     "$project_dir/window.px.toml" > "$tile_window"
 sed 's/bottom = 4 }/bottom = 4, stretch = "tile_fit" }/' \
     "$project_dir/window.px.toml" > "$tile_fit_window"
+cp "$project_dir/window.px.toml" "$sheet_stretch_window"
+sed 's/bottom = 4 }/bottom = 4, stretch = "tile" }/' \
+    "$project_dir/window.px.toml" > "$sheet_tile_window"
+sed 's/bottom = 4 }/bottom = 4, stretch = "tile_fit" }/' \
+    "$project_dir/window.px.toml" > "$sheet_tile_fit_window"
 
 "$pxsmith" nineslice preview \
     "$project_dir/window.px.toml" \
@@ -58,6 +66,19 @@ sed 's/bottom = 4 }/bottom = 4, stretch = "tile_fit" }/' \
     "$tile_fit_window" \
     "$project_dir/window-tile-fit-30x22.png" \
     --size 30x22
+
+"$pxsmith" sheet pack \
+    "$project_dir/ui.png" \
+    --input \
+    "$sheet_stretch_window" \
+    "$sheet_tile_window" \
+    "$sheet_tile_fit_window" \
+    "$repo_dir/examples/sprites/hero_body.px.toml" \
+    --meta "$project_dir/ui.sheet.json"
+"$pxsmith" export godot \
+    --sheet "$project_dir/ui.sheet.json" \
+    --out-dir "$project_dir" \
+    --res-dir res://
 
 "$pxsmith" font import \
     "$repo_dir/testdata/fonts/synthetic/pxsynth-gpos.ttf" \

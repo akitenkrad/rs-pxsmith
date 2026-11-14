@@ -25,7 +25,11 @@ builds the workspace binary. It writes `misaki.fnt`, `misaki_0.png`,
 Intermediate `.pxfont.toml` files are kept in a temporary directory.
 The script also writes `window.png` and the three 9-slice reference images
 `window-stretch-30x22.png`, `window-tile-30x22.png`, and
-`window-tile-fit-30x22.png`.
+`window-tile-fit-30x22.png`. It packs the three window modes and the larger
+`hero_body` fixture into `ui.png` / `ui.sheet.json`, then writes the three
+`window_*.stylebox.tres` resources with `pxsmith export godot`. The project
+setting `textures/canvas_textures/default_texture_filter=0` keeps imported
+textures nearest-neighbour; pxsmith does not write Godot `.import` files.
 
 ## Running and capturing
 
@@ -54,3 +58,21 @@ Compare the capture regions `(0, 0, 30, 22)`, `(32, 0, 30, 22)`, and
 `(64, 0, 30, 22)` pixel-for-pixel with the stretch, tile, and tile-fit
 reference images respectively. The background is opaque, so transparent
 pixels in a future window fixture remain visible in the capture.
+
+To capture the same three modes through the generated `StyleBoxTexture`
+resources, run:
+
+```sh
+godot --path examples/godot-ui res://stylebox.tscn -- --capture /tmp/sb.png
+```
+
+Compare `/tmp/sb.png` at the same three rectangles with
+`window-stretch-30x22.png`, `window-tile-30x22.png`, and
+`window-tile-fit-30x22.png`. For example, ImageMagick can crop each rectangle
+before a pixel comparison:
+
+```sh
+magick /tmp/sb.png -crop 30x22+0+0 /tmp/sb-stretch.png
+magick compare -metric AE /tmp/sb-stretch.png \
+  examples/godot-ui/window-stretch-30x22.png null:
+```

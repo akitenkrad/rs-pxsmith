@@ -8,11 +8,12 @@
 //! > 数え上げでも校正でもない — 出力先の仕様が決めていることを写すだけである．
 //! > **仕様で対応が取れないものは書かない．**
 //!
-//! # Tiled は書ける．Godot は仕様を引くまで書かない
+//! # Tiled と Godot StyleBox は書ける．Godot terrain は仕様を引くまで書かない
 //!
 //! | 出力先 | 反転の載せ方 | こちらとの対応 |
 //! | --- | --- | --- |
 //! | **Tiled (`.tmx`)** | GID の上位 3 ビット | **1 対 1** — 書ける |
+//! | Godot (`StyleBoxTexture`) | 9-slice の四辺と軸方式 | **1 対 1** — 書ける |
 //! | Godot (terrain set) | peering bit | **未確認** — 引くまで書かない |
 //!
 //! Tiled は升の GID の上位ビットに反転を載せる．**この対応は 1 対 1 で確かめられる**
@@ -21,6 +22,7 @@
 //! 使う側が壊れて初めて分かる (設計書 6.8 の «47 枚が静かに壊れる» と同じ) ．
 
 use crate::error::{CoreError, Result};
+use crate::nineslice::AxisStretch;
 use crate::sheet::SheetDoc;
 use crate::tilejson::{TileRefJson, TilesetDoc};
 
@@ -30,6 +32,100 @@ use crate::tilejson::{TileRefJson, TilesetDoc};
 pub const TILED_FLIP_H: u32 = 0x8000_0000;
 pub const TILED_FLIP_V: u32 = 0x4000_0000;
 pub const TILED_FLIP_D: u32 = 0x2000_0000;
+
+/// Godot へ書く 1 つの `StyleBoxTexture` テキストリソース．
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GodotStyleboxFile {
+    pub file_name: String,
+    pub text: String,
+}
+
+/// [`godot_styleboxes`] が作ったファイルと，書かなかったものの集計．
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GodotStyleboxExport {
+    pub files: Vec<GodotStyleboxFile>,
+    pub skipped_cells: usize,
+    pub palette_swap_warning: bool,
+}
+
+/// `SheetDoc` の 9-slice 升を Godot 4.7 の `StyleBoxTexture` へ写す．
+///
+/// 升の並びと矩形はメタからだけ引く．`region_rect` の寸法には一様格子の
+/// `cell_w` / `cell_h` ではなく，元画像の `SheetCell::w` / `SheetCell::h` を使う．
+pub fn godot_styleboxes(sheet: &SheetDoc, res_dir: &str) -> Result<GodotStyleboxExport> {
+    let Some(resource_dir) = res_dir.strip_prefix("res://") else {
+        return Err(CoreError::ExportGodotBadResDir {
+            res_dir: res_dir.to_string(),
+        });
+    };
+    let resource_dir = resource_dir.trim_end_matches('/');
+    let texture_path = if resource_dir.is_empty() {
+        format!("res://{}", sheet.image)
+    } else {
+        format!("res://{resource_dir}/{}", sheet.image)
+    };
+
+    let skipped_cells = sheet
+        .cells
+        .iter()
+        .filter(|cell| cell.nine_slice.is_none())
+        .count();
+    let mut names = std::collections::BTreeSet::new();
+    let mut files = Vec::with_capacity(sheet.cells.len() - skipped_cells);
+    for cell in sheet.cells.iter().filter(|cell| cell.nine_slice.is_some()) {
+        if cell.name.chars().any(|c| {
+            c.is_control() || matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|')
+        }) {
+            return Err(CoreError::ExportGodotInvalidFileName {
+                name: cell.name.clone(),
+            });
+        }
+        if !names.insert(&cell.name) {
+            return Err(CoreError::ExportGodotDuplicateName {
+                name: cell.name.clone(),
+            });
+        }
+        let nine_slice = cell.nine_slice.expect("直前の filter で存在を確かめた");
+        let axis = |mode| match mode {
+            AxisStretch::Stretch => 0,
+            AxisStretch::Tile => 1,
+            AxisStretch::TileFit => 2,
+        };
+        let text = format!(
+            "[gd_resource type=\"StyleBoxTexture\" format=3]\n\n\
+             [ext_resource type=\"Texture2D\" path=\"{texture_path}\" id=\"1_tex\"]\n\n\
+             [resource]\n\
+             texture = ExtResource(\"1_tex\")\n\
+             region_rect = Rect2({}, {}, {}, {})\n\
+             texture_margin_left = {}.0\n\
+             texture_margin_top = {}.0\n\
+             texture_margin_right = {}.0\n\
+             texture_margin_bottom = {}.0\n\
+             axis_stretch_horizontal = {}\n\
+             axis_stretch_vertical = {}\n",
+            cell.x,
+            cell.y,
+            cell.w,
+            cell.h,
+            nine_slice.left,
+            nine_slice.top,
+            nine_slice.right,
+            nine_slice.bottom,
+            axis(nine_slice.stretch_x),
+            axis(nine_slice.stretch_y),
+        );
+        files.push(GodotStyleboxFile {
+            file_name: format!("{}.stylebox.tres", cell.name),
+            text,
+        });
+    }
+
+    Ok(GodotStyleboxExport {
+        files,
+        skipped_cells,
+        palette_swap_warning: sheet.format == crate::sheet::PALETTE_SWAP_FORMAT_VERSION,
+    })
+}
 
 /// 升 1 つを Tiled の GID にする．
 ///
@@ -137,6 +233,8 @@ pub fn tiled_tmx(doc: &TilesetDoc, tileset_source: &str, first_gid: u32) -> Resu
 mod tests {
     use super::*;
     use crate::frame::{TileGrid, TileRef};
+    use crate::nineslice::{AxisStretch, NineSlice};
+    use crate::sheet::SheetCell;
 
     /// 試験用のシート — `pxsmith sheet pack` が実際に作るのと同じ並びにする．
     fn packed(n: usize, cell: u32, padding: u32, margin: u32) -> SheetDoc {
@@ -268,6 +366,155 @@ mod tests {
         assert!(matches!(
             tiled_tsx(&TilesetDoc::new(16, 9), &packed(4, 16, 0, 0), "g"),
             Err(CoreError::ExportSheetTooSmall { .. })
+        ));
+    }
+
+    fn godot_sheet(format: u32, cells: Vec<SheetCell>) -> SheetDoc {
+        SheetDoc {
+            format,
+            image: "ui.png".to_string(),
+            width: 60,
+            height: 20,
+            columns: 3,
+            rows: 1,
+            cell_w: 20,
+            cell_h: 20,
+            padding: 0,
+            margin: 0,
+            cells,
+            palettes: None,
+        }
+    }
+
+    fn stylebox_cell(name: &str, x: u32, stretch: AxisStretch) -> SheetCell {
+        SheetCell {
+            index: x / 20,
+            name: name.to_string(),
+            x,
+            y: 3,
+            w: 12,
+            h: 12,
+            duration_ms: 0,
+            palette: None,
+            nine_slice: Some(NineSlice {
+                left: 4,
+                top: 3,
+                right: 2,
+                bottom: 1,
+                stretch_x: stretch,
+                stretch_y: stretch,
+            }),
+        }
+    }
+
+    #[test]
+    fn godot_styleboxes_write_all_three_axis_modes_and_original_image_rectangles() {
+        let cells = [
+            ("stretch", AxisStretch::Stretch, 0),
+            ("tile", AxisStretch::Tile, 1),
+            ("tile_fit", AxisStretch::TileFit, 2),
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(index, (name, mode, _))| stylebox_cell(name, index as u32 * 20, mode))
+        .collect();
+        let export = godot_styleboxes(&godot_sheet(1, cells), "res://ui///").expect("書ける");
+
+        assert_eq!(export.files.len(), 3);
+        assert_eq!(export.skipped_cells, 0);
+        assert!(!export.palette_swap_warning);
+        for (index, (file, (name, _, mode))) in export
+            .files
+            .iter()
+            .zip([
+                ("stretch", AxisStretch::Stretch, 0),
+                ("tile", AxisStretch::Tile, 1),
+                ("tile_fit", AxisStretch::TileFit, 2),
+            ])
+            .enumerate()
+        {
+            assert_eq!(file.file_name, format!("{name}.stylebox.tres"));
+            assert_eq!(
+                file.text,
+                format!(
+                    "[gd_resource type=\"StyleBoxTexture\" format=3]\n\n\
+                     [ext_resource type=\"Texture2D\" path=\"res://ui/ui.png\" id=\"1_tex\"]\n\n\
+                     [resource]\n\
+                     texture = ExtResource(\"1_tex\")\n\
+                     region_rect = Rect2({}, 3, 12, 12)\n\
+                     texture_margin_left = 4.0\n\
+                     texture_margin_top = 3.0\n\
+                     texture_margin_right = 2.0\n\
+                     texture_margin_bottom = 1.0\n\
+                     axis_stretch_horizontal = {mode}\n\
+                     axis_stretch_vertical = {mode}\n",
+                    index * 20
+                )
+            );
+        }
+    }
+
+    #[test]
+    fn godot_res_dir_is_normalized_and_must_start_with_res_scheme() {
+        let sheet = godot_sheet(1, vec![stylebox_cell("window", 0, AxisStretch::Stretch)]);
+        let export = godot_styleboxes(&sheet, "res://").expect("ルートへ書ける");
+        assert!(export.files[0].text.contains("path=\"res://ui.png\""));
+        assert!(matches!(
+            godot_styleboxes(&sheet, "ui"),
+            Err(CoreError::ExportGodotBadResDir { .. })
+        ));
+    }
+
+    #[test]
+    fn godot_export_reports_palette_swap_and_skipped_cells() {
+        let mut plain = stylebox_cell("plain", 20, AxisStretch::Stretch);
+        plain.nine_slice = None;
+        let mut sheet = godot_sheet(
+            crate::sheet::PALETTE_SWAP_FORMAT_VERSION,
+            vec![stylebox_cell("window", 0, AxisStretch::Stretch), plain],
+        );
+        sheet.palettes = Some(crate::sheet::PaletteAtlas {
+            image: "ui.palettes.png".to_string(),
+            width: 1,
+            rows: vec![crate::sheet::PaletteRow {
+                name: "base".to_string(),
+                variant_of: None,
+            }],
+        });
+        for cell in &mut sheet.cells {
+            cell.palette = Some(0);
+        }
+
+        let export = godot_styleboxes(&sheet, "res://ui").expect("警告付きで書ける");
+        assert!(export.palette_swap_warning);
+        assert_eq!(export.skipped_cells, 1);
+        assert_eq!(export.files.len(), 1);
+    }
+
+    #[test]
+    fn godot_export_rejects_unsafe_or_duplicate_output_names() {
+        let invalid = godot_sheet(1, vec![stylebox_cell("bad/name", 0, AxisStretch::Stretch)]);
+        assert!(matches!(
+            godot_styleboxes(&invalid, "res://ui"),
+            Err(CoreError::ExportGodotInvalidFileName { name }) if name == "bad/name"
+        ));
+
+        let duplicate = godot_sheet(
+            1,
+            vec![
+                stylebox_cell("window", 0, AxisStretch::Stretch),
+                stylebox_cell("window", 20, AxisStretch::Tile),
+            ],
+        );
+        assert!(matches!(
+            godot_styleboxes(&duplicate, "res://ui"),
+            Err(CoreError::ExportGodotDuplicateName { name }) if name == "window"
+        ));
+
+        let control = godot_sheet(1, vec![stylebox_cell("bad\nname", 0, AxisStretch::Stretch)]);
+        assert!(matches!(
+            godot_styleboxes(&control, "res://ui"),
+            Err(CoreError::ExportGodotInvalidFileName { .. })
         ));
     }
 }

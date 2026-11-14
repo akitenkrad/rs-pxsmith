@@ -1,19 +1,17 @@
-//! `pxsmith export` — 正規 JSON から出力先の形式へ変換する (設計書 4.4)．
+//! `pxsmith export` — シート／タイルセットのメタから出力先の形式へ変換する．
 //!
-//! **元の絵は見ない．** 読むのは [`pxsmith_core::tilejson::TilesetDoc`] だけである —
-//! 設計書 4.4 が «独自 JSON がエンジン非依存の正規出力．Godot / Tiled はアダプタ»
-//! と定めているとおりの形にする．
+//! **元の絵は見ない．** Tiled は [`pxsmith_core::tilejson::TilesetDoc`] と `SheetDoc`，
+//! Godot StyleBox は `SheetDoc` からだけ引く．出力先ごとに並べ方や矩形を決め直さない．
 //!
-//! > [!warning] **Godot はまだ書かない．**
-//! > terrain set の «peering bit» がこちらの 8 近傍 bitmask と 1 対 1 に対応すると
-//! > 確かめられていない．**推測で書いた出力は，使う側が壊れて初めて分かる**
-//! > (設計書 6.8 の «47 枚が静かに壊れる» と同じ) ．仕様を引いてから書くこと．
+//! Godot の `StyleBoxTexture` は `SheetDoc` の 9-slice 宣言から書ける．terrain set の
+//! «peering bit» は，こちらの 8 近傍 bitmask との対応を確かめられていないため，
+//! 引き続き書かない．
 
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use clap::{Args, Subcommand};
-use pxsmith_core::export::{tiled_tmx, tiled_tsx};
+use pxsmith_core::export::{godot_styleboxes, tiled_tmx, tiled_tsx};
 use pxsmith_core::sheet::SheetDoc;
 use pxsmith_core::tilejson::TilesetDoc;
 
@@ -24,6 +22,24 @@ pub enum ExportCommand {
         #[command(flatten)]
         args: TiledArgs,
     },
+    /// Godot 4.7 の `StyleBoxTexture` (`.tres`) を書く
+    Godot {
+        #[command(flatten)]
+        args: GodotArgs,
+    },
+}
+
+#[derive(Args, Clone)]
+pub struct GodotArgs {
+    /// `pxsmith sheet pack` が書いたシートメタ
+    #[arg(long)]
+    pub sheet: PathBuf,
+    /// `<升名>.stylebox.tres` を置くディレクトリ
+    #[arg(long)]
+    pub out_dir: PathBuf,
+    /// Godot プロジェクト内でシート画像を置くディレクトリ (`res://` で始める)
+    #[arg(long)]
+    pub res_dir: String,
 }
 
 #[derive(Args, Clone)]
@@ -52,7 +68,39 @@ pub struct TiledArgs {
 pub fn export(command: ExportCommand) -> Result<()> {
     match command {
         ExportCommand::Tiled { args } => tiled(&args),
+        ExportCommand::Godot { args } => godot(&args),
     }
+}
+
+fn godot(args: &GodotArgs) -> Result<()> {
+    let text = std::fs::read_to_string(&args.sheet)
+        .with_context(|| format!("{} を読めない", args.sheet.display()))?;
+    let sheet = SheetDoc::from_json(&text)?;
+    let export = godot_styleboxes(&sheet, &args.res_dir)?;
+
+    std::fs::create_dir_all(&args.out_dir)
+        .with_context(|| format!("{} を作れない", args.out_dir.display()))?;
+    for file in &export.files {
+        let path = args.out_dir.join(&file.file_name);
+        std::fs::write(&path, &file.text)
+            .with_context(|| format!("{} を書き出せない", path.display()))?;
+        println!("  {} へ書き出した", path.display());
+    }
+    if export.palette_swap_warning {
+        eprintln!(
+            "警告: {} は添字テクスチャなので，そのまま貼ると色にならない．\
+             パレットスワップのシェーダが要る",
+            sheet.image
+        );
+    }
+
+    // **書いていないものを黙らない** (D92 の作法)．
+    println!(
+        "  書いていない: nine_slice を持たない升 ({} 件)",
+        export.skipped_cells
+    );
+    println!("  書いていない: Theme (1 件)");
+    Ok(())
 }
 
 fn tiled(args: &TiledArgs) -> Result<()> {

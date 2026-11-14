@@ -1,0 +1,81 @@
+{
+  "format": 1,
+  "image": "ui.png",
+  "width": 80,
+  "height": 16,
+  "columns": 5,
+  "rows": 1,
+  "cell_w": 16,
+  "cell_h": 16,
+  "cells": [
+    {
+      "index": 0,
+      "name": "window_stretch",
+      "x": 0,
+      "y": 0,
+      "w": 12,
+      "h": 12,
+      "duration_ms": 100,
+      "nine_slice": {
+        "left": 4,
+        "top": 4,
+        "right": 4,
+        "bottom": 4,
+        "stretch_x": "stretch",
+        "stretch_y": "stretch"
+      }
+    },
+    {
+      "index": 1,
+      "name": "window_tile",
+      "x": 16,
+      "y": 0,
+      "w": 12,
+      "h": 12,
+      "duration_ms": 100,
+      "nine_slice": {
+        "left": 4,
+        "top": 4,
+        "right": 4,
+        "bottom": 4,
+        "stretch_x": "tile",
+        "stretch_y": "tile"
+      }
+    },
+    {
+      "index": 2,
+      "name": "window_tile_fit",
+      "x": 32,
+      "y": 0,
+      "w": 12,
+      "h": 12,
+      "duration_ms": 100,
+      "nine_slice": {
+        "left": 4,
+        "top": 4,
+        "right": 4,
+        "bottom": 4,
+        "stretch_x": "tile_fit",
+        "stretch_y": "tile_fit"
+      }
+    },
+    {
+      "index": 3,
+      "name": "hero_body_000",
+      "x": 48,
+      "y": 0,
+      "w": 16,
+      "h": 16,
+      "duration_ms": 83
+    },
+    {
+      "index": 4,
+      "name": "hero_body_001",
+      "x": 64,
+      "y": 0,
+      "w": 16,
+      "h": 16,
+      "duration_ms": 83
+    }
+  ]
+}

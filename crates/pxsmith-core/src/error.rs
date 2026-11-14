@@ -232,6 +232,18 @@ pub enum CoreError {
     #[error("この文書は map の節を持たないので地図を書けない (terrain だけの文書である)")]
     ExportNoMap,
 
+    /// Godot のリソースパスでない場所を指定した．
+    #[error("Godot の --res-dir は res:// で始める必要がある: {res_dir}")]
+    ExportGodotBadResDir { res_dir: String },
+
+    /// StyleBox の出力ファイル名に使えない升名．
+    #[error("升名 '{name}' は StyleBox のファイル名に使えない文字を含む")]
+    ExportGodotInvalidFileName { name: String },
+
+    /// 同名の StyleBox が複数あり，同じ出力先を指す．
+    #[error("升名 '{name}' が重複しており，同じ StyleBox 出力先になる")]
+    ExportGodotDuplicateName { name: String },
+
     /// 版が違う．**黙って読まない** — 欄の意味が変わっている見込みがある．
     #[error("タイルセットの JSON の format が {found} である (扱えるのは {expected})")]
     TileJsonVersion { found: u32, expected: u32 },
