@@ -872,7 +872,10 @@ mod tests {
         let root = std::env::temp_dir().join(format!(
             "pxsmith-save-frames-{name}-{}-{}",
             std::process::id(),
-            std::thread::current().name().unwrap_or("test")
+            std::thread::current()
+                .name()
+                .unwrap_or("test")
+                .replace("::", "-")
         ));
         std::fs::create_dir_all(&root).unwrap();
         root

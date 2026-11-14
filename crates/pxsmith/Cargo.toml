@@ -2,7 +2,7 @@
 edition.workspace = true
 name = "pxsmith"
 publish = true
-description = "A CLI for making pixel art: quantize, conform, lint, animate, project and preview."
+description = "A CLI for making pixel art: quantize, conform, lint, animate, render pixel fonts, export to Godot, and preview."
 readme.workspace = true
 keywords = ["pixel-art", "cli", "graphics", "gamedev"]
 categories = ["command-line-utilities", "graphics"]

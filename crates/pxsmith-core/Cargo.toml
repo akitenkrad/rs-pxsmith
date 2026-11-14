@@ -2,7 +2,7 @@
 edition.workspace = true
 name = "pxsmith-core"
 publish = true
-description = "Core data model and geometry for indexed-colour pixel art: palettes, canvases, grid estimation and resampling."
+description = "Core data model and geometry for indexed-colour pixel art: palettes, canvases, grid estimation, resampling, and pixel-font text layout."
 readme.workspace = true
 keywords = ["pixel-art", "graphics", "gamedev", "palette"]
 categories = ["graphics", "game-development"]

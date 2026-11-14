@@ -17,7 +17,10 @@ fn scratch(name: &str) -> PathBuf {
     let root = std::env::temp_dir().join(format!(
         "pxsmith-quantize-{name}-{}-{}",
         std::process::id(),
-        std::thread::current().name().unwrap_or("test")
+        std::thread::current()
+            .name()
+            .unwrap_or("test")
+            .replace("::", "-")
     ));
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&root).expect("作業場所を作れる");

@@ -13,7 +13,10 @@ fn scratch(name: &str) -> PathBuf {
     let path = std::env::temp_dir().join(format!(
         "pxsmith-font-{name}-{}-{}",
         std::process::id(),
-        std::thread::current().name().unwrap_or("test")
+        std::thread::current()
+            .name()
+            .unwrap_or("test")
+            .replace("::", "-")
     ));
     std::fs::create_dir_all(&path).unwrap();
     path

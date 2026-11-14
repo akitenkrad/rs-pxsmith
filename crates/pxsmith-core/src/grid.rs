@@ -2768,11 +2768,10 @@ mod tests {
             let img = upscaled(&WIDE, &palette(), 4, phase);
             let d = ivec2(((4 - phase.0) % 4) as i32, ((4 - phase.1) % 4) as i32);
             let p = profile_stats(&img, 4, d);
-            for axis in 0..2 {
+            for (axis, share) in p.edge_share.iter().enumerate() {
                 assert!(
-                    p.edge_share[axis] > 0.9,
-                    "位相 {phase:?} 軸 {axis} で段差が格子線に乗っていない ({})",
-                    p.edge_share[axis]
+                    *share > 0.9,
+                    "位相 {phase:?} 軸 {axis} で段差が格子線に乗っていない ({share})"
                 );
             }
         }

@@ -2,9 +2,9 @@
 edition.workspace = true
 name = "pxsmith-io"
 publish = true
-description = "Readers and writers for pixel-art formats: .aseprite round-trip, the L0 text format, PNG and .hex palettes."
+description = "Readers and writers for pixel-art formats: .aseprite round-trip, the L0 text format, PNG, GIF, .hex palettes, and BDF and TrueType fonts."
 readme.workspace = true
-keywords = ["pixel-art", "aseprite", "graphics", "parser"]
+keywords = ["pixel-art", "aseprite", "graphics", "parser", "font"]
 categories = ["graphics", "parser-implementations"]
 license.workspace = true
 repository.workspace = true
