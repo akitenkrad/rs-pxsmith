@@ -9,6 +9,8 @@ releases: a change in the minor number may break the public API.
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-11-14
+
 ### Fixed
 
 - `compose` now flattens every part, in layer order, for single-layer L0, PNG
