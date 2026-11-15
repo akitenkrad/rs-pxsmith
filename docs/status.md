@@ -518,6 +518,16 @@ GitHub の `akitenkrad/rs-pxforge` を **`akitenkrad/rs-pxsmith` へ改名**し�
 > `--workspace` はそこで止まるので，**末尾だけ読むと «ok» に見える**
 > (最後に走ったのは通った試験である) ．D138 «飛ばした件を数える» と同じ側．
 
+### 0.3.3 を公開した — 連載の記事更新で見つけた不具合 2 件 (2026-11-15)
+
+連載 基礎編の下書きを 0.3.2 に合わせる途中で見つけた不具合 2 件 (MYTASK-3590・3591) を直し，**8 クレートすべて 0.3.3 として公開した**．公開元は `0005e48` (修正は `ad8c774`)．互換性を壊す公開 API の変更は無い．core に `direction::expand_with_light` を足した．
+
+- `shade`・`aa`・`outline` の `--emit-palette` が透明の枠を `000000` の行として `.hex` に書いていた (MYTASK-3590)．MYTASK-3581 の修正が `save_frames` にしか入っていなかった取りこぼし．作業層のパレットを `.hex` に書く経路を `write_opaque_hex` に集め，同じ型の `palette extract`・`text export`・`tileset import` も直した．
+- `direction --reshade` が `--light` を無視し，プリセットの既定 (右上から) の光で塗り直していた (MYTASK-3591)．`--light` を `shade --light` と同じ計算で使う．最初の修正は公開構造体 `ReshadeSpec` にフィールドを足していたので，互換を保つ `expand_with_light` に直してから出した．
+- 修正は Claude が書き，互換を保つ直しは Codex が書いた．
+- **CI (5 ジョブ) が緑になったのを見てから出した**．公開後に `cargo install pxsmith --version 0.3.3` で入れ直した．
+- 手元の `~/.rustfmt.toml` (`max_width = 150`) がこのリポジトリにも効くので，`cargo fmt --all -- --check` は手元では HEAD でも失敗する．CI は既定の幅．手元では空の設定を `--config-path` で渡して確かめる．
+
 ### 0.3.2 を公開した — 連載の記事執筆で見つけた不具合 8 件 (2026-11-15)
 
 連載 基礎編 第 2〜9 回の下書きを 0.3.1 で書く途中で見つけた不具合 8 件 (MYTASK-3581〜3588) を直し，**8 クレートすべて 0.3.2 として公開した**．公開元は `8e08444` (修正は `898fb94`)．互換性を壊す公開 API の変更は無い．`lint --light` を足した．
