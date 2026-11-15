@@ -19,7 +19,6 @@ use pxsmith_core::ramp::{LightSource, build_lighting};
 use pxsmith_core::resample::{ResampleAlgo, ResampleOptions};
 use pxsmith_core::shade::{DEFAULT_AMBIENT_OCCLUSION, ShadeOptions, shade_to_canvas};
 use pxsmith_core::smooth::{SmoothOptions, smooth_canvas};
-use pxsmith_io::hex;
 
 use crate::color_cmds::{CurveArg, PresetArg, is_png, load_indexed, write_indexed};
 
@@ -114,7 +113,7 @@ pub fn shade(args: &ShadeArgs) -> Result<()> {
         palette.len()
     );
     if let Some(path) = &args.emit_palette {
-        hex::write(path, &palette).with_context(|| format!("{} を書き出せない", path.display()))?;
+        crate::write_opaque_hex(path, &palette)?;
         println!("パレット -> {}", path.display());
     }
     Ok(())
@@ -255,7 +254,7 @@ pub fn aa(args: &AaArgs) -> Result<()> {
     write_indexed(&args.output, &canvas, &palette)?;
     println!("-> {}", args.output.display());
     if let Some(path) = &args.emit_palette {
-        hex::write(path, &palette).with_context(|| format!("{} を書き出せない", path.display()))?;
+        crate::write_opaque_hex(path, &palette)?;
         println!("パレット -> {}", path.display());
     }
     Ok(())
@@ -383,7 +382,7 @@ pub fn outline_cmd(args: &OutlineArgs) -> Result<()> {
     write_indexed(&args.output, &canvas, &palette)?;
     println!("-> {}", args.output.display());
     if let Some(path) = &args.emit_palette {
-        hex::write(path, &palette).with_context(|| format!("{} を書き出せない", path.display()))?;
+        crate::write_opaque_hex(path, &palette)?;
         println!("パレット -> {}", path.display());
     }
     Ok(())

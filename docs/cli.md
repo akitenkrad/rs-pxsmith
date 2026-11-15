@@ -164,6 +164,11 @@ pxsmith guide g.png --projection iso --from top --cell 16 --size 256x256
 creates sw, w and nw. It reports and skips any direction that cannot be made by
 reflection; it does not invent the other seven from one drawing.
 
+`--light` declares the light for lint rule 7, which is applied to the reflected
+directions. With `--reshade` it is also the light used to re-derive the shading,
+computed exactly as `pxsmith shade --light` does; without `--light`, re-shading
+uses the default light of `--preset`.
+
 `anchor track` writes resolved values (frame override first, then the `[meta]`
 default) as format-1 JSON. With no `--anchor`, it writes every name in sorted
 order; with no `-o`, it writes JSON to standard output. `anchor apply` requires

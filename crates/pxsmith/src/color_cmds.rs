@@ -688,9 +688,14 @@ fn extract(inputs: &[PathBuf], output: &Path) -> Result<()> {
             }
         }
     }
-    let mut colors = Palette::extract_from(owned.iter().map(|(c, p)| (c, p)))?
+    // 透明の画素が指す alpha=0 の枠は «使われた色» ではない — `.hex` に書くと
+    // `000000` に化けて本物の黒と区別できなくなる (MYTASK-3590)．RGBA 入力と同じく落とす
+    let mut colors: Vec<Rgba8> = Palette::extract_from(owned.iter().map(|(c, p)| (c, p)))?
         .entries()
-        .to_vec();
+        .iter()
+        .copied()
+        .filter(|color| color.a != 0)
+        .collect();
     colors.extend(rgba_colors);
     colors.sort_unstable_by_key(|color| color.sort_key());
     colors.dedup();

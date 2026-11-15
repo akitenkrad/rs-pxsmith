@@ -9,6 +9,17 @@
 
 ## [Unreleased]
 
+### 修正
+
+- `shade`・`aa`・`outline` の `--emit-palette` が alpha 0 の透明枠を `000000` の行として
+  書かないようにしました．書き出す `.hex` は同じ実行の `.px.hex` とバイト単位で一致します．
+  同じ «不透明色だけを書く» 規則を `palette extract`・`text export` が作る `.hex`・
+  `tileset import` が作るパレットにも適用しました．本物の `000000` は残ります (MYTASK-3590)．
+- `direction --reshade` が `--preset` の既定の光源ではなく `--light` の光源で，
+  `shade --light` と同じ計算で塗り直すようにしました．`--light` が無ければ従来どおり
+  プリセットの既定を使います．core に `expand_with_light` を足し，従来の `expand` の
+  振る舞いは変えていません (MYTASK-3591)．
+
 ## [0.3.2] - 2026-11-15
 
 ### 修正

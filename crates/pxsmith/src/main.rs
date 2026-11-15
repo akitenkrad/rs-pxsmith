@@ -533,15 +533,7 @@ pub(crate) fn save_frames(path: &std::path::Path, frames: &[Frame], name: &str) 
             .document
             .write(path)
             .with_context(|| format!("{} を書き出せない", path.display()))?;
-        let opaque = Palette::new(
-            frames[0]
-                .palette
-                .entries()
-                .iter()
-                .copied()
-                .filter(|color| color.a != 0)
-                .collect(),
-        )?;
+        let opaque = opaque_palette(&frames[0].palette)?;
         hex::write(&palette_ref, &opaque)
             .with_context(|| format!("{} を書き出せない", palette_ref.display()))?;
         println!("  パレット -> {}", palette_ref.display());
@@ -587,9 +579,36 @@ pub(crate) fn save_frames(path: &std::path::Path, frames: &[Frame], name: &str) 
     Ok(())
 }
 
+/// `.hex` に書くパレット — alpha=0 の枠だけを落とし，不透明色は元の順序のまま
+/// すべて残す (未使用でも重複していても)．
+///
+/// `.hex` は RRGGBB しか持てないので，透明の枠をそのまま書くと `000000` の行に化け，
+/// 本物の黒と区別できなくなる (MYTASK-3581 / 3590)．**作業層のパレットを `.hex` へ
+/// 書く経路はすべてこれを通す** — L0 の隣に書く `.hex` と `--emit-palette` の
+/// `.hex` が行数・添字まで一致する．
+pub(crate) fn opaque_palette(palette: &Palette) -> Result<Palette> {
+    Ok(Palette::new(
+        palette
+            .entries()
+            .iter()
+            .copied()
+            .filter(|color| color.a != 0)
+            .collect(),
+    )?)
+}
+
+/// 作業層のパレットを `.hex` へ書く ([`opaque_palette`] を通してから)．
+pub(crate) fn write_opaque_hex(path: &std::path::Path, palette: &Palette) -> Result<()> {
+    let opaque = opaque_palette(palette)?;
+    hex::write(path, &opaque).with_context(|| format!("{} を書き出せない", path.display()))
+}
+
 /// L0 の `.hex` では表せない alpha=0 の枠だけを落とし，添字を詰め直す．
 /// 不透明色は未使用でも重複していても，元の順序のまますべて残す．
-fn strip_l0_transparent_entries(frames: &mut [Frame]) -> Result<()> {
+///
+/// 透明の枠が要るときは**末尾に 1 つだけ**足すので，不透明色の添字は
+/// [`opaque_palette`] の添字と一致する．
+pub(crate) fn strip_l0_transparent_entries(frames: &mut [Frame]) -> Result<()> {
     let Some(first) = frames.first() else {
         return Ok(());
     };
@@ -811,7 +830,10 @@ fn text(command: TextCommand) -> Result<()> {
             layer,
             palette: palette_path,
         } => {
-            let frames = load_frames(&input)?;
+            let mut frames = load_frames(&input)?;
+            // 透明の枠を末尾へ寄せて添字を詰め直す — L0 の添字と `.hex` の行を
+            // 揃えるため (MYTASK-3590．save_frames と同じ)
+            strip_l0_transparent_entries(&mut frames)?;
             let first = frames.first().context("フレームが 1 つも無い")?;
 
             let index = match &layer {
@@ -825,10 +847,11 @@ fn text(command: TextCommand) -> Result<()> {
                     .context("インデックスカラーのレイヤが無い．L0 では表せない")?,
             };
 
-            // L0 が参照するパレットを先に確定させる．無ければ元の絵から作る
+            // L0 が参照するパレットを先に確定させる．無ければ元の絵から作る．
+            // **透明の枠は `.hex` に書けない** (`000000` に化ける) ので，先に落として
+            // 添字を詰め直す — save_frames と同じ処理 (MYTASK-3590)
             if !palette_path.exists() {
-                pxsmith_io::hex::write(&palette_path, &first.palette)
-                    .with_context(|| format!("{} を書き出せない", palette_path.display()))?;
+                write_opaque_hex(&palette_path, &first.palette)?;
                 println!("パレットを作成: {}", palette_path.display());
             }
 

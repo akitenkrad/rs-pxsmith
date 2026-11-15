@@ -17,7 +17,7 @@ use anyhow::{Context, Result, bail};
 use clap::Args;
 use pxsmith_core::compose::expand_template;
 use pxsmith_core::direction::{
-    Direction, ExpandMode, ExpandOptions, ReshadeSpec, expand, mirror_is_checkable,
+    Direction, ExpandMode, ExpandOptions, ReshadeSpec, expand_with_light, mirror_is_checkable,
 };
 use pxsmith_core::frame::Frame;
 use pxsmith_core::ramp::{LightPreset, LightSource};
@@ -39,7 +39,10 @@ pub struct DirectionArgs {
     /// `point:x,y` は光源の位置．
     ///
     /// **無ければルール 7 は掛からない** — 絵だけから光源方向は決まらないので，
-    /// 宣言があるときにしか矛盾を言えない (D89)
+    /// 宣言があるときにしか矛盾を言えない (D89)．
+    ///
+    /// `--reshade` のときは塗り直しの光源にも使う (`pxsmith shade --light` と同じ)．
+    /// 無ければ `--preset` の既定の向きで塗り直す
     #[arg(long)]
     pub light: Option<String>,
     /// 反転したシルエットへ陰影を導出し直す．
@@ -108,7 +111,7 @@ pub fn direction_cmd(args: &DirectionArgs) -> Result<()> {
         ExpandMode::Mirror
     };
 
-    let (all, report) = expand(&drawn, &ExpandOptions { mode })?;
+    let (all, report) = expand_with_light(&drawn, &ExpandOptions { mode }, light)?;
 
     println!(
         "描いてある {} 方向 → 反転で {} 方向を作った",

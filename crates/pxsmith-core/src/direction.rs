@@ -280,6 +280,17 @@ pub fn expand(
     drawn: &BTreeMap<Direction, Vec<Frame>>,
     opts: &ExpandOptions,
 ) -> Result<(BTreeMap<Direction, Vec<Frame>>, ExpandReport)> {
+    expand_with_light(drawn, opts, None)
+}
+
+/// 描いた方向から 8 方向を埋め，塗り直しに指定した光源を使う (MYTASK-3591)．
+///
+/// `light` が `None` ならプリセットの既定の光源を使う．
+pub fn expand_with_light(
+    drawn: &BTreeMap<Direction, Vec<Frame>>,
+    opts: &ExpandOptions,
+    light: Option<LightSource>,
+) -> Result<(BTreeMap<Direction, Vec<Frame>>, ExpandReport)> {
     if drawn.is_empty() {
         return Err(CoreError::DirectionNothingDrawn);
     }
@@ -307,7 +318,7 @@ pub fn expand(
             match &opts.mode {
                 ExpandMode::Mirror => made.push(flipped),
                 ExpandMode::Reshade(spec) => {
-                    let light = spec.preset.default_source();
+                    let light = light.unwrap_or_else(|| spec.preset.default_source());
                     let (f, r) = reshade_frame(&flipped, spec, light)?;
                     rewritten = rewritten.max(r);
                     made.push(f);

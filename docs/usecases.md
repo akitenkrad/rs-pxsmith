@@ -67,6 +67,8 @@ pxsmith direction 'out/${dir}.px.toml' \
 ```
 
 The output path must contain `${dir}`, since one file is written per direction.
+With `--reshade`, the reflected directions are re-shaded from the `--light` you
+declare (the same light lint rule 7 checks against).
 
 ---
 

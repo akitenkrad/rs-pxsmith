@@ -9,6 +9,19 @@ releases: a change in the minor number may break the public API.
 
 ## [Unreleased]
 
+### Fixed
+
+- `--emit-palette` on `shade`, `aa` and `outline` no longer writes alpha-zero
+  transparency slots as `000000` rows; the emitted `.hex` now matches the
+  `.px.hex` written by the same run byte for byte. The same opaque-only rule now
+  also applies to `palette extract`, the `.hex` that `text export` creates and
+  the palette that `tileset import` creates. Genuine `000000` colours are kept
+  (MYTASK-3590).
+- `direction --reshade` now re-shades with the light given by `--light`,
+  computed as `shade --light` does, instead of always using the default light of
+  `--preset`. Without `--light` the preset default is still used. The core adds
+  `expand_with_light`; the existing `expand` behaves as before (MYTASK-3591).
+
 ## [0.3.2] - 2026-11-15
 
 ### Fixed

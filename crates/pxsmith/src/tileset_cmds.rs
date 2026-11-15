@@ -145,7 +145,10 @@ fn import_cmd(args: &ImportArgs) -> Result<()> {
         )
     })?;
 
-    let frames = crate::load_frames(&args.input)?;
+    let mut frames = crate::load_frames(&args.input)?;
+    // 透明の枠を末尾へ寄せて添字を詰め直す — 書き出す `.hex` (透明の枠を落とす) と
+    // L0 の添字を揃えるため (MYTASK-3590)
+    crate::strip_l0_transparent_entries(&mut frames)?;
     let palette = frames
         .first()
         .context("フレームが 1 つも無い")?
@@ -185,8 +188,7 @@ fn import_cmd(args: &ImportArgs) -> Result<()> {
 
     // パレットを先に確定させる
     if !args.palette.exists() {
-        pxsmith_io::hex::write(&args.palette, &palette)
-            .with_context(|| format!("{} を書き出せない", args.palette.display()))?;
+        crate::write_opaque_hex(&args.palette, &palette)?;
         println!("  パレットを作成: {}", args.palette.display());
     }
 
