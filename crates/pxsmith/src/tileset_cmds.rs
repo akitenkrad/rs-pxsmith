@@ -90,7 +90,10 @@ pub struct AutotileArgs {
     /// bitmask との対応表を JSON で書き出す先 (設計書 4.4 の «正規 JSON»)
     #[arg(long)]
     pub map: Option<PathBuf>,
-    /// 宣言する光源 (`dir:X,Y`)．**自動ミラーを使うなら宣言すること** (設計書 4.3)
+    /// 宣言する光源．`dir:x,y` は光が進む向き．x は右，y は下．
+    /// `dir:-0.6,0.8` は右上から，`dir:0.6,0.8` は左上からの光．
+    /// 既定の向きは `dir:-0.6,0.8`．`point:x,y` は光源の位置．
+    /// **自動ミラーを使うなら宣言すること** (設計書 4.3)
     #[arg(long)]
     pub light: Option<String>,
     /// ルール 7 が鳴っても非ゼロで終わらない
@@ -114,7 +117,10 @@ pub struct ExtractArgs {
     /// 格子の対応表を JSON で書き出す先
     #[arg(long)]
     pub map: Option<PathBuf>,
-    /// 宣言する光源 (`dir:X,Y`)．**無ければルール 7 は掛からない** (D89)
+    /// 宣言する光源．`dir:x,y` は光が進む向き．x は右，y は下．
+    /// `dir:-0.6,0.8` は右上から，`dir:0.6,0.8` は左上からの光．
+    /// 既定の向きは `dir:-0.6,0.8`．`point:x,y` は光源の位置．
+    /// **無ければルール 7 は掛からない** (D89)
     #[arg(long)]
     pub light: Option<String>,
     /// ルール 7 が鳴っても非ゼロで終わらない

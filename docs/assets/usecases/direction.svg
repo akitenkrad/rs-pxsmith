@@ -1,6 +1,6 @@
 <svg width="100%" viewBox="0 0 954 94" xmlns="http://www.w3.org/2000/svg" role="img">
-<title>1 枚から 8 方向を導出する</title>
-<desc>1 方向のスプライトを反転し，宣言した光源から陰影を導出し直して 8 方向を得る流れ．</desc>
+<title>5 方向から鏡像の 3 方向を作る</title>
+<desc>n・ne・e・se・s を描き，sw・w・nw を反転して，宣言した光源から陰影を付け直す流れ．</desc>
 <style>
   .ts { font-family: -apple-system, "Helvetica Neue", "Hiragino Sans", sans-serif; font-size: 11.5px; fill: #444441; }
   .tn { font-family: -apple-system, "Helvetica Neue", "Hiragino Sans", sans-serif; font-size: 12.5px; font-weight: 500; fill: #2C2C2A; }
@@ -37,11 +37,11 @@
 <path class="arr" d="M680 47 H774" marker-end="url(#arrow)"/>
 <!-- boxes -->
 <rect class="purple-fill" x="24" y="24" width="156" height="46" rx="8"/>
-<text class="tn" x="102" y="43" text-anchor="middle">hero_s.px.toml</text>
-<text class="ts" x="102" y="59" text-anchor="middle">one direction</text>
+<text class="tn" x="102" y="43" text-anchor="middle">five drawings</text>
+<text class="ts" x="102" y="59" text-anchor="middle">n / ne / e / se / s</text>
 <rect class="gray-fill" x="274" y="24" width="156" height="46" rx="8"/>
-<text class="tn" x="352" y="43" text-anchor="middle">flip</text>
-<text class="ts" x="352" y="59" text-anchor="middle">mirror the shape</text>
+<text class="tn" x="352" y="43" text-anchor="middle">reflect</text>
+<text class="ts" x="352" y="59" text-anchor="middle">make sw / w / nw</text>
 <rect class="gray-fill" x="524" y="24" width="156" height="46" rx="8"/>
 <text class="tn" x="602" y="43" text-anchor="middle">re-shade</text>
 <text class="ts" x="602" y="59" text-anchor="middle">from the stated light</text>

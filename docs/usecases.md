@@ -40,7 +40,7 @@ pxsmith text import hero.px.toml hero.aseprite
 
 ---
 
-## 2. Deriving eight directions from one drawing
+## 2. Completing eight directions from five drawings
 
 ### The problem
 
@@ -50,16 +50,20 @@ shading mirrors with it and the light appears to move.
 
 ### The approach
 
-Draw one direction and derive the rest. Shading is derived rather than painted,
-so a mirrored sprite can be re-shaded from the original light direction.
+Draw n, ne, e, se and s. The remaining mirror partners—sw, w and nw—can then be
+reflected. Shading is derived rather than painted, so a mirrored sprite can be
+re-shaded from the original light direction. A direction without a mirror
+partner is reported and skipped.
 
 <p align="center"><img src="assets/usecases/direction.svg" width="100%" alt=""></p>
 
 ### Commands
 
 ```sh
-pxsmith direction 'out/${dir}.px.toml' --from s=hero_s.px.toml \
-    --light dir:-0.6,0.8 --reshade
+pxsmith direction 'out/${dir}.px.toml' \
+    --from n=hero_n.px.toml --from ne=hero_ne.px.toml --from e=hero_e.px.toml \
+    --from se=hero_se.px.toml --from s=hero_s.px.toml \
+    --light dir:-0.6,0.8 --reshade --base 8A6A4A
 ```
 
 The output path must contain `${dir}`, since one file is written per direction.

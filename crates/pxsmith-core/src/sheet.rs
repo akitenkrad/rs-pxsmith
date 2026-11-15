@@ -461,12 +461,6 @@ pub fn pack_palette_swap(
         }
     }
     for variant in variants {
-        let base_row = palettes
-            .iter()
-            .position(|palette| palette.entries() == variant.base.entries())
-            .ok_or_else(|| CoreError::SheetVariantBaseMissing {
-                name: variant.name.clone(),
-            })?;
         if variant.palette.len() != variant.base.len() {
             return Err(CoreError::SheetVariantLengthMismatch {
                 name: variant.name.clone(),
@@ -486,12 +480,24 @@ pub fn pack_palette_swap(
                 index,
             });
         }
+        // 0.3.1 以前の L0 は透明枠を 000000 として先頭に書くことがあった．
+        // 一般の部分列は認めず，その旧形式の 1 枠だけを後方互換として外す．
+        let (base_row, projected) = palettes
+            .iter()
+            .enumerate()
+            .find_map(|(row, palette)| {
+                match_palette_variant(palette, &variant.base, &variant.palette)
+                    .map(|projected| (row, projected))
+            })
+            .ok_or_else(|| CoreError::SheetVariantBaseMissing {
+                name: variant.name.clone(),
+            })?;
         if !row_names.insert(variant.name.clone()) {
             return Err(CoreError::SheetPaletteNameDuplicate {
                 name: variant.name.clone(),
             });
         }
-        palettes.push(variant.palette.clone());
+        palettes.push(projected);
         palette_rows.push(PaletteRow {
             name: variant.name.clone(),
             variant_of: Some(base_row as u32),
@@ -577,6 +583,20 @@ pub fn pack_palette_swap(
         }),
     };
     Ok((indices, atlas, doc, report))
+}
+
+/// 同じ基準パレット，または旧 L0 の先頭 `000000` だけを除いた基準に色違いを対応させる．
+fn match_palette_variant(source: &Palette, base: &Palette, changed: &Palette) -> Option<Palette> {
+    if source.entries() == base.entries() {
+        return Some(changed.clone());
+    }
+    let legacy_black = Rgba8::rgb(0, 0, 0);
+    if base.entries().first() == Some(&legacy_black)
+        && base.entries().get(1..) == Some(source.entries())
+    {
+        return Palette::new(changed.entries().get(1..)?.to_vec()).ok();
+    }
+    None
 }
 
 /// 添字テクスチャとパレットアトラスを通常の RGBA 画像へ復元する．
@@ -1065,6 +1085,75 @@ mod tests {
                 &PackOptions::default()
             ),
             Err(CoreError::SheetPaletteNameDuplicate { .. })
+        ));
+    }
+
+    /// **壊れると: 0.3.1 が透明枠を 000000 として書いた色違いパレットを適用できない．**
+    #[test]
+    fn palette_variant_accepts_legacy_leading_transparency_colour() {
+        let dark = Rgba8::rgb(20, 30, 40);
+        let light = Rgba8::rgb(180, 190, 200);
+        let current = Palette::new(vec![dark, light]).expect("現在の L0 パレット");
+        let item = PaletteSwapItem {
+            item: SheetItem {
+                name: "current".to_string(),
+                canvas: IndexedCanvas::filled(1, 1, 1),
+                palette: current.clone(),
+                duration_ms: 0,
+            },
+            palette_name: Some("current".to_string()),
+            atlas_palette: Some(current),
+        };
+        let variant = PaletteVariant {
+            name: "warm".to_string(),
+            base: Palette::new(vec![Rgba8::rgb(0, 0, 0), dark, light])
+                .expect("旧透明枠を含む基準パレット"),
+            palette: Palette::new(vec![
+                Rgba8::rgb(1, 1, 1),
+                Rgba8::rgb(120, 40, 30),
+                Rgba8::rgb(250, 180, 80),
+            ])
+            .expect("色違い"),
+        };
+
+        let (indices, atlas, doc, _) =
+            pack_palette_swap(&[item], &[variant], &PackOptions::default())
+                .expect("旧透明枠だけを外して梱包できる");
+        let changed = resolve(&indices, &atlas, &doc, Some("warm")).expect("色違いで復元");
+        assert_eq!(changed.get(0, 0), Some(Rgba8::rgb(250, 180, 80)));
+    }
+
+    /// **壊れると: 色違いの基準パレットに余分な不透明色があっても，添字のずれを**
+    /// **部分列射影で隠してしまう．**
+    #[test]
+    fn palette_variant_does_not_project_unused_opaque_colours() {
+        let dark = Rgba8::rgb(20, 30, 40);
+        let light = Rgba8::rgb(180, 190, 200);
+        let item = PaletteSwapItem {
+            item: SheetItem {
+                name: "compact".to_string(),
+                canvas: IndexedCanvas::filled(1, 1, 1),
+                palette: Palette::new(vec![dark, light]).expect("素材パレット"),
+                duration_ms: 0,
+            },
+            palette_name: Some("compact".to_string()),
+            atlas_palette: None,
+        };
+        let variant = PaletteVariant {
+            name: "warm".to_string(),
+            base: Palette::new(vec![Rgba8::rgb(9, 9, 9), dark, light])
+                .expect("余分な不透明色を含む基準"),
+            palette: Palette::new(vec![
+                Rgba8::rgb(10, 10, 10),
+                Rgba8::rgb(120, 40, 30),
+                Rgba8::rgb(250, 180, 80),
+            ])
+            .expect("色違い"),
+        };
+
+        assert!(matches!(
+            pack_palette_swap(&[item], &[variant], &PackOptions::default()),
+            Err(CoreError::SheetVariantBaseMissing { .. })
         ));
     }
 

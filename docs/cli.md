@@ -68,19 +68,31 @@ pxsmith watch hero.px.toml --zoom 8
 # Show which pixels changed between two sprites
 pxsmith diff before.px.toml after.px.toml
 
-# Inspect or convert palettes (.hex is the canonical format)
+# Inspect or convert palettes
 pxsmith palette info palettes/sweetie-16.hex
 pxsmith palette convert input.gpl output.hex
+pxsmith palette convert output.hex output.gpl
 
 # Check that reading and writing an .aseprite file is byte-exact
 pxsmith verify roundtrip sprite.aseprite --via-frame
 ```
+
+Palette input may be `.hex`, `.gpl`, `.pal` or `.act`. Conversion output is
+selected by its extension: `.hex` writes the canonical line-per-colour form and
+`.gpl` writes a GIMP Palette. Other output extensions are rejected.
 
 ## Deriving artwork
 
 Shading is derived from the silhouette rather than painted, and the source
 colours of the input are discarded. This is what keeps flips, tweens, and
 recolours from breaking the light direction.
+
+For every `--light` option that accepts a geometric source, `dir:x,y` is the
+direction in which light travels; positive x points right and positive y points
+down. `dir:-0.6,0.8` therefore comes from the upper right, while
+`dir:0.6,0.8` comes from the upper left. The default is `dir:-0.6,0.8`. In
+`point:x,y`, x and y are the light source's position instead. `atmos --light`
+is the exception: it accepts a colour preset, not a direction.
 
 ```sh
 # Derive shading from a silhouette (the source colors are discarded)
@@ -127,12 +139,12 @@ deterministically and the image belongs back with a person.
 pxsmith anchor track body.px.toml --anchor head -o head-track.json
 pxsmith anchor apply head-track.json target.px.toml -o tracked.px.toml --anchor head
 
-# Assemble parts, then derive the other seven directions by flip + re-shading
+# Assemble parts, then draw n/ne/e/se/s and reflect the remaining three
 pxsmith compose out.px.toml --part body.px.toml --part head.px.toml
-
-
-pxsmith direction 'out/${dir}.px.toml' --from s=hero_s.px.toml \
-    --light dir:-0.6,0.8 --reshade
+pxsmith direction 'out/${dir}.px.toml' \
+    --from n=hero_n.px.toml --from ne=hero_ne.px.toml --from e=hero_e.px.toml \
+    --from se=hero_se.px.toml --from s=hero_s.px.toml \
+    --light dir:-0.6,0.8 --reshade --base 8A6A4A
 
 # Cut a sheet into tiles, collapse duplicates, build a 47-piece autotile set
 # (indexed input only — quantising here would smuggle our choice into tile equality)
@@ -147,6 +159,10 @@ pxsmith atmos 'out/${name}.px.toml' --input fg.px.toml --input bg.px.toml \
 pxsmith project in.px.toml iso.px.toml --to iso --from top --facing right
 pxsmith guide g.png --projection iso --from top --cell 16 --size 256x256
 ```
+
+`direction` can reflect only mirror partners. With n, ne, e, se and s drawn, it
+creates sw, w and nw. It reports and skips any direction that cannot be made by
+reflection; it does not invent the other seven from one drawing.
 
 `anchor track` writes resolved values (frame override first, then the `[meta]`
 default) as format-1 JSON. With no `--anchor`, it writes every name in sorted

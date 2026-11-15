@@ -189,17 +189,17 @@ fn changing_an_input_misses_the_cache_for_that_step_only() {
 
 /// **壊れると: キャッシュ当たりが «一部だけ戻った木» を作り，成功と報告する．**
 ///
-/// `pxsmith shade` は L0 の隣に `.hex` も書く (D127) ．レシピが `output` に書いて
-/// いないので，**宣言した分だけ貯めると次の当たりで木が壊れる**．
-/// 実際に書かれたものを全部貯めていることを，**出力が読めるか**で見る．
+/// `pxsmith shade` は L0 の隣に `.hex` も書く (D127) ．これは既知の副出力なので，
+/// 主出力と一緒に宣言済みとして数え，キャッシュへ貯める．実際に書かれたものを
+/// 全部戻していることを，**出力が読めるか**で見る．
 #[test]
 fn a_cache_hit_restores_a_tree_that_can_actually_be_read() {
     let root = project("sidecar");
     let text = run(&root, None, &[]);
-    // 宣言していない出力があることを言っているか
+    // 既知の副出力を未宣言として警告しない
     assert!(
-        text.contains("output に書いていないファイル"),
-        "宣言していない出力を黙っている:\n{text}"
+        !text.contains("output に書いていないファイル"),
+        "既知の副出力を未宣言としている:\n{text}"
     );
 
     // 出力を «宣言した分だけ» 残して消す

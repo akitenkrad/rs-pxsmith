@@ -11,6 +11,7 @@ use pxsmith_io::l0::L0Document;
 pub(crate) enum NinesliceCommand {
     /// L0 の 9-slice 宣言どおりに伸ばした PNG を書く
     Preview {
+        /// 入力 (`.px.toml` / `.toml` / `.aseprite` / `.ase`)
         input: PathBuf,
         output: PathBuf,
         /// 描画先の大きさ (`W`x`H`)．複数指定できる
@@ -25,7 +26,7 @@ pub(crate) struct OutputSize {
     height: u32,
 }
 
-fn parse_size(value: &str) -> std::result::Result<OutputSize, String> {
+pub(crate) fn parse_size(value: &str) -> std::result::Result<OutputSize, String> {
     let Some((width, height)) = value.split_once('x') else {
         return Err("大きさは W x H の形で指定する (例: 64x32)".to_string());
     };
@@ -99,7 +100,7 @@ fn preview(input: &Path, output: &Path, sizes: &[OutputSize]) -> Result<()> {
     Ok(())
 }
 
-fn size_suffixed_path(output: &Path, size: OutputSize) -> PathBuf {
+pub(crate) fn size_suffixed_path(output: &Path, size: OutputSize) -> PathBuf {
     let stem = output
         .file_stem()
         .map(|stem| stem.to_string_lossy())

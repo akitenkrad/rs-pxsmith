@@ -69,12 +69,12 @@ fn chamfer(mask: &Mask, target: bool) -> Field<f32> {
 
     for y in 0..h {
         for x in 0..w {
-            relax(&mut d, ivec2(x, y), &forward);
+            relax(&mut d, ivec2(x, y), &forward, target);
         }
     }
     for y in (0..h).rev() {
         for x in (0..w).rev() {
-            relax(&mut d, ivec2(x, y), &backward);
+            relax(&mut d, ivec2(x, y), &backward, target);
         }
     }
 
@@ -86,11 +86,14 @@ fn chamfer(mask: &Mask, target: bool) -> Field<f32> {
     d
 }
 
-fn relax(d: &mut Field<f32>, p: IVec2, offsets: &[(IVec2, f32)]) {
+fn relax(d: &mut Field<f32>, p: IVec2, offsets: &[(IVec2, f32)], target: bool) {
     let mut best = d.copied(p).unwrap_or(f32::INFINITY);
     for &(o, cost) in offsets {
-        // 画像の外は距離 0 の背景として扱う (端に接する形が無限遠にならないように)
-        let neighbor = d.copied(p + o).unwrap_or(0.0);
+        // 内側距離では画像外を背景 (距離 0) とする．外側距離では画像外も
+        // `target = false` の領域なので，形までの距離を 0 にしてはいけない．
+        let neighbor = d
+            .copied(p + o)
+            .unwrap_or(if target { 0.0 } else { f32::INFINITY });
         best = best.min(neighbor + cost);
     }
     d.set(p, best);

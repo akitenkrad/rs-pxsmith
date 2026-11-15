@@ -39,7 +39,7 @@ pxsmith text import hero.px.toml hero.aseprite
 
 ---
 
-## 2. 1 枚の絵から 8 方向を導出する
+## 2. 5 方向を描いて 8 方向を揃える
 
 ### やりたいこと
 
@@ -49,16 +49,19 @@ pxsmith text import hero.px.toml hero.aseprite
 
 ### 解決方針
 
-1 方向だけ描いて残りを導出します．陰影は塗るのではなく導出しているため，反転した
-スプライトに対して元の光源から陰影を付け直すことができます．
+n・ne・e・se・s の 5 方向を描き，鏡像の相手である sw・w・nw の 3 方向を反転で
+作ります．陰影は塗るのではなく導出しているため，反転したスプライトに対して元の
+光源から陰影を付け直すことができます．反転で作れない方向は報告して飛ばします．
 
 <p align="center"><img src="assets/usecases/direction.svg" width="100%" alt=""></p>
 
 ### コマンド
 
 ```sh
-pxsmith direction 'out/${dir}.px.toml' --from s=hero_s.px.toml \
-    --light dir:-0.6,0.8 --reshade
+pxsmith direction 'out/${dir}.px.toml' \
+    --from n=hero_n.px.toml --from ne=hero_ne.px.toml --from e=hero_e.px.toml \
+    --from se=hero_se.px.toml --from s=hero_s.px.toml \
+    --light dir:-0.6,0.8 --reshade --base 8A6A4A
 ```
 
 出力先には `${dir}` を含める必要があります．方向ごとに 1 ファイルを書き出すためです．

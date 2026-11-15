@@ -18,6 +18,7 @@ pub enum AnchorCommand {
 
 #[derive(Args)]
 pub struct TrackArgs {
+    /// 入力 (`.px.toml` / `.toml` / `.aseprite` / `.ase`)
     pub input: PathBuf,
     /// 取り出すアンカー名．省略時は全て
     #[arg(long = "anchor")]
@@ -29,7 +30,9 @@ pub struct TrackArgs {
 
 #[derive(Args)]
 pub struct ApplyArgs {
+    /// `anchor track` が書いた JSON
     pub track: PathBuf,
+    /// 適用先 (`.px.toml` / `.toml` / `.aseprite` / `.ase`)
     pub target: PathBuf,
     /// 書き出す L0
     #[arg(short, long)]

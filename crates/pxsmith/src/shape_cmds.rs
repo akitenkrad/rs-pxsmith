@@ -26,7 +26,8 @@ use crate::color_cmds::{CurveArg, PresetArg, is_png, load_indexed, write_indexed
 /// `pxsmith shade` の引数．
 #[derive(Args, Clone, Debug)]
 pub struct ShadeArgs {
-    /// 陰影を付ける形．**色は使わず，透明でない画素だけをシルエットとして読む**
+    /// 陰影を付ける形 (`.px.toml` / `.toml` / `.aseprite` / `.ase`)．
+    /// **色は使わず，透明でない画素だけをシルエットとして読む**
     pub input: PathBuf,
     /// 出力．**添字を保ちたいなら `.aseprite`** (PNG は確認用．設計書 4.1)
     pub output: PathBuf,
@@ -43,6 +44,10 @@ pub struct ShadeArgs {
     #[arg(long, value_enum, default_value_t = CurveArg::PeakMiddle)]
     pub curve: CurveArg,
     /// 光源を明示する．省略するとプリセットの既定の向きを使う．
+    ///
+    /// `dir:x,y` は光が進む向き．x は右，y は下．`dir:-0.6,0.8` は右上から，
+    /// `dir:0.6,0.8` は左上からの光．既定は `dir:-0.6,0.8`．
+    /// `point:x,y` は光源の位置．
     ///
     /// `dir:x,y` ・`point:x,y[,強さ]` ・`line:x1,y1,x2,y2[,強さ]` ・
     /// `area:x,y,w,h[,強さ]` ・`ambient` の 5 型 (設計書 3.3)
@@ -118,7 +123,8 @@ pub fn shade(args: &ShadeArgs) -> Result<()> {
 /// `pxsmith smooth` の引数．
 #[derive(Args, Clone, Debug)]
 pub struct SmoothArgs {
-    /// 整形する絵．**インデックスカラーが要る** (色境界を見るため)
+    /// 整形する絵 (`.px.toml` / `.toml` / `.aseprite` / `.ase`)．
+    /// **インデックスカラーが要る** (色境界を見るため)
     pub input: PathBuf,
     pub output: PathBuf,
     /// 画素の移動上限．**これを超える谷は直さずに報告する** (意図的なディテールの
@@ -180,7 +186,8 @@ pub fn smooth(args: &SmoothArgs) -> Result<()> {
 /// `pxsmith aa` の引数．
 #[derive(Args, Clone, Debug)]
 pub struct AaArgs {
-    /// AA を付ける絵．**インデックスカラーが要る**
+    /// AA を付ける絵 (`.px.toml` / `.toml` / `.aseprite` / `.ase`)．
+    /// **インデックスカラーが要る**
     pub input: PathBuf,
     pub output: PathBuf,
     /// **外郭にも付ける** (既定は内部境界のみ．D34 — 外郭は背景色が不定で
@@ -284,7 +291,8 @@ impl From<OutlineStyleArg> for OutlineStyle {
 /// `pxsmith outline` の引数．
 #[derive(Args, Clone, Debug)]
 pub struct OutlineArgs {
-    /// 縁取りを付ける絵．**インデックスカラーが要る**
+    /// 縁取りを付ける絵 (`.px.toml` / `.toml` / `.aseprite` / `.ase`)．
+    /// **インデックスカラーが要る**
     pub input: PathBuf,
     pub output: PathBuf,
     /// 分類 (設計書 D36)
@@ -296,7 +304,9 @@ pub struct OutlineArgs {
     /// **背景想定** `RRGGBB` (D36)．`--style contrast` が明暗を決めるのに使う
     #[arg(long)]
     pub background: Option<String>,
-    /// 光源 (`--style shaded` と `--selective` が使う)．書式は `pxsmith shade` と同じ
+    /// 光源 (`--style shaded` と `--selective` が使う)．`dir:x,y` は光が進む向き．
+    /// x は右，y は下．`dir:-0.6,0.8` は右上から，`dir:0.6,0.8` は左上からの光．
+    /// 既定は `dir:-0.6,0.8`．`point:x,y` は光源の位置．
     #[arg(long)]
     pub light: Option<String>,
     /// **外側に描く**．既定は内側 — 実物 61 枚のうち 56 枚が画像の縁に接しており，
@@ -575,6 +585,7 @@ mod tests {
 /// `pxsmith scale` — 拡縮する (設計書 5 章 ・D18)．
 #[derive(Args, Clone)]
 pub struct ScaleArgs {
+    /// 入力 (`.px.toml` / `.toml` / `.aseprite` / `.ase`)
     pub input: PathBuf,
     pub output: PathBuf,
     /// 倍率．**整数倍なら厳密である**
@@ -588,6 +599,7 @@ pub struct ScaleArgs {
 /// `pxsmith rotate` — 回転する (設計書 5 章 ・D18)．
 #[derive(Args, Clone)]
 pub struct RotateArgs {
+    /// 入力 (`.px.toml` / `.toml` / `.aseprite` / `.ase`)
     pub input: PathBuf,
     pub output: PathBuf,
     /// 角度 (度)．**90 度の倍数は厳密である**
@@ -717,6 +729,7 @@ pub fn rotate_cmd(args: &RotateArgs) -> Result<()> {
 /// (D89 ・設計書 6.13 «歪める方向はオブジェクトが向いている方向に合わせる») ．
 #[derive(Args, Clone)]
 pub struct ProjectArgs {
+    /// 入力 (`.px.toml` / `.toml` / `.aseprite` / `.ase`)
     pub input: PathBuf,
     pub output: PathBuf,
     /// 投影．**段は名前が決めている** (iso = 2:1 ・dimetric45 = 1:1)

@@ -464,6 +464,441 @@ fn build_argv(op: &str, fields: &BTreeMap<String, Value>) -> Result<Vec<String>>
     Ok(argv)
 }
 
+/// `--dry-run` でも op と欄名だけは clap の定義へ照合する．
+/// 値は述語の実行後まで確定しないことがあるため，ここでは検査しない．
+fn validate_field_names(op: &str, fields: &BTreeMap<String, Value>) -> Result<()> {
+    let cmd = find_command(op)?;
+    let mut known: BTreeSet<String> = cmd
+        .get_arguments()
+        .filter_map(|arg| arg.get_long().map(|long| long.replace('-', "_")))
+        .filter(|name| name != "help" && name != "version")
+        .collect();
+    known.extend(
+        cmd.get_positionals()
+            .map(|arg| arg.get_id().as_str().to_string()),
+    );
+    for key in fields.keys() {
+        if !known.contains(key) {
+            bail!(
+                "op '{op}' に '{key}' という引数は無い．\n使えるのは: {}",
+                known.iter().cloned().collect::<Vec<_>>().join(" ・")
+            );
+        }
+    }
+    Ok(())
+}
+
+/// op ごとの追加の入力欄．`input` は recipe クレートが既に集める．
+fn file_fields(op: &str) -> &'static [&'static str] {
+    match op {
+        "direction" => &["from"],
+        "conform" => &["palette"],
+        "diff" => &["a", "b"],
+        "anim.tween" | "anim.smear" | "anim.extrapolate" => &["from", "to"],
+        "anim.roll" => &["font", "palette"],
+        "anchor.apply" => &["track", "target"],
+        "compose" => &["part"],
+        "validate" => &["target"],
+        "palette.info" => &["path"],
+        "palette.extract" | "palette.merge" => &["inputs"],
+        "palette.apply" => &["palette"],
+        "font.import" => &["chars_file"],
+        "font.check" => &["font", "text_file"],
+        "font.render" => &["font", "text_file", "palette"],
+        "font.bmfont" => &["font", "chars_file"],
+        "sheet.pack" => &["variant"],
+        "sheet.resolve" => &["index", "meta"],
+        "export.tiled" | "export.godot" => &["sheet"],
+        "recipe.expand" => &["data"],
+        _ => &[],
+    }
+}
+
+/// `output` 以外で，op がファイルを書く欄．
+///
+/// 同じ名前でも読み書きは op ごとに異なる．たとえば `sheet.pack.meta` は出力，
+/// `sheet.resolve.meta` は入力なので，欄名だけで判定しない．
+fn output_file_fields(op: &str) -> &'static [&'static str] {
+    match op {
+        "shade" | "aa" | "outline" => &["emit_palette"],
+        "sheet.pack" => &["meta"],
+        "tileset.autotile" | "tileset.extract" => &["map"],
+        "atmos" => &["scroll_meta"],
+        "export.tiled" => &["tsx", "tmx"],
+        "export.godot" => &["out_dir"],
+        "font.render" => &["text_and_output"],
+        _ => &[],
+    }
+}
+
+/// «無ければ作る» 欄．在れば読むだけ，無ければ書く．
+///
+/// 常に出力として数えると，同じパレットを共有する 2 ステップが «同じ出力を
+/// 2 度作る» 誤りになり，在るパレットの中身もキーに入らない．そこで依存グラフを
+/// 組むときに，在れば入力・無ければ最初に挙げたステップの出力として数える．
+fn create_if_absent_fields(op: &str) -> &'static [&'static str] {
+    match op {
+        "tileset.import" | "text.export" => &["palette"],
+        _ => &[],
+    }
+}
+
+fn value_strings(value: &Value, out: &mut Vec<String>) {
+    match value {
+        Value::List(items) => {
+            for item in items {
+                value_strings(item, out);
+            }
+        }
+        other => out.push(other.to_string()),
+    }
+}
+
+fn collect_output_values(op: &str, field: &str, value: &Value, out: &mut Vec<PathBuf>) {
+    if (op, field) == ("font.render", "text_and_output") {
+        let mut values = Vec::new();
+        value_strings(value, &mut values);
+        if let Some(output) = values.last() {
+            out.push(PathBuf::from(output));
+        }
+        return;
+    }
+    collect_file_values(op, field, value, out);
+}
+
+fn writes_l0_sidecar(op: &str) -> bool {
+    matches!(
+        op,
+        "quantize"
+            | "clean"
+            | "conform"
+            | "palette.apply"
+            | "shade"
+            | "smooth"
+            | "aa"
+            | "outline"
+            | "scale"
+            | "rotate"
+            | "project"
+            | "guide"
+            | "compose"
+            | "direction"
+            | "tileset.autotile"
+            | "tileset.extract"
+            | "anim.roll"
+            | "anim.tween"
+            | "anim.ease"
+            | "anim.cycle"
+            | "anim.smear"
+            | "anim.extrapolate"
+            | "anim.squash"
+            | "anim.subpixel"
+            | "anim.afterimage"
+            | "atmos"
+            | "font.render"
+    )
+}
+
+fn bool_field(fields: &BTreeMap<String, Value>, name: &str) -> bool {
+    fields.get(name).and_then(Value::as_bool).unwrap_or(false)
+}
+
+fn field_string(fields: &BTreeMap<String, Value>, name: &str) -> Option<String> {
+    fields.get(name).map(ToString::to_string)
+}
+
+fn bmfont_page_of(descriptor: &Path, candidate: &Path) -> bool {
+    let Some(stem) = descriptor.file_stem().and_then(|stem| stem.to_str()) else {
+        return false;
+    };
+    if descriptor.parent() != candidate.parent() || candidate.extension().is_none_or(|e| e != "png")
+    {
+        return false;
+    }
+    candidate
+        .file_stem()
+        .and_then(|name| name.to_str())
+        .and_then(|name| name.strip_prefix(&format!("{stem}_")))
+        .is_some_and(|page| !page.is_empty() && page.bytes().all(|byte| byte.is_ascii_digit()))
+}
+
+/// `nineslice preview` が `--size` を複数受けたときの出力名．
+/// 名前の規則は実装 (`nineslice_cmds`) と同じ関数で決める．
+fn nineslice_output_path(output: &Path, size: &str) -> Option<PathBuf> {
+    let size = crate::nineslice_cmds::parse_size(size).ok()?;
+    Some(crate::nineslice_cmds::size_suffixed_path(output, size))
+}
+
+/// 1 つの欄から複数の実ファイルが出る規約を，依存グラフを組む前に展開する．
+fn expand_derived_outputs(step: &mut ResolvedStep, fields: &BTreeMap<String, Value>) -> Result<()> {
+    if step.op == "direction"
+        && let Some(template) = field_string(fields, "output")
+        && template.contains("${dir}")
+    {
+        let mut specs = Vec::new();
+        if let Some(value) = fields.get("from") {
+            value_strings(value, &mut specs);
+        }
+        let mut directions = BTreeSet::new();
+        for spec in specs {
+            let Some((name, _)) = spec.split_once('=') else {
+                continue;
+            };
+            let Some(direction) = pxsmith_core::direction::Direction::parse(name) else {
+                continue;
+            };
+            directions.insert(direction);
+            if direction.is_mirror_derivable() {
+                directions.insert(direction.mirrored());
+            }
+        }
+        if !directions.is_empty() {
+            step.outputs
+                .retain(|path| path != Path::new(template.as_str()));
+            step.outputs.extend(
+                directions
+                    .into_iter()
+                    .map(|direction| PathBuf::from(template.replace("${dir}", direction.as_str()))),
+            );
+        }
+    }
+
+    if step.op == "sheet.pack" {
+        let output = field_string(fields, "output").map(PathBuf::from);
+        if fields.get("meta").is_none()
+            && let Some(output) = &output
+        {
+            step.outputs.push(output.with_extension("sheet.json"));
+        }
+        if bool_field(fields, "palette_swap")
+            && let Some(output) = &output
+        {
+            step.outputs
+                .push(crate::sheet_cmds::palette_atlas_path(output));
+        }
+    }
+
+    if step.op == "nineslice.preview" {
+        let mut sizes = Vec::new();
+        if let Some(value) = fields.get("size") {
+            value_strings(value, &mut sizes);
+        }
+        if sizes.len() > 1
+            && let Some(output) = field_string(fields, "output").map(PathBuf::from)
+        {
+            step.outputs.retain(|path| path != &output);
+            step.outputs.extend(
+                sizes
+                    .iter()
+                    .filter_map(|size| nineslice_output_path(&output, size)),
+            );
+        }
+    }
+
+    if writes_l0_sidecar(&step.op) {
+        let palettes: Vec<PathBuf> = step
+            .outputs
+            .iter()
+            .filter(|path| path.to_string_lossy().ends_with(".px.toml"))
+            .map(|path| path.with_extension("hex"))
+            .collect();
+        step.outputs.extend(palettes);
+    }
+
+    // 先頭は主出力のままにする．`previous()` は先頭を見るので，辞書順にして
+    // `.px.hex` を `.px.toml` より前へ出してはいけない．
+    let mut seen = BTreeSet::new();
+    step.outputs.retain(|path| seen.insert(path.clone()));
+    Ok(())
+}
+
+fn extend_outputs_consumed_by_later_steps(steps: &mut [ResolvedStep]) {
+    let inputs: BTreeSet<PathBuf> = steps
+        .iter()
+        .flat_map(|step| step.inputs.iter().cloned())
+        .collect();
+    for step in steps {
+        let declared = step.outputs.clone();
+        match step.op.as_str() {
+            // 出力名は sheet meta の升名から決まる．後段が読む実ファイルは，
+            // 出力ディレクトリとの包含関係から静的に辺を張れる．
+            "export.godot" => {
+                for directory in &declared {
+                    step.outputs.extend(
+                        inputs
+                            .iter()
+                            .filter(|input| *input != directory && input.starts_with(directory))
+                            .cloned(),
+                    );
+                }
+            }
+            // ページ数はフォントの内容で決まるが，後段がページを読むなら
+            // `<fnt の語幹>_<番号>.png` という規約で生産者を一意にできる．
+            "font.bmfont" => {
+                for descriptor in &declared {
+                    step.outputs.extend(
+                        inputs
+                            .iter()
+                            .filter(|input| bmfont_page_of(descriptor, input))
+                            .cloned(),
+                    );
+                }
+            }
+            _ => {}
+        }
+        let mut seen = BTreeSet::new();
+        step.outputs.retain(|path| seen.insert(path.clone()));
+    }
+}
+
+fn is_declared_output(step: &ResolvedStep, path: &Path) -> bool {
+    if step.outputs.iter().any(|output| output == path) {
+        return true;
+    }
+    match step.op.as_str() {
+        "export.godot" => step
+            .outputs
+            .iter()
+            .any(|directory| path.starts_with(directory)),
+        "font.bmfont" => step
+            .outputs
+            .iter()
+            .any(|descriptor| bmfont_page_of(descriptor, path)),
+        _ => false,
+    }
+}
+
+fn collect_file_values(op: &str, field: &str, value: &Value, out: &mut Vec<PathBuf>) {
+    match value {
+        Value::List(items) => {
+            for item in items {
+                collect_file_values(op, field, item, out);
+            }
+        }
+        other => {
+            let raw = other.to_string();
+            if (op, field) == ("validate", "target")
+                && pxsmith_core::validate::Target::builtin(&raw).is_some()
+            {
+                return;
+            }
+            if (op, field) == ("sheet.pack", "variant")
+                && let Some((base, changed)) = raw.split_once('=')
+            {
+                out.push(PathBuf::from(base));
+                out.push(PathBuf::from(changed));
+                return;
+            }
+            let path = match (op, field) {
+                ("direction", "from") => raw.split_once('=').map_or(raw.as_str(), |(_, path)| path),
+                ("compose", "part") => raw.split_once('@').map_or(raw.as_str(), |(path, _)| path),
+                _ => raw.as_str(),
+            };
+            out.push(PathBuf::from(path));
+        }
+    }
+}
+
+fn normalize_relative(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                out.pop();
+            }
+            other => out.push(other.as_os_str()),
+        }
+    }
+    out
+}
+
+/// clap の op ごとの欄定義と L0 の `[palette] ref` から，依存グラフ用のパスを補う．
+fn resolve_file_dependencies(
+    recipe: &Recipe,
+    steps: &mut [ResolvedStep],
+    preds: &dyn Predicates,
+) -> Result<()> {
+    let fields: Vec<BTreeMap<String, Value>> = steps
+        .iter()
+        .map(|step| evaluate_fields(recipe, step, preds))
+        .collect::<Result<_>>()?;
+
+    // 出力を先に確定する．後段の入力は，ここで増えた副出力にも辺を張る．
+    for (step, fields) in steps.iter_mut().zip(&fields) {
+        for &name in output_file_fields(&step.op) {
+            if let Some(value) = fields.get(name) {
+                collect_output_values(&step.op, name, value, &mut step.outputs);
+            }
+        }
+        expand_derived_outputs(step, fields)?;
+    }
+
+    // «無ければ作る» 欄は，在れば入力，無ければ最初に挙げたステップの出力．
+    let mut claimed: BTreeSet<PathBuf> = steps
+        .iter()
+        .flat_map(|step| step.outputs.iter().cloned())
+        .collect();
+    for (step, fields) in steps.iter_mut().zip(&fields) {
+        for &name in create_if_absent_fields(&step.op) {
+            let Some(value) = fields.get(name) else {
+                continue;
+            };
+            let mut paths = Vec::new();
+            collect_file_values(&step.op, name, value, &mut paths);
+            for path in paths {
+                if recipe.root.join(&path).exists() || !claimed.insert(path.clone()) {
+                    step.inputs.push(path);
+                } else {
+                    step.outputs.push(path);
+                }
+            }
+        }
+    }
+
+    for (step, fields) in steps.iter_mut().zip(&fields) {
+        for &name in file_fields(&step.op) {
+            if let Some(value) = fields.get(name) {
+                collect_file_values(&step.op, name, value, &mut step.inputs);
+            }
+        }
+
+        step.inputs.sort();
+        step.inputs.dedup();
+    }
+
+    extend_outputs_consumed_by_later_steps(steps);
+    let generated: BTreeSet<PathBuf> = steps
+        .iter()
+        .flat_map(|step| step.outputs.iter().cloned())
+        .collect();
+    for step in steps {
+        let direct_inputs = step.inputs.clone();
+        for input in direct_inputs {
+            // 宣言済み出力の L0 は，その L0 自体への辺で作る側のキーを受け継ぐ．
+            // 隣の未宣言 `.hex` まで外部入力にすると，キャッシュから木を戻す前に
+            // «ファイルが無い» となる．外から来る L0 だけ参照パレットを直接追う．
+            if generated.contains(&input) || !input.to_string_lossy().ends_with(".px.toml") {
+                continue;
+            }
+            let full = recipe.root.join(&input);
+            if full.exists() {
+                let document = pxsmith_io::l0::L0Document::read(&full)
+                    .with_context(|| format!("{} の参照パレットを調べられない", input.display()))?;
+                step.inputs.push(normalize_relative(
+                    &input
+                        .parent()
+                        .unwrap_or(Path::new(""))
+                        .join(document.palette.reference),
+                ));
+            }
+        }
+        step.inputs.sort();
+        step.inputs.dedup();
+    }
+    Ok(())
+}
+
 /// プロジェクトの下にあるファイルの «状態» を控える．
 ///
 /// > [!warning] **宣言した出力だけを貯めると，キャッシュ当たりが «壊れた木» を作る．**
@@ -539,7 +974,8 @@ pub fn run(args: &RunArgs) -> Result<()> {
 
     // 1 度目 — 述語は後回しにして，依存グラフだけを組む
     let defer = Deferred::new();
-    let steps = recipe.resolve(&defer)?;
+    let mut steps = recipe.resolve(&defer)?;
+    resolve_file_dependencies(&recipe, &mut steps, &defer)?;
     if defer.called.get() {
         // 入力 ・出力に述語が混ざっていないかは，パスを見れば分かる
         for s in &steps {
@@ -558,7 +994,10 @@ pub fn run(args: &RunArgs) -> Result<()> {
 
     let graph = Graph::build(steps, &root)?;
     let cache = Cache::new(&root);
-    let versions = Versions::new(env!("CARGO_PKG_VERSION"), RECIPE_FORMAT);
+    let mut versions = Versions::new(env!("CARGO_PKG_VERSION"), RECIPE_FORMAT);
+    versions
+        .extra
+        .insert("step-key-format".to_string(), "3".to_string());
 
     println!(
         "{} — {} ステップ ・{} 段 ・外から来る入力 {} 件",
@@ -613,6 +1052,8 @@ pub fn run(args: &RunArgs) -> Result<()> {
     if args.dry_run {
         for &at in &graph.order {
             let step = &graph.steps[at];
+            let fields = evaluate_fields(&recipe, step, &defer)?;
+            validate_field_names(&step.op, &fields)?;
             let waits: Vec<String> = graph.deps[at]
                 .iter()
                 .map(|d| graph.steps[*d].label())
@@ -636,7 +1077,7 @@ pub fn run(args: &RunArgs) -> Result<()> {
     let (mut hits, mut misses) = (0usize, 0usize);
     let mut undeclared: BTreeSet<(String, PathBuf)> = BTreeSet::new();
     let mut progress: Vec<pxsmith_io::gif::GifFrame> = Vec::new();
-    let mut skipped_frames = 0usize;
+    let mut skipped_frames: Vec<(PathBuf, String)> = Vec::new();
     let mut outcomes: Vec<(usize, Outcome)> = Vec::new();
 
     for &at in &graph.order {
@@ -703,9 +1144,8 @@ pub fn run(args: &RunArgs) -> Result<()> {
                 if !produced.is_empty() {
                     cache.store(&key, &root, &produced)?;
                 }
-                let declared: BTreeSet<&PathBuf> = step.outputs.iter().collect();
                 for p in &produced {
-                    if !declared.contains(p) {
+                    if !is_declared_output(step, p) {
                         undeclared.insert((step.label(), p.clone()));
                     }
                 }
@@ -716,10 +1156,9 @@ pub fn run(args: &RunArgs) -> Result<()> {
         previous = step.outputs.first().cloned().or(previous);
         if progress_of.as_ref().is_some_and(|sel| sel.contains(&at)) {
             // **当たりでも実行でも同じように撮る** — 出力はどちらでも実体化している
-            if let Some(f) = capture(&root, step, args.progress_delay) {
-                progress.push(f);
-            } else {
-                skipped_frames += 1;
+            match capture(&root, step, args.progress_delay) {
+                Ok(frame) => progress.push(frame),
+                Err(reasons) => skipped_frames.extend(reasons),
             }
         }
         outcomes.push((at, Outcome { key, hit, argv }));
@@ -780,10 +1219,14 @@ pub fn run(args: &RunArgs) -> Result<()> {
             // **黙って丸めない** (D40 ・D116 と同じ作法)
             println!("    表示時間 {want} ms は GIF の 10 ms 刻みに乗らないので {got} ms にした");
         }
-        if skipped_frames > 0 {
+        if !skipped_frames.is_empty() {
             println!(
-                "    絵として読めない出力が {skipped_frames} 件あったので飛ばした (JSON ・XML など)"
+                "    絵として読めない出力が {} 件あったので飛ばした:",
+                skipped_frames.len()
             );
+            for (path, reason) in &skipped_frames {
+                println!("      {} — {reason}", path.display());
+            }
         }
     }
 
@@ -802,24 +1245,55 @@ pub fn run(args: &RunArgs) -> Result<()> {
 /// **最初に «絵として読めた» 出力を採る．** 読めないもの (正規 JSON ・`.tsx` など)
 /// は飛ばして数える — 生成過程に «読めないもの» のコマは作れないが，
 /// **飛ばしたことは黙らない**．
-fn capture(root: &Path, step: &ResolvedStep, delay_ms: u32) -> Option<pxsmith_io::gif::GifFrame> {
+fn capture(
+    root: &Path,
+    step: &ResolvedStep,
+    delay_ms: u32,
+) -> std::result::Result<pxsmith_io::gif::GifFrame, Vec<(PathBuf, String)>> {
+    let mut reasons = Vec::new();
     for rel in &step.outputs {
         let full = root.join(rel);
-        let Ok(frames) = crate::load_frames(&full) else {
-            continue;
+        let frames = if crate::color_cmds::is_png(&full) {
+            match pxsmith_io::png::read_rgba(&full) {
+                Ok(image) => {
+                    let mut frame = pxsmith_core::Frame::new(
+                        image.size(),
+                        pxsmith_core::Palette::new(Vec::new()).expect("空パレット"),
+                    );
+                    frame.layers.push(pxsmith_core::Layer::new(
+                        pxsmith_core::LayerMeta::named("progress"),
+                        pxsmith_core::Surface::Rgba(image),
+                    ));
+                    vec![frame]
+                }
+                Err(error) => {
+                    reasons.push((rel.clone(), error.to_string()));
+                    continue;
+                }
+            }
+        } else {
+            match crate::load_frames(&full) {
+                Ok(frames) => frames,
+                Err(error) => {
+                    reasons.push((rel.clone(), error.to_string()));
+                    continue;
+                }
+            }
         };
         let Some(frame) = frames.first() else {
+            reasons.push((rel.clone(), "フレームが 1 つも無い".to_string()));
             continue;
         };
-        let canvas = frame.layers.iter().find_map(|l| l.surface.as_indexed())?;
-        return Some(pxsmith_io::gif::GifFrame {
-            canvas: canvas.clone(),
-            palette: frame.palette.clone(),
-            delay_ms,
-            label: format!("{} {}", step.label(), rel.display()),
-        });
+        let label = format!("{} {}", step.label(), rel.display());
+        match crate::flatten_gif_frame(frame, label) {
+            Ok(mut captured) => {
+                captured.delay_ms = delay_ms;
+                return Ok(captured);
+            }
+            Err(error) => reasons.push((rel.clone(), error.to_string())),
+        }
     }
-    None
+    Err(reasons)
 }
 
 /// ステップの欄を «述語つき» でもう 1 度評価する．
@@ -1046,6 +1520,7 @@ fn from_json(text: &str) -> Result<Vec<BTreeMap<String, String>>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pxsmith_recipe::recipe::declared_outputs;
 
     /// **壊れると: 設計書 4.2 の «op はサブコマンドと 1 対 1» が成り立たなくなる．**
     ///
@@ -1168,6 +1643,131 @@ mod tests {
         let err = find_command("anim.wobble").unwrap_err().to_string();
         assert!(err.contains("wobble"), "{err}");
         assert!(err.contains("subpixel"), "何があるか言っていない: {err}");
+    }
+
+    /// **壊れると: 色違いの基パレットだけを変えたとき，古いシートがキャッシュから戻る．**
+    #[test]
+    fn sheet_variant_tracks_both_palette_files() {
+        let mut paths = Vec::new();
+        collect_file_values(
+            "sheet.pack",
+            "variant",
+            &Value::from("base.hex=ember.hex"),
+            &mut paths,
+        );
+        assert_eq!(
+            paths,
+            vec![PathBuf::from("base.hex"), PathBuf::from("ember.hex")]
+        );
+    }
+
+    /// **壊れると: 副出力を読む後段へ辺が張られず，空の出力木から実行できない．**
+    #[test]
+    fn output_fields_are_classified_by_operation() {
+        assert_eq!(output_file_fields("shade"), &["emit_palette"]);
+        assert_eq!(output_file_fields("aa"), &["emit_palette"]);
+        assert_eq!(output_file_fields("outline"), &["emit_palette"]);
+        assert_eq!(output_file_fields("sheet.pack"), &["meta"]);
+        assert_eq!(output_file_fields("tileset.autotile"), &["map"]);
+        assert_eq!(output_file_fields("tileset.extract"), &["map"]);
+        assert_eq!(output_file_fields("atmos"), &["scroll_meta"]);
+        assert_eq!(output_file_fields("export.tiled"), &["tsx", "tmx"]);
+        assert_eq!(output_file_fields("export.godot"), &["out_dir"]);
+        assert_eq!(output_file_fields("font.render"), &["text_and_output"]);
+
+        // 同じ欄名でも読む側へ混ざらない．
+        assert_eq!(file_fields("sheet.resolve"), &["index", "meta"]);
+        assert!(output_file_fields("sheet.resolve").is_empty());
+
+        // «無ければ作る» パレットは出力欄の一覧に入れず，在るかどうかで分ける．
+        assert!(output_file_fields("tileset.import").is_empty());
+        assert!(output_file_fields("text.export").is_empty());
+        assert_eq!(create_if_absent_fields("tileset.import"), &["palette"]);
+        assert_eq!(create_if_absent_fields("text.export"), &["palette"]);
+    }
+
+    /// **壊れると: 同じパレットを «無ければ作る» ステップが 2 つあるだけで
+    /// «同じ出力を 2 度作る» 誤りになる (0.3.1 では動いていたレシピが落ちる) ．**
+    #[test]
+    fn create_if_absent_palettes_are_outputs_once_and_inputs_when_present() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/run-cmds-unit")
+            .join(format!("create-if-absent-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("shared.hex"), "ff0000\n").unwrap();
+        let text = r#"[project]
+format = 1
+
+[[step]]
+op = "text.export"
+input = "a.aseprite"
+output = "a.px.toml"
+palette = "new.hex"
+
+[[step]]
+op = "tileset.import"
+input = "b.aseprite"
+output = "b.px.toml"
+from_template = "quadrants-5"
+palette = "new.hex"
+
+[[step]]
+op = "text.export"
+input = "c.aseprite"
+output = "c.px.toml"
+palette = "shared.hex"
+"#;
+        let recipe = Recipe::parse(text, &root, "build.toml").unwrap();
+        let defer = Deferred::new();
+        let mut steps = recipe.resolve(&defer).unwrap();
+        resolve_file_dependencies(&recipe, &mut steps, &defer).unwrap();
+
+        let new = PathBuf::from("new.hex");
+        let shared = PathBuf::from("shared.hex");
+        assert!(steps[0].outputs.contains(&new), "{:?}", steps[0].outputs);
+        assert!(!steps[1].outputs.contains(&new), "{:?}", steps[1].outputs);
+        assert!(steps[1].inputs.contains(&new), "{:?}", steps[1].inputs);
+        assert!(
+            !steps[2].outputs.contains(&shared),
+            "{:?}",
+            steps[2].outputs
+        );
+        assert!(steps[2].inputs.contains(&shared), "{:?}", steps[2].inputs);
+        declared_outputs(&steps).expect("同じパレットを 2 度作る誤りにしない");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// **壊れると: 名前が欄に直接現れない副出力だけ依存グラフから抜ける．**
+    #[test]
+    fn derived_output_names_follow_the_cli_conventions() {
+        assert_eq!(
+            nineslice_output_path(Path::new("out/window.png"), "064x032"),
+            Some(PathBuf::from("out/window-64x32.png"))
+        );
+        assert!(bmfont_page_of(
+            Path::new("out/ui.fnt"),
+            Path::new("out/ui_12.png")
+        ));
+        assert!(!bmfont_page_of(
+            Path::new("out/ui.fnt"),
+            Path::new("out/ui-preview.png")
+        ));
+    }
+
+    /// **壊れると: `target = "gb"` を存在しない入力ファイルとして扱ってしまう．**
+    #[test]
+    fn validate_tracks_only_file_targets() {
+        let mut paths = Vec::new();
+        collect_file_values("validate", "target", &Value::from("gb"), &mut paths);
+        assert!(paths.is_empty());
+        collect_file_values(
+            "validate",
+            "target",
+            &Value::from("targets/console.toml"),
+            &mut paths,
+        );
+        assert_eq!(paths, vec![PathBuf::from("targets/console.toml")]);
     }
 
     /// **壊れると: 同じレシピから違うコマンド行が出て，キャッシュが外れる．**

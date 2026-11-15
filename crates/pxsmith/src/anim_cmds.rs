@@ -221,7 +221,9 @@ pub struct TweenArgs {
     pub ramp_steps: u8,
     #[arg(long, value_enum, default_value_t = CurveArg::PeakMiddle)]
     pub curve: CurveArg,
-    /// 光源．省略するとプリセットの既定を使う
+    /// 光源．`dir:x,y` は光が進む向き．x は右，y は下．`dir:-0.6,0.8` は右上から，
+    /// `dir:0.6,0.8` は左上からの光．既定は `dir:-0.6,0.8`．
+    /// `point:x,y` は光源の位置．
     #[arg(long)]
     pub light: Option<String>,
     /// 両端のキーフレームを出力に含めない
@@ -353,6 +355,7 @@ fn tween_cmd(args: &TweenArgs) -> Result<()> {
 
 #[derive(Args, Clone, Debug)]
 pub struct EaseArgs {
+    /// 入力 (`.px.toml` / `.toml` / `.aseprite` / `.ase`)
     pub input: PathBuf,
     pub output: PathBuf,
     /// 表示周期 (フレーム毎秒)
@@ -398,6 +401,7 @@ fn ease_cmd(args: &EaseArgs) -> Result<()> {
 
 #[derive(Args, Clone, Debug)]
 pub struct CycleArgs {
+    /// 入力 (`.px.toml` / `.toml` / `.aseprite` / `.ase`)
     pub input: PathBuf,
     pub output: PathBuf,
     /// プリセット (`flicker` ・`sway` ・`rotate` ・`ripple`)．**`--target` / `--wave` より先に効く**
@@ -523,7 +527,9 @@ pub struct ShapeShadeArgs {
     pub ramp_steps: u8,
     #[arg(long, value_enum, default_value_t = CurveArg::PeakMiddle)]
     pub curve: CurveArg,
-    /// 光源．省略するとプリセットの既定を使う
+    /// 光源．`dir:x,y` は光が進む向き．x は右，y は下．`dir:-0.6,0.8` は右上から，
+    /// `dir:0.6,0.8` は左上からの光．既定は `dir:-0.6,0.8`．
+    /// `point:x,y` は光源の位置．
     #[arg(long)]
     pub light: Option<String>,
 }
@@ -756,6 +762,7 @@ fn extrapolate_cmd(args: &ExtrapolateArgs) -> Result<()> {
 
 #[derive(Args, Clone, Debug)]
 pub struct SquashArgs {
+    /// 入力 (`.px.toml` / `.toml` / `.aseprite` / `.ase`)
     pub input: PathBuf,
     pub output: PathBuf,
     /// **縦の倍率から 1 を引いたもの．** `-0.25` で潰し，`+0.25` で伸ばし
@@ -882,6 +889,7 @@ fn squash_cmd(args: &SquashArgs) -> Result<()> {
 
 #[derive(Args, Clone, Debug)]
 pub struct SubpixelArgs {
+    /// 入力 (`.px.toml` / `.toml` / `.aseprite` / `.ase`)
     pub input: PathBuf,
     pub output: PathBuf,
     /// `tangent` (接線方向．既定) か `fast` (200% → 移動 → 50% → パレット強制)
@@ -1022,6 +1030,7 @@ fn subpixel_cmd(args: &SubpixelArgs) -> Result<()> {
 
 #[derive(Args, Clone, Debug)]
 pub struct AfterimageArgs {
+    /// 入力 (`.px.toml` / `.toml` / `.aseprite` / `.ase`)
     pub input: PathBuf,
     pub output: PathBuf,
     /// ランプの添字．**必須** — 絵だけから «どの色が何段目か» は決まらない

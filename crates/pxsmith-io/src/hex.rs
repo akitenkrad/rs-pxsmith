@@ -70,6 +70,26 @@ pub fn write(path: impl AsRef<Path>, palette: &Palette) -> Result<()> {
     crate::atomic::write(path, to_string(palette).as_bytes())
 }
 
+/// GIMP Palette の本文を作る．
+pub fn to_gpl_string(palette: &Palette, name: &str) -> String {
+    let mut out = format!("GIMP Palette\nName: {name}\nColumns: 0\n#\n");
+    for color in palette.entries() {
+        out.push_str(&format!(
+            "{} {} {}\t#{}\n",
+            color.r,
+            color.g,
+            color.b,
+            color.to_hex_string()
+        ));
+    }
+    out
+}
+
+/// GIMP Palette ファイルへ書き出す (原子的置換)．
+pub fn write_gpl(path: impl AsRef<Path>, palette: &Palette, name: &str) -> Result<()> {
+    crate::atomic::write(path, to_gpl_string(palette, name).as_bytes())
+}
+
 /// 変換入力としてのみ受け付ける形式 (設計書 4.5)．正規形には昇格させない．
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum ImportFormat {
@@ -119,6 +139,13 @@ pub fn import(path: impl AsRef<Path>) -> Result<Palette> {
     if entries.len() > Palette::MAX_COLORS {
         return Err(IoError::PaletteTooLarge(entries.len()));
     }
+    if entries.is_empty() {
+        return Err(IoError::Parse {
+            path,
+            line: 0,
+            message: "色を 1 つも読めなかった".to_string(),
+        });
+    }
     Ok(Palette::new(entries)?)
 }
 
@@ -131,20 +158,37 @@ fn parse_act(bytes: &[u8]) -> Vec<Rgba8> {
 }
 
 fn parse_gpl(text: &str, path: &Path) -> Result<Vec<Rgba8>> {
+    let mut lines = text.lines().enumerate();
+    let Some((_, first)) = lines.next() else {
+        return Err(IoError::Parse {
+            path: path.to_path_buf(),
+            line: 1,
+            message: "先頭行が 'GIMP Palette' でない".to_string(),
+        });
+    };
+    if first.trim() != "GIMP Palette" {
+        return Err(IoError::Parse {
+            path: path.to_path_buf(),
+            line: 1,
+            message: "先頭行が 'GIMP Palette' でない".to_string(),
+        });
+    }
     let mut out = Vec::new();
-    for (i, raw) in text.lines().enumerate() {
+    for (i, raw) in lines {
         let line = raw.trim();
-        if line.is_empty() || line.starts_with('#') || line.starts_with("GIMP Palette") {
+        if line.is_empty() || line.starts_with('#') || line.contains(':') {
             continue;
         }
-        // "Name: ..." や "Columns: ..." などのヘッダは飛ばす
         let mut it = line.split_whitespace();
         let (Some(r), Some(g), Some(b)) = (it.next(), it.next(), it.next()) else {
-            continue;
+            return Err(IoError::Parse {
+                path: path.to_path_buf(),
+                line: i + 1,
+                message: format!("'{line}' を R G B の 3 値として解釈できない"),
+            });
         };
         match (r.parse::<u8>(), g.parse::<u8>(), b.parse::<u8>()) {
             (Ok(r), Ok(g), Ok(b)) => out.push(Rgba8::rgb(r, g, b)),
-            _ if line.contains(':') => continue,
             _ => {
                 return Err(IoError::Parse {
                     path: path.to_path_buf(),
@@ -282,6 +326,14 @@ mod tests {
         let text = "GIMP Palette\nName: test\nColumns: 4\n#\n 26  28  44 dark\n 93  39  93\n";
         let colors = parse_gpl(text, p()).unwrap();
         assert_eq!(colors, vec![Rgba8::rgb(26, 28, 44), Rgba8::rgb(93, 39, 93)]);
+    }
+
+    #[test]
+    fn gpl_writer_round_trips_colours() {
+        let palette = parse("1a1c2c\n5d275d\n", p()).unwrap();
+        let text = to_gpl_string(&palette, "aurora");
+        assert!(text.starts_with("GIMP Palette\nName: aurora\nColumns: 0\n#\n"));
+        assert_eq!(parse_gpl(&text, p()).unwrap(), palette.entries());
     }
 
     #[test]

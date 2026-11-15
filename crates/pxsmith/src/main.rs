@@ -67,6 +67,7 @@ pub(crate) enum Command {
     },
     /// 色数を削減する (設計書 6.6)
     Quantize {
+        /// 入力 (`.png` / `.px.toml` / `.toml` / `.aseprite` / `.ase`)
         input: PathBuf,
         output: PathBuf,
         /// 目標色数
@@ -83,6 +84,7 @@ pub(crate) enum Command {
     },
     /// 整形する (設計書 6.3 / 6.14)
     Clean {
+        /// 入力 (`.png` / `.px.toml` / `.toml` / `.aseprite` / `.ase`)
         input: PathBuf,
         output: PathBuf,
         /// この画素数未満の連結成分を周囲へ溶かす．
@@ -101,6 +103,7 @@ pub(crate) enum Command {
     },
     /// 格子を復元して縮小する (設計書 6.1)
     Conform {
+        /// 入力 (`.png` / `.px.toml` / `.toml` / `.aseprite` / `.ase`)
         input: PathBuf,
         output: PathBuf,
         #[command(flatten)]
@@ -206,19 +209,23 @@ pub(crate) enum Command {
     },
     /// 端末に表示して確かめる
     View {
+        /// 絵 (`.px.toml` / `.toml` / `.aseprite` / `.ase`)
         path: PathBuf,
         #[command(flatten)]
         display: DisplayArgs,
     },
     /// 変更を監視して表示し直す
     Watch {
+        /// 絵 (`.px.toml` / `.toml` / `.aseprite` / `.ase`)
         path: PathBuf,
         #[command(flatten)]
         display: DisplayArgs,
     },
     /// 2 つの絵の変化ピクセルを示す
     Diff {
+        /// 比較元 (`.px.toml` / `.toml` / `.aseprite` / `.ase`)
         a: PathBuf,
+        /// 比較先 (`.px.toml` / `.toml` / `.aseprite` / `.ase`)
         b: PathBuf,
         /// 一覧に出す件数の上限
         #[arg(long, default_value_t = 40)]
@@ -226,7 +233,13 @@ pub(crate) enum Command {
     },
     /// 品質検査 (設計書 7 章)
     Lint {
+        /// 入力 (`.px.toml` / `.toml` / `.aseprite` / `.ase` / `.png`)
         input: PathBuf,
+        /// 宣言する光源．`dir:x,y` は光が進む向き．x は右，y は下．
+        /// `dir:-0.6,0.8` は右上から，`dir:0.6,0.8` は左上からの光．
+        /// 既定の向きは `dir:-0.6,0.8`．`point:x,y` は光源の位置．
+        #[arg(long)]
+        light: Option<String>,
         /// JSON で出す
         #[arg(long)]
         json: bool,
@@ -235,6 +248,7 @@ pub(crate) enum Command {
     },
     /// 実機制約検証 (設計書 5 章)．**違反があれば非ゼロで終わる**
     Validate {
+        /// 入力 (`.px.toml` / `.toml` / `.aseprite` / `.ase`)
         input: PathBuf,
         /// 出力先 — 組み込みの名前かプロファイルの TOML
         #[arg(long)]
@@ -315,6 +329,7 @@ impl DisplayArgs {
 enum TextCommand {
     /// `.aseprite` の 1 レイヤを L0 テキストへ書き出す
     Export {
+        /// 入力 (`.px.toml` / `.toml` / `.aseprite` / `.ase`)
         input: PathBuf,
         output: PathBuf,
         /// 書き出すレイヤ名 (省略時は最初のインデックスカラーレイヤ)
@@ -325,7 +340,11 @@ enum TextCommand {
         palette: PathBuf,
     },
     /// L0 テキストから `.aseprite` を作る
-    Import { input: PathBuf, output: PathBuf },
+    Import {
+        /// L0 (`.px.toml` / `.toml`)
+        input: PathBuf,
+        output: PathBuf,
+    },
 }
 
 #[derive(Subcommand)]
@@ -334,6 +353,7 @@ enum VerifyCommand {
     Terminal,
     /// `.aseprite` の読み書きがバイト一致するか確かめる
     Roundtrip {
+        /// `.aseprite` / `.ase`
         files: Vec<PathBuf>,
         /// 射影と書き戻しを挟んでも一致するかも確かめる
         #[arg(long)]
@@ -416,7 +436,12 @@ pub(crate) fn dispatch(command: Command) -> Result<()> {
         Command::View { path, display } => view(&path, &display),
         Command::Watch { path, display } => watch::run(&path, &display.options(), display.frame),
         Command::Diff { a, b, limit } => diff(&a, &b, limit),
-        Command::Lint { input, json, grid } => color_cmds::lint(&input, json, &grid),
+        Command::Lint {
+            input,
+            light,
+            json,
+            grid,
+        } => color_cmds::lint(&input, light.as_deref(), json, &grid),
         Command::Validate {
             input,
             target,
@@ -483,14 +508,14 @@ pub(crate) fn save_frames(path: &std::path::Path, frames: &[Frame], name: &str) 
         return Ok(());
     }
     if text.ends_with(".px.toml") || text.ends_with(".toml") {
-        let flattened;
-        let frames = if has_multiple_layers {
+        let mut l0_frames = if has_multiple_layers {
             report_flattening(true, "L0");
-            flattened = flatten_indexed_frames(frames)?;
-            flattened.as_slice()
+            flatten_indexed_frames(frames)?
         } else {
-            frames
+            frames.to_vec()
         };
+        strip_l0_transparent_entries(&mut l0_frames)?;
+        let frames = l0_frames.as_slice();
         let palette_ref = path.with_extension("hex");
         // **参照は隣のファイル名だけにする** — 絶対パスを書くと，L0 を別の場所へ
         // 移した瞬間に読めなくなる (パレットは必ず隣に書いている)
@@ -508,7 +533,16 @@ pub(crate) fn save_frames(path: &std::path::Path, frames: &[Frame], name: &str) 
             .document
             .write(path)
             .with_context(|| format!("{} を書き出せない", path.display()))?;
-        hex::write(&palette_ref, &frames[0].palette)
+        let opaque = Palette::new(
+            frames[0]
+                .palette
+                .entries()
+                .iter()
+                .copied()
+                .filter(|color| color.a != 0)
+                .collect(),
+        )?;
+        hex::write(&palette_ref, &opaque)
             .with_context(|| format!("{} を書き出せない", palette_ref.display()))?;
         println!("  パレット -> {}", palette_ref.display());
         return Ok(());
@@ -549,6 +583,86 @@ pub(crate) fn save_frames(path: &std::path::Path, frames: &[Frame], name: &str) 
              なるので，pxsmith lint のスコープ (D47) が効かない．\n\
              スコープが要るなら .px.toml で書き出すこと"
         );
+    }
+    Ok(())
+}
+
+/// L0 の `.hex` では表せない alpha=0 の枠だけを落とし，添字を詰め直す．
+/// 不透明色は未使用でも重複していても，元の順序のまますべて残す．
+fn strip_l0_transparent_entries(frames: &mut [Frame]) -> Result<()> {
+    let Some(first) = frames.first() else {
+        return Ok(());
+    };
+    let opaque: Vec<Rgba8> = first
+        .palette
+        .entries()
+        .iter()
+        .copied()
+        .filter(|color| color.a != 0)
+        .collect();
+    for frame in frames.iter().skip(1) {
+        let entries: Vec<Rgba8> = frame
+            .palette
+            .entries()
+            .iter()
+            .copied()
+            .filter(|color| color.a != 0)
+            .collect();
+        if entries != opaque {
+            bail!("L0 のフレーム間で不透明パレットの並びが一致しない");
+        }
+    }
+
+    let needs_transparent_slot = frames.iter().any(|frame| {
+        frame.layers.iter().any(|layer| {
+            let Some(canvas) = layer.surface.as_indexed() else {
+                return false;
+            };
+            canvas
+                .pixels()
+                .iter()
+                .any(|&index| frame.palette.get(index).is_some_and(|color| color.a == 0))
+                || canvas
+                    .transparent()
+                    .is_some_and(|index| frame.palette.get(index).is_some_and(|color| color.a == 0))
+        })
+    });
+    let mut palette = Palette::new(opaque)?;
+    let transparent = if needs_transparent_slot {
+        Some(palette.push(Rgba8::TRANSPARENT)?)
+    } else {
+        None
+    };
+
+    for frame in frames {
+        let mut next_opaque = 0usize;
+        let map: Vec<u8> = frame
+            .palette
+            .entries()
+            .iter()
+            .map(|color| {
+                if color.a == 0 {
+                    transparent.unwrap_or(0)
+                } else {
+                    let index = next_opaque as u8;
+                    next_opaque += 1;
+                    index
+                }
+            })
+            .collect();
+        for layer in &mut frame.layers {
+            if let Surface::Indexed(canvas) = &mut layer.surface {
+                let alpha_zero_was_used = canvas
+                    .pixels()
+                    .iter()
+                    .any(|&index| frame.palette.get(index).is_some_and(|color| color.a == 0));
+                canvas.remap(&map)?;
+                if alpha_zero_was_used && canvas.transparent().is_none() {
+                    canvas.set_transparent(transparent);
+                }
+            }
+        }
+        frame.palette = palette.clone();
     }
     Ok(())
 }
@@ -611,7 +725,7 @@ fn flatten_indexed_frames(frames: &[Frame]) -> Result<Vec<Frame>> {
 }
 
 /// 作業層のフレームを等倍の 1 枚絵に畳み，GIF の局所パレットへ正確に添字化する．
-fn flatten_gif_frame(frame: &Frame, label: String) -> Result<pxsmith_io::gif::GifFrame> {
+pub(crate) fn flatten_gif_frame(frame: &Frame, label: String) -> Result<pxsmith_io::gif::GifFrame> {
     let image = pxsmith_view::render::to_rgba_image(
         frame,
         &RenderOptions {
@@ -662,6 +776,23 @@ pub(crate) fn load_frames(path: &Path) -> Result<Vec<Frame>> {
         return doc
             .to_frames(path)
             .with_context(|| format!("{} を作業層へ変換できない", path.display()));
+    }
+    let extension = path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .map(str::to_ascii_lowercase);
+    if extension.as_deref() == Some("png") {
+        bail!(
+            "{} は PNG なのでインデックスカラーの絵として直接読めない．\
+             先に pxsmith quantize か pxsmith palette apply で L0 にすること",
+            path.display()
+        );
+    }
+    if !matches!(extension.as_deref(), Some("aseprite" | "ase")) {
+        bail!(
+            "{} は対応していない入力形式である．.px.toml / .toml / .aseprite / .ase のいずれかを使うこと",
+            path.display()
+        );
     }
     let doc = Document::read(path).with_context(|| format!("{} を読めない", path.display()))?;
     (0..doc.frame_count())

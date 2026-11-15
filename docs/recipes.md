@@ -40,7 +40,7 @@ would eventually drift while reading the parser cannot.
 ## Running
 
 ```sh
-pxsmith run build.toml --dry-run   # show the order, run nothing
+pxsmith run build.toml --dry-run   # validate op/field names and show the order; run nothing
 pxsmith run build.toml --explain   # show each step key and its argv
 pxsmith run build.toml --gc        # drop cache entries this recipe no longer uses
 
@@ -55,11 +55,31 @@ The progress GIF is written with one local colour table per frame, so the colour
 come out exactly as they went in. Indices are `u8` and alpha is binary, which is
 precisely what a GIF frame can hold, so no requantisation is needed.
 
+`--dry-run` checks every `op` and field name against the CLI before printing the
+order. Predicate-valued fields are checked by name only because their values do
+not exist until earlier steps have run.
+
 ## The cache
 
 Re-running an unchanged recipe restores everything from `.pxcache/`. Across 128
 steps over 64 sprites this takes 2.66 seconds cold and 0.09 seconds warm, and
 changing one input rebuilds exactly the two steps that depend on it.
+
+Input files are classified per operation, not merely by a field named `input`:
+for example `compose.part`, `anim.tween.from`/`to`, `anchor.apply.track` and
+`sheet.resolve.index`/`meta` are dependencies too. Their contents enter the step
+key and producer edges enter the graph. An L0 input also depends on the palette
+named by its `[palette] ref`, so changing only that `.hex` file rebuilds the
+consumer. A field is classified by both operation and name: for example,
+`sheet.resolve.meta` is an input, while `sheet.pack.meta` is an output. Fields
+such as `emit_palette`, `map`, `scroll_meta`, `tsx` and `tmx` are counted as
+producer fields just like `output`. Derived side outputs, including an L0's
+adjacent `.px.hex` and the `sheet.pack --palette-swap` palette atlas, are counted
+too, so downstream steps wait for them and cache hits restore them with the
+primary output.
+The `palette` of `text.export` and `tileset.import` is created only when it is
+absent, so it counts as an input when the file exists and otherwise as an output
+of the first step that names it.
 
 The cache is also what makes a build containing generated artwork reproducible.
 The generation step itself is not deterministic, because the model accepts no

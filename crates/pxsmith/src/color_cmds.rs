@@ -176,18 +176,27 @@ impl From<&GridArgs> for GridParams {
 #[derive(Subcommand)]
 pub enum PaletteCommand {
     /// パレットの内容を表示する
-    Info { path: PathBuf },
-    /// `.gpl` / `.pal` / `.act` を正規形 `.hex` へ変換する
-    Convert { input: PathBuf, output: PathBuf },
+    Info {
+        /// `.hex` / `.gpl` / `.pal` / `.act`
+        path: PathBuf,
+    },
+    /// `.hex` / `.gpl` / `.pal` / `.act` を読み，`.hex` または `.gpl` へ変換する
+    Convert {
+        /// 入力 (`.hex` / `.gpl` / `.pal` / `.act`)
+        input: PathBuf,
+        /// 出力 (`.hex` / `.gpl`)
+        output: PathBuf,
+    },
     /// 複数の絵から共通パレットを作る
     Extract {
-        /// `.aseprite` / `.px.toml`
+        /// `.png` / `.px.toml` / `.toml` / `.aseprite` / `.ase`
         inputs: Vec<PathBuf>,
         #[arg(long)]
         output: PathBuf,
     },
     /// 複数のパレットを 1 つに束ねる
     Merge {
+        /// `.hex` / `.gpl` / `.pal` / `.act`
         inputs: Vec<PathBuf>,
         #[arg(long)]
         output: PathBuf,
@@ -220,7 +229,8 @@ pub enum PaletteCommand {
     },
     /// 面積上位色とコントラストを報告する (設計書 5 章 ・G5)
     Report {
-        /// 絵．**インデックスカラーが要る**
+        /// 絵 (`.px.toml` / `.toml` / `.aseprite` / `.ase`)．
+        /// **インデックスカラーが要る**
         input: PathBuf,
         /// 一覧に出す色数の上限
         #[arg(long, default_value_t = 12)]
@@ -253,6 +263,7 @@ pub enum PaletteCommand {
     },
     /// 既存のパレットへ強制する
     Apply {
+        /// 入力 (`.png` / `.px.toml` / `.toml` / `.aseprite` / `.ase`)
         input: PathBuf,
         output: PathBuf,
         #[arg(long)]
@@ -270,7 +281,22 @@ pub fn palette(command: PaletteCommand) -> Result<()> {
         PaletteCommand::Info { path } => info(&path),
         PaletteCommand::Convert { input, output } => {
             let p = load_palette(&input)?;
-            hex::write(&output, &p)?;
+            match output
+                .extension()
+                .and_then(|extension| extension.to_str())
+                .map(str::to_ascii_lowercase)
+                .as_deref()
+            {
+                Some("hex") => hex::write(&output, &p)?,
+                Some("gpl") => {
+                    let name = input
+                        .file_stem()
+                        .and_then(|stem| stem.to_str())
+                        .unwrap_or("palette");
+                    hex::write_gpl(&output, &p, name)?;
+                }
+                _ => bail!("出力形式は .hex または .gpl にすること"),
+            }
             println!(
                 "{} -> {} ({} 色)",
                 input.display(),
@@ -361,6 +387,13 @@ fn info(path: &Path) -> Result<()> {
 }
 
 pub fn load_palette(path: &Path) -> Result<Palette> {
+    if is_png(path) {
+        bail!(
+            "{} は PNG なのでパレットファイルとして読めない．\
+             PNG の色を取り出すには pxsmith palette extract を使うこと",
+            path.display()
+        );
+    }
     let is_hex = path
         .extension()
         .and_then(|e| e.to_str())
@@ -368,7 +401,12 @@ pub fn load_palette(path: &Path) -> Result<Palette> {
     if is_hex {
         hex::read(path).with_context(|| format!("{} を読めない", path.display()))
     } else {
-        hex::import(path).with_context(|| format!("{} を読めない", path.display()))
+        hex::import(path).with_context(|| {
+            format!(
+                "{} を読めない (対応するパレット形式は .hex / .gpl / .pal / .act)",
+                path.display()
+            )
+        })
     }
 }
 
@@ -634,7 +672,14 @@ fn extract(inputs: &[PathBuf], output: &Path) -> Result<()> {
         bail!("抽出元を 1 つ以上指定すること");
     }
     let mut owned: Vec<(IndexedCanvas, Palette)> = Vec::new();
+    let mut rgba_colors = Vec::new();
     for path in inputs {
+        if is_png(path) {
+            let image = png::read_rgba(path)
+                .with_context(|| format!("{} を PNG として読めない", path.display()))?;
+            rgba_colors.extend(image.pixels().iter().copied().filter(|color| color.a != 0));
+            continue;
+        }
         for frame in crate::load_frames(path)? {
             for layer in &frame.layers {
                 if let Some(c) = layer.surface.as_indexed() {
@@ -643,7 +688,13 @@ fn extract(inputs: &[PathBuf], output: &Path) -> Result<()> {
             }
         }
     }
-    let palette = Palette::extract_from(owned.iter().map(|(c, p)| (c, p)))?;
+    let mut colors = Palette::extract_from(owned.iter().map(|(c, p)| (c, p)))?
+        .entries()
+        .to_vec();
+    colors.extend(rgba_colors);
+    colors.sort_unstable_by_key(|color| color.sort_key());
+    colors.dedup();
+    let palette = Palette::new(colors)?;
     hex::write(output, &palette)?;
     println!(
         "{} 個の入力 -> {} ({} 色)",
@@ -1047,9 +1098,10 @@ pub(crate) fn write_indexed(path: &Path, canvas: &IndexedCanvas, palette: &Palet
 /// PNG は格子系のルール (2 ・9) だけ，インデックスカラーは色・ディザ系のルールを
 /// 見る．**blocking 違反があれば非ゼロで終わる** — 生成ループと CI が同じ判定を
 /// 使えるようにするためである．
-pub fn lint(input: &Path, json: bool, grid: &GridArgs) -> Result<()> {
+pub fn lint(input: &Path, light: Option<&str>, json: bool, grid: &GridArgs) -> Result<()> {
     let mut cfg = pxsmith_lint::LintConfig {
         grid: GridParams::from(grid),
+        light: light.map(crate::shape_cmds::parse_light).transpose()?,
         ..pxsmith_lint::LintConfig::default()
     };
     // **見る升の上限は利用者の宣言から引く** (D172)．
@@ -1063,6 +1115,7 @@ pub fn lint(input: &Path, json: bool, grid: &GridArgs) -> Result<()> {
     let mut report = pxsmith_lint::Report::default();
     let mut coverage = None;
     let mut mixel = None;
+    let mut rule_7_samples = Vec::new();
     if is_png(input) {
         let img = png::read_rgba(input)?;
         report.extend(pxsmith_lint::rules::lint_grid(&img, &cfg));
@@ -1071,6 +1124,16 @@ pub fn lint(input: &Path, json: bool, grid: &GridArgs) -> Result<()> {
     } else {
         let frames = crate::load_frames(input)?;
         for (i, frame) in frames.iter().enumerate() {
+            if cfg.light.is_some() {
+                for layer in &frame.layers {
+                    if let Some(canvas) = layer.surface.as_indexed() {
+                        let n = pxsmith_lint::rules::shading_sample_count(canvas, &frame.palette);
+                        if n < cfg.shading_min_pixels as usize {
+                            rule_7_samples.push((i, layer.meta.name.clone(), n));
+                        }
+                    }
+                }
+            }
             let mut r = pxsmith_lint::lint_frame(frame, &cfg);
             for v in &mut r.violations {
                 v.message = format!("フレーム {i}: {}", v.message);
@@ -1116,6 +1179,12 @@ pub fn lint(input: &Path, json: bool, grid: &GridArgs) -> Result<()> {
                     names.join(" ・")
                 );
             }
+        }
+        for (frame, layer, n) in &rule_7_samples {
+            println!(
+                "** ルール 7 を検査していない: フレーム {frame} / レイヤ '{layer}' は n={n}<{} **",
+                cfg.shading_min_pixels
+            );
         }
         // **ルール 9 も同じ扱いにする** (D164 ・D172) — 升は窓ごとに決まるので，
         // 窓が 2 つ決まらなければ 2 通りになりようがない

@@ -30,6 +30,7 @@ pub enum FontCommand {
 
 #[derive(Args)]
 pub struct ImportArgs {
+    /// BDF / TTF / OTF / TTC
     pub input: PathBuf,
     pub output: PathBuf,
     /// このファイルに現れる字だけを取り込む
@@ -51,6 +52,7 @@ pub struct ImportArgs {
 
 #[derive(Args)]
 pub struct CheckArgs {
+    /// `.pxfont.toml`
     pub font: PathBuf,
     /// 検査する文言．複数指定できる
     #[arg(long = "text-file", required = true, num_args = 1..)]

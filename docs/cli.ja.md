@@ -65,18 +65,28 @@ pxsmith watch hero.px.toml --zoom 8
 # 2 枚の間でどの画素が変わったかを出す
 pxsmith diff before.px.toml after.px.toml
 
-# パレットを見る・変換する (`.hex` が正典の形式)
+# パレットを見る・変換する
 pxsmith palette info palettes/sweetie-16.hex
 pxsmith palette convert input.gpl output.hex
+pxsmith palette convert output.hex output.gpl
 
 # `.aseprite` の読み書きがバイト一致するか確かめる
 pxsmith verify roundtrip sprite.aseprite --via-frame
 ```
 
+パレットの入力は `.hex`・`.gpl`・`.pal`・`.act` です．変換の出力形式は拡張子で選び，
+`.hex` は 1 行 1 色の正規形，`.gpl` は GIMP Palette を書きます．ほかの出力拡張子は
+エラーです．
+
 ## 絵を導出する
 
 陰影は塗るのではなく，シルエットから導出します．入力の色は捨てるため，反転・中割り・
 色替えを行っても光の向きが壊れることはありません．
+
+幾何光源を受け取るすべての `--light` で，`dir:x,y` は光が進む向きです．x は右，
+y は下を正とします．`dir:-0.6,0.8` は右上から，`dir:0.6,0.8` は左上からの光で，
+既定は `dir:-0.6,0.8` です．`point:x,y` の x・y は向きではなく光源の位置です．
+例外の `atmos --light` は方向ではなく，光源色のプリセットを受け取ります．
 
 ```sh
 # シルエットから陰影を導出する (入力の色は捨てる)
@@ -122,10 +132,12 @@ pxsmith conform upscaled.png native.png
 pxsmith anchor track body.px.toml --anchor head -o head-track.json
 pxsmith anchor apply head-track.json target.px.toml -o tracked.px.toml --anchor head
 
-# パーツを合成し，反転と陰影の再導出で残り 7 方向を導出する
+# パーツを合成し，n・ne・e・se・s を描いて残り 3 方向を反転で作る
 pxsmith compose out.px.toml --part body.px.toml --part head.px.toml
-pxsmith direction 'out/${dir}.px.toml' --from s=hero_s.px.toml \
-    --light dir:-0.6,0.8 --reshade
+pxsmith direction 'out/${dir}.px.toml' \
+    --from n=hero_n.px.toml --from ne=hero_ne.px.toml --from e=hero_e.px.toml \
+    --from se=hero_se.px.toml --from s=hero_s.px.toml \
+    --light dir:-0.6,0.8 --reshade --base 8A6A4A
 
 # シートをタイルに切り，重複を畳み，47 枚のオートタイルを組む
 # (入力はインデックスカラーのみ — ここで量子化するとタイルの同一性に
@@ -141,6 +153,10 @@ pxsmith atmos 'out/${name}.px.toml' --input fg.px.toml --input bg.px.toml \
 pxsmith project in.px.toml iso.px.toml --to iso --from top --facing right
 pxsmith guide g.png --projection iso --from top --cell 16 --size 256x256
 ```
+
+`direction` が作れるのは鏡像の相手だけです．n・ne・e・se・s を描くと，sw・w・nw を
+作ります．反転で作れない方向は報告して飛ばし，1 方向から残り 7 方向を作ることは
+ありません．
 
 `project` は `--from` と `--facing` を必須の引数としています．どの面を倒すのか，また
 どちらを向いているのかは画素からは読み取れないため，推測に任せると外れた場合にのみ

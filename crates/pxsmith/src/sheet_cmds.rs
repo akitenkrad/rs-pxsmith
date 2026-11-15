@@ -301,7 +301,7 @@ fn load_variants(specs: &[String]) -> Result<Vec<PaletteVariant>> {
         .collect()
 }
 
-fn palette_atlas_path(output: &Path) -> PathBuf {
+pub(crate) fn palette_atlas_path(output: &Path) -> PathBuf {
     let stem = output
         .file_stem()
         .map(|stem| stem.to_string_lossy())

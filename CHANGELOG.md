@@ -9,6 +9,35 @@ releases: a change in the minor number may break the public API.
 
 ## [Unreleased]
 
+### Fixed
+
+- L0 `.px.hex` output now removes only alpha-zero transparency slots while
+  preserving every opaque colour, including unused entries, in its original
+  order. Repeated L0 transformations and flattened composition no longer append
+  a transparency-derived `000000` entry (MYTASK-3581).
+- Recipe keys and graph edges now include every operation-specific file input,
+  including L0 palette references; input and output uses of fields such as
+  `meta` are distinguished, side outputs (`emit_palette`, `sheet.pack` meta and
+  palette atlas, an L0's `.px.hex`, and similar) count as outputs for edges,
+  cache restore and the undeclared-file warning, and the key format is versioned
+  away from old cache entries (MYTASK-3582).
+- `palette convert` now selects `.hex` or GIMP Palette output from the output
+  extension and rejects formats it cannot write (MYTASK-3583).
+- GIMP Palette input now requires its magic header, reports malformed colour
+  rows with line numbers and rejects an empty import (MYTASK-3584).
+- Frame and palette loaders now report supported input formats and actionable
+  PNG conversion commands; recipe progress capture indexes PNG output exactly
+  and reports every skipped file with its reason (MYTASK-3585).
+- Centroid-aligned tweening and smearing no longer escape the canvas because
+  the exterior boundary of the outside distance field is handled correctly
+  (MYTASK-3586).
+- Direction and standalone lint now report rule 7 sample shortages per image,
+  and `lint --light` makes the rule available outside direction expansion
+  (MYTASK-3587).
+- Direction and light-source documentation now matches the implemented mirror
+  pairs and coordinate convention, while `run --dry-run` rejects unknown
+  operations and fields (MYTASK-3588).
+
 ## [0.3.1] - 2026-11-14
 
 ### Fixed

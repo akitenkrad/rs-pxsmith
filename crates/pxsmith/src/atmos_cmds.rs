@@ -50,7 +50,9 @@ pub struct AtmosArgs {
     /// 多重スクロールメタの書き出し先 (JSON)
     #[arg(long)]
     pub scroll_meta: Option<PathBuf>,
-    /// 光源プリセット．**空の色相を並べて見せるだけ** — ここから空の色は作らない
+    /// 光源の色相プリセット (`clear` / `overcast` / `sunset` / `night` / `moonlight`)．
+    /// `shade` などの `dir:x,y` とは別で，**空の色相を並べて見せるだけ** —
+    /// ここから空の色は作らない
     #[arg(long)]
     pub light: Option<String>,
     /// «線の上» と認める遠回りの許容．既定は `pxsmith aa` と同じ

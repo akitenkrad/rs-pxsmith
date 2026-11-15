@@ -34,6 +34,10 @@ pub struct DirectionArgs {
     pub from: Vec<String>,
     /// 宣言する光源 (`dir:X,Y` など)．
     ///
+    /// `dir:x,y` は光が進む向き．x は右，y は下．`dir:-0.6,0.8` は右上から，
+    /// `dir:0.6,0.8` は左上からの光．既定の向きは `dir:-0.6,0.8`．
+    /// `point:x,y` は光源の位置．
+    ///
     /// **無ければルール 7 は掛からない** — 絵だけから光源方向は決まらないので，
     /// 宣言があるときにしか矛盾を言えない (D89)
     #[arg(long)]
@@ -121,15 +125,31 @@ pub fn direction_cmd(args: &DirectionArgs) -> Result<()> {
     let checkable = light.is_some_and(|l| mirror_is_checkable(l, threshold));
 
     let mut failed: Vec<Direction> = Vec::new();
+    let mut checked_directions = 0usize;
     for g in &report.generated {
         let frames = &all[&g.direction];
         let mut hits = 0usize;
+        let mut samples = Vec::new();
         if checkable {
             for frame in frames {
+                for layer in &frame.layers {
+                    if let Some(canvas) = layer.surface.as_indexed() {
+                        samples.push(pxsmith_lint::rules::shading_sample_count(
+                            canvas,
+                            &frame.palette,
+                        ));
+                    }
+                }
                 hits += pxsmith_lint::lint_frame(frame, &cfg)
                     .blocking()
                     .filter(|v| v.rule == 7)
                     .count();
+            }
+            if samples
+                .iter()
+                .any(|&n| n >= cfg.shading_min_pixels as usize)
+            {
+                checked_directions += 1;
             }
         }
         if hits > 0 {
@@ -153,6 +173,18 @@ pub fn direction_cmd(args: &DirectionArgs) -> Result<()> {
                 String::new()
             }
         );
+        if checkable {
+            for n in samples
+                .iter()
+                .copied()
+                .filter(|&n| n < cfg.shading_min_pixels as usize)
+            {
+                println!(
+                    "    ルール 7 を検査していない: n={n}<{}",
+                    cfg.shading_min_pixels
+                );
+            }
+        }
     }
 
     // **検査していないことを黙らない** (D92 の作法)
@@ -171,10 +203,10 @@ pub fn direction_cmd(args: &DirectionArgs) -> Result<()> {
                 threshold
             );
         }
-        (Some(_), true) => println!(
-            "\nルール 7 を掛けた (反転で作った {} 方向)",
-            report.generated.len()
-        ),
+        (Some(_), true) if checked_directions > 0 => {
+            println!("\nルール 7 を掛けた (標本数を満たした {checked_directions} 方向)")
+        }
+        (Some(_), true) => println!("\n標本数を満たす方向が 0 件なので，ルール 7 は検査していない"),
     }
 
     if !report.missing.is_empty() {
