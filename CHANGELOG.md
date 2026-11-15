@@ -9,6 +9,8 @@ releases: a change in the minor number may break the public API.
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-11-15
+
 ### Fixed
 
 - L0 `.px.hex` output now removes only alpha-zero transparency slots while
@@ -202,6 +204,7 @@ First release on crates.io: `pxsmith-core`, `pxsmith-io`, `pxsmith-lint`,
 `pxsmith-recipe`, `pxsmith-macro`, `pxsmith-gen`, `pxsmith-view` and the
 `pxsmith` command line tool.
 
+[0.3.2]: https://github.com/akitenkrad/rs-pxsmith/compare/a7ead7f...HEAD
 [0.3.1]: https://github.com/akitenkrad/rs-pxsmith/compare/3ef788d...a7ead7f
 [0.3.0]: https://github.com/akitenkrad/rs-pxsmith/compare/98dccb5...3ef788d
 [0.2.0]: https://github.com/akitenkrad/rs-pxsmith/compare/067a9b8...98dccb5
