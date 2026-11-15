@@ -9,6 +9,8 @@
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-11-15
+
 ### 修正
 
 - `shade`・`aa`・`outline` の `--emit-palette` が alpha 0 の透明枠を `000000` の行として
@@ -195,6 +197,7 @@ crates.io への最初の公開です: `pxsmith-core`・`pxsmith-io`・`pxsmith-
 `pxsmith-recipe`・`pxsmith-macro`・`pxsmith-gen`・`pxsmith-view` と，
 コマンドラインツール `pxsmith`．
 
+[0.3.3]: https://github.com/akitenkrad/rs-pxsmith/compare/8e08444...HEAD
 [0.3.2]: https://github.com/akitenkrad/rs-pxsmith/compare/a7ead7f...8e08444
 [0.3.1]: https://github.com/akitenkrad/rs-pxsmith/compare/3ef788d...a7ead7f
 [0.3.0]: https://github.com/akitenkrad/rs-pxsmith/compare/98dccb5...3ef788d
